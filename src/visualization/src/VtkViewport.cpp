@@ -55,13 +55,15 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     renderer_->SetBackground(0.13, 0.14, 0.16); // dark by default
     renderWindow->AddRenderer(renderer_);
 
-    auto axes = vtkSmartPointer<vtkAxesActor>::New();
-    orientationMarker_ = vtkSmartPointer<vtkOrientationMarkerWidget>::New();
-    orientationMarker_->SetOrientationMarker(axes);
-    orientationMarker_->SetInteractor(renderWindow->GetInteractor());
-    orientationMarker_->SetViewport(0.0, 0.0, 0.18, 0.18);
-    orientationMarker_->SetEnabled(1);
-    orientationMarker_->InteractiveOff();
+    if (renderWindow->GetInteractor() != nullptr) {
+        auto axes = vtkSmartPointer<vtkAxesActor>::New();
+        orientationMarker_ = vtkSmartPointer<vtkOrientationMarkerWidget>::New();
+        orientationMarker_->SetOrientationMarker(axes);
+        orientationMarker_->SetInteractor(renderWindow->GetInteractor());
+        orientationMarker_->SetViewport(0.0, 0.0, 0.18, 0.18);
+        orientationMarker_->SetEnabled(1);
+        orientationMarker_->InteractiveOff();
+    }
 
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(320, 240);

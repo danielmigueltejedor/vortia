@@ -2,11 +2,20 @@
 #include "vortia/ui/ThemeManager.hpp"
 
 #include <QApplication>
+#include <QOpenGLContext>
+#include <QSurfaceFormat>
 #include <QLocale>
 #include <QSettings>
 #include <QTranslator>
 
 int main(int argc, char* argv[]) {
+    QSurfaceFormat format;
+    format.setDepthBufferSize(24);
+    format.setStencilBufferSize(8);
+    format.setVersion(3, 2);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    QSurfaceFormat::setDefaultFormat(format);
+
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("Vortia"));
     app.setApplicationVersion(QStringLiteral("0.1.0"));

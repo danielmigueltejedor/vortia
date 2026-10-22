@@ -52,7 +52,7 @@ void JobController::runJob(JobSpec spec) {
         } else {
             openfoam::SolverProgress last;
             openfoam::RunCallbacks callbacks;
-            callbacks.onOutput = [&](OutputStream stream, std::string_view chunk) {
+            callbacks.onOutput = [&](OutputStream /*stream*/, std::string_view chunk) {
                 const QString text = QString::fromUtf8(chunk.data(),
                                                       static_cast<qsizetype>(chunk.size()));
                 QMetaObject::invokeMethod(this, [this, text]() {

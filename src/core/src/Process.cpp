@@ -57,8 +57,12 @@ Expected<ProcessResult> PosixProcessRunner::run(const ProcessRequest& request,
     ::posix_spawn_file_actions_adddup2(&actions, stderrPipe[1], STDERR_FILENO);
     ::posix_spawn_file_actions_addclose(&actions, stdoutPipe[0]);
     ::posix_spawn_file_actions_addclose(&actions, stderrPipe[0]);
-    if (!request.workingDirectory.empty())
+    if (!request.workingDirectory.empty()) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         ::posix_spawn_file_actions_addchdir_np(&actions, request.workingDirectory.c_str());
+#pragma clang diagnostic pop
+    }
 
     // argv: program name + arguments, NUL-terminated. No shell involved.
     std::vector<std::string> argStorage;

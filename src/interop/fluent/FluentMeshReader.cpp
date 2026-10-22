@@ -109,7 +109,6 @@ std::vector<SExpr> parseAll(const std::vector<Token>& tokens) {
 }
 
 // Helpers to read atoms.
-bool isNum(const SExpr& e) { return e.type == SExpr::Atom; }
 long long asInt(const SExpr& e) {
     try {
         return std::stoll(e.atom);
