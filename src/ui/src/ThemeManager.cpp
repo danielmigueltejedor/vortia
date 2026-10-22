@@ -75,6 +75,17 @@ QStatusBar { background: #212833; border-top: 1px solid #35404e; color: #b8c8d9;
 QStatusBar QLabel { padding: 3px 8px; }
 QSplitter::handle { background: #343d4b; }
 QToolTip { background: #303947; color: #f0f4fa; border: 1px solid #536477; padding: 5px; }
+
+QTabWidget#vortia-ribbon::pane { border: none; background: #252c36; }
+QTabWidget#vortia-ribbon QTabBar::tab { min-width: 78px; padding: 8px 14px; color: #a7b5c6; border: none; background: #252c36; }
+QTabWidget#vortia-ribbon QTabBar::tab:selected { color: #f0f7ff; border-bottom: 2px solid #54aaf2; background: #303b49; }
+QTabWidget#vortia-ribbon QTabBar::tab:hover { background: #364656; }
+QToolButton#vortia-ribbon-button { border: 1px solid transparent; border-radius: 7px; color: #e7edf7; background: transparent; padding: 4px; }
+QToolButton#vortia-ribbon-button:hover { background: #35485e; border-color: #52667b; }
+QToolButton#vortia-ribbon-button:pressed { background: #255479; }
+QToolButton#vortia-ribbon-button:disabled { color: #788798; }
+QLabel#vortia-ribbon-group { color: #8c9cac; font-size: 10px; font-weight: 600; }
+QFrame#vortia-ribbon-separator { color: #425063; background: #425063; max-width: 1px; }
 )QSS");
     const QString lightSheet = QStringLiteral(R"QSS(
 QWidget { font-size: 12px; }
@@ -102,6 +113,17 @@ QStatusBar { background: #e8eef5; border-top: 1px solid #d2dbe6; color: #354e68;
 QStatusBar QLabel { padding: 3px 8px; }
 QSplitter::handle { background: #d5dee9; }
 QToolTip { background: #ffffff; color: #25374a; border: 1px solid #cbd7e3; padding: 5px; }
+
+QTabWidget#vortia-ribbon::pane { border: none; background: #e9eef5; }
+QTabWidget#vortia-ribbon QTabBar::tab { min-width: 78px; padding: 8px 14px; color: #5d7287; border: none; background: #e9eef5; }
+QTabWidget#vortia-ribbon QTabBar::tab:selected { color: #163853; border-bottom: 2px solid #2a86c7; background: #f6f9fc; }
+QTabWidget#vortia-ribbon QTabBar::tab:hover { background: #d6e5f3; }
+QToolButton#vortia-ribbon-button { border: 1px solid transparent; border-radius: 7px; color: #304457; background: transparent; padding: 4px; }
+QToolButton#vortia-ribbon-button:hover { background: #d6e7f5; border-color: #a5c1d8; }
+QToolButton#vortia-ribbon-button:pressed { background: #b8d7f1; }
+QToolButton#vortia-ribbon-button:disabled { color: #97a2af; }
+QLabel#vortia-ribbon-group { color: #667b8f; font-size: 10px; font-weight: 600; }
+QFrame#vortia-ribbon-separator { color: #b8c9db; background: #b8c9db; max-width: 1px; }
 )QSS");
     app.setStyleSheet(theme == Theme::Dark ? darkSheet : lightSheet);
 }
