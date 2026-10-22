@@ -24,6 +24,7 @@ public:
         CaseSetup setup;
         openfoam::Capabilities caps;
         std::vector<std::pair<std::string, std::string>> environment;
+        std::string solverOverride; ///< If set, run this solver instead of caps-based selection.
     };
 
     explicit JobController(QObject* parent = nullptr);

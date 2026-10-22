@@ -102,22 +102,26 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
                                             const CaseSetup& setup,
                                             const Capabilities& caps,
                                             const RunCallbacks& callbacks,
-                                            CancellationToken* token) {
-    const bool steady = setup.numerics.ddt == TimeScheme::SteadyState;
-    const std::string& exe = steady ? caps.laminarSteadySolver : caps.laminarTransientSolver;
-    const std::vector<std::string>& args =
-        steady ? caps.laminarSteadyArgs : caps.laminarTransientArgs;
-
-    if (exe == "icoFoam" && !caps.hasIcoFoam)
-        return Error::make(ErrorCode::BackendUnavailable,
-                           "icoFoam is not available in this OpenFOAM installation");
-    if (exe == "simpleFoam" && !caps.hasSimpleFoam)
-        return Error::make(ErrorCode::BackendUnavailable,
-                           "simpleFoam is not available in this OpenFOAM installation");
-    if (exe == "foamRun" && !caps.hasFoamRun)
-        return Error::make(ErrorCode::BackendUnavailable,
-                           "foamRun is not available in this OpenFOAM installation");
-
+                                            CancellationToken* token,
+                                            const std::string& solverOverride) {
+    std::string exe;
+    std::vector<std::string> args;
+    if (!solverOverride.empty()) {
+        exe = solverOverride;
+    } else {
+        const bool steady = setup.numerics.ddt == TimeScheme::SteadyState;
+        exe = steady ? caps.laminarSteadySolver : caps.laminarTransientSolver;
+        args = steady ? caps.laminarSteadyArgs : caps.laminarTransientArgs;
+        if (exe == "icoFoam" && !caps.hasIcoFoam)
+            return Error::make(ErrorCode::BackendUnavailable,
+                               "icoFoam is not available in this OpenFOAM installation");
+        if (exe == "simpleFoam" && !caps.hasSimpleFoam)
+            return Error::make(ErrorCode::BackendUnavailable,
+                               "simpleFoam is not available in this OpenFOAM installation");
+        if (exe == "foamRun" && !caps.hasFoamRun)
+            return Error::make(ErrorCode::BackendUnavailable,
+                               "foamRun is not available in this OpenFOAM installation");
+    }
     return execute(exe, exe, args, caseDir, callbacks, token);
 }
 

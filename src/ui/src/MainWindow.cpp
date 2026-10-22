@@ -33,7 +33,10 @@
 #include <QStatusBar>
 #include <QToolBar>
 
+#include <filesystem>
+#include <fstream>
 #include <memory>
+#include <sstream>
 
 namespace vortia {
 
@@ -109,6 +112,7 @@ void MainWindow::buildMenusAndToolbar() {
     auto* fileMenu = menuBar()->addMenu(tr("File"));
     fileMenu->addAction(tr("New Project"), this, &MainWindow::onNewProject, QKeySequence::New);
     fileMenu->addAction(tr("Open Project…"), this, &MainWindow::onOpenProject, QKeySequence::Open);
+    fileMenu->addAction(tr("Open OpenFOAM Case…"), this, &MainWindow::onOpenExistingCase);
     fileMenu->addAction(tr("Save Project"), this, &MainWindow::onSaveProject, QKeySequence::Save);
     fileMenu->addSeparator();
     fileMenu->addAction(tr("Import STL…"), this, &MainWindow::onImportStl);
@@ -392,6 +396,24 @@ void MainWindow::onImportFluent() {
                         tr("Unrecognised or unsupported Fluent file: %1").arg(path));
 }
 
+void MainWindow::onOpenExistingCase() {
+    const QString dir = QFileDialog::getExistingDirectory(this, tr("Open OpenFOAM Case"));
+    if (dir.isEmpty())
+        return;
+    const std::filesystem::path caseDir = dir.toStdString();
+    if (!std::filesystem::exists(caseDir / "system" / "controlDict")) {
+        QMessageBox::warning(this, tr("Not an OpenFOAM case"),
+                             tr("The selected directory has no system/controlDict."));
+        return;
+    }
+    existingCaseDir_ = caseDir;
+    useExistingCase_ = true;
+    projectRoot_.clear();
+    dirty_ = false;
+    setProjectState(tr("Opened existing case: %1").arg(dir));
+    console_->appendSolverOutput(tr("Opened existing OpenFOAM case: %1\n").arg(dir));
+}
+
 void MainWindow::onNodeActivated(int nodeId) {
     properties_->showNode(nodeId);
 }
@@ -436,28 +458,49 @@ void MainWindow::onRun() {
         return;
     }
 
-    const std::filesystem::path caseDir =
-        projectRoot_.empty() ? std::filesystem::temp_directory_path() / "vortia-case"
-                             : projectRoot_ / "case";
-
-    auto issues = setup_.validate();
-    for (const auto& i : issues) {
-        if (i.severity == Severity::Error) {
-            QMessageBox::warning(this, tr("Invalid setup"), QString::fromStdString(i.message));
+    std::filesystem::path caseDir;
+    std::string detectedSolver;
+    if (useExistingCase_ && !existingCaseDir_.empty()) {
+        caseDir = existingCaseDir_;
+        console_->appendSolverOutput(tr("Using existing case: %1\n").arg(QString::fromStdString(caseDir.string())));
+        // Detect the solver from controlDict.
+        std::ifstream cd(caseDir / "system" / "controlDict");
+        std::string line;
+        while (std::getline(cd, line)) {
+            auto pos = line.find("application");
+            if (pos != std::string::npos) {
+                std::istringstream iss(line.substr(pos));
+                std::string key, val;
+                iss >> key >> val;
+                if (!val.empty()) {
+                    detectedSolver = val;
+                    if (!detectedSolver.empty() && detectedSolver.back() == ';')
+                        detectedSolver.pop_back();
+                }
+                break;
+            }
+        }
+    } else {
+        caseDir = projectRoot_.empty() ? std::filesystem::temp_directory_path() / "vortia-case"
+                                       : projectRoot_ / "case";
+        auto issues = setup_.validate();
+        for (const auto& i : issues) {
+            if (i.severity == Severity::Error) {
+                QMessageBox::warning(this, tr("Invalid setup"), QString::fromStdString(i.message));
+                return;
+            }
+            console_->appendSolverOutput(QStringLiteral("warning: %1\n").arg(QString::fromStdString(i.message)));
+        }
+        auto written = openfoam::CaseWriter::write(caseDir, setup_, ofCaps_, {.overwrite = true});
+        if (!written) {
+            QMessageBox::warning(this, tr("Case generation failed"),
+                                 QString::fromStdString(written.error().describe()));
             return;
         }
-        console_->appendSolverOutput(QStringLiteral("warning: %1\n").arg(QString::fromStdString(i.message)));
+        console_->appendSolverOutput(tr("Wrote %1 case files to %2\n")
+                                        .arg(static_cast<int>(written->size()))
+                                        .arg(QString::fromStdString(caseDir.string())));
     }
-
-    auto written = openfoam::CaseWriter::write(caseDir, setup_, ofCaps_, {.overwrite = true});
-    if (!written) {
-        QMessageBox::warning(this, tr("Case generation failed"),
-                             QString::fromStdString(written.error().describe()));
-        return;
-    }
-    console_->appendSolverOutput(tr("Wrote %1 case files to %2\n")
-                                    .arg(static_cast<int>(written->size()))
-                                    .arg(QString::fromStdString(caseDir.string())));
 
     runAction_->setEnabled(false);
     cancelAction_->setEnabled(true);
@@ -467,6 +510,7 @@ void MainWindow::onRun() {
     spec.setup = setup_;
     spec.caps = ofCaps_;
     spec.environment = ofEnvironment_;
+    spec.solverOverride = detectedSolver;
     jobController_->start(spec);
 }
 

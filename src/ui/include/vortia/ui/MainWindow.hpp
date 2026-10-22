@@ -30,6 +30,7 @@ private slots:
     void onNewProject();
     void onOpenProject();
     void onSaveProject();
+    void onOpenExistingCase();
     void onImportStl();
     void onImportFluent();
     void onNodeActivated(int nodeId);
@@ -55,6 +56,8 @@ private:
 
     // Project state
     std::filesystem::path projectRoot_;
+    std::filesystem::path existingCaseDir_;
+    bool useExistingCase_{false};
     CaseSetup setup_;
     std::vector<std::pair<std::string, std::string>> ofEnvironment_;
     openfoam::Capabilities ofCaps_{};

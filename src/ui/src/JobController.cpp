@@ -74,7 +74,7 @@ void JobController::runJob(JobSpec spec) {
             };
 
             auto solverStep = runner.runSolver(spec.caseDir, spec.setup, spec.caps, callbacks,
-                                              cancelToken_.get());
+                                              cancelToken_.get(), spec.solverOverride);
             if (!solverStep) {
                 success = false;
                 summary = QString::fromStdString(solverStep.error().describe());

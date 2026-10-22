@@ -46,7 +46,8 @@ public:
                                                   const CaseSetup& setup,
                                                   const Capabilities& caps,
                                                   const RunCallbacks& callbacks,
-                                                  CancellationToken* token);
+                                                  CancellationToken* token,
+                                                  const std::string& solverOverride = {});
 
 private:
     [[nodiscard]] Expected<StepOutcome> execute(const std::string& label,
