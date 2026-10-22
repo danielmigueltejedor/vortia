@@ -92,22 +92,43 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
         renderWindow->GetInteractor()->SetInteractorStyle(style);
     }
 
-    // Keep the corner axes aligned with the main camera orientation.
-    if (renderer_->GetActiveCamera() != nullptr) {
-        auto cb = vtkSmartPointer<vtkCallbackCommand>::New();
-        cb->SetCallback([](vtkObject*, unsigned long, void* clientData, void*) {
-            auto* self = static_cast<VtkViewport*>(clientData);
-            self->syncCornerCamera();
-        });
-        cb->SetClientData(this);
-        renderer_->GetActiveCamera()->AddObserver(vtkCommand::ModifiedEvent, cb);
-    }
+    // Corner axes sync disabled for debugging hover-spin. Re-enable once
+    // the spin is resolved.
+    (void)0;
 
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(320, 240);
 }
 
 VtkViewport::~VtkViewport() = default;
+
+void VtkViewport::showEvent(QShowEvent* event) {
+    QVTKOpenGLNativeWidget::showEvent(event);
+    if (auto* rw = renderWindow()) {
+        if (auto* iren = rw->GetInteractor()) {
+            if (iren->GetInteractorStyle() == nullptr ||
+                dynamic_cast<vortia::VtkInteractorStyle*>(iren->GetInteractorStyle()) == nullptr) {
+                auto style = vtkSmartPointer<vortia::VtkInteractorStyle>::New();
+                iren->SetInteractorStyle(style);
+            }
+        }
+    }
+}
+
+void VtkViewport::leaveEvent(QEvent* event) {
+    QVTKOpenGLNativeWidget::leaveEvent(event);
+    // Reset any stuck drag state.
+    if (auto* rw = renderWindow()) {
+        if (auto* iren = rw->GetInteractor()) {
+            if (auto* style = dynamic_cast<vortia::VtkInteractorStyle*>(iren->GetInteractorStyle())) {
+                // Force release all buttons.
+                iren->InvokeEvent(vtkCommand::LeftButtonReleaseEvent, nullptr);
+                iren->InvokeEvent(vtkCommand::MiddleButtonReleaseEvent, nullptr);
+                iren->InvokeEvent(vtkCommand::RightButtonReleaseEvent, nullptr);
+            }
+        }
+    }
+}
 
 void VtkViewport::syncCornerCamera() {
     if (cornerRenderer_ == nullptr || renderer_ == nullptr)

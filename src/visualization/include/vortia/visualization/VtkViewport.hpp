@@ -28,6 +28,10 @@ public:
     explicit VtkViewport(QWidget* parent = nullptr);
     ~VtkViewport() override;
 
+protected:
+    void showEvent(QShowEvent* event) override;
+    void leaveEvent(QEvent* event) override;
+
     /// Replaces the imported-geometry actor (nullptr clears it).
     void showTriangleMesh(const TriangleMesh* mesh);
     /// Replaces the computational-domain outline (nullptr clears it).
