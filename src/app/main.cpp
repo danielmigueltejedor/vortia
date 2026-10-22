@@ -2,6 +2,7 @@
 #include "vortia/ui/ThemeManager.hpp"
 
 #include <QApplication>
+#include <QIcon>
 #include <QOpenGLContext>
 #include <QSurfaceFormat>
 #include <QLocale>
@@ -21,6 +22,9 @@ int main(int argc, char* argv[]) {
     app.setApplicationVersion(QStringLiteral("0.1.0"));
     app.setOrganizationName(QStringLiteral("Vortia"));
     app.setOrganizationDomain(QStringLiteral("vortia.dev"));
+    // Embedded icon is available even when running the unbundled dev binary.
+    const QIcon vortiaIcon(QStringLiteral(":/vortia/app-icon.png"));
+    app.setWindowIcon(vortiaIcon);
 
     QSettings settings(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
     const QString theme = settings.value(QStringLiteral("theme"), QStringLiteral("dark")).toString();
@@ -34,6 +38,7 @@ int main(int argc, char* argv[]) {
     }
 
     vortia::MainWindow window;
+    window.setWindowIcon(vortiaIcon);
     window.show();
 
     return app.exec();
