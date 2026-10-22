@@ -190,6 +190,8 @@ std::string CaseWriter::fvSolution(const CaseSetup& setup) {
         out << "PISO\n{\n"
             << "    nCorrectors     " << setup.numerics.pisoCorrectors << ";\n"
             << "    nNonOrthogonalCorrectors 0;\n"
+            << "    pRefCell        0;\n"
+            << "    pRefValue       0;\n"
             << "}\n";
     }
     out << kFooter;
