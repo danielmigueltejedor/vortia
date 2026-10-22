@@ -13,7 +13,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build g++ libgtest-dev
+          sudo apt-get install -y cmake ninja-build g++ libgtest-dev nlohmann-json3-dev
       - name: Configure
         run: cmake -S . -B build -G Ninja -DVORTIA_BUILD_UI=OFF -DCMAKE_BUILD_TYPE=Release
       - name: Build
@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang libgtest-dev
+          sudo apt-get install -y cmake ninja-build clang libgtest-dev nlohmann-json3-dev
       - name: Configure (ASan+UBSan)
         run: |
           cmake -S . -B build -G Ninja -DVORTIA_BUILD_UI=OFF \
@@ -44,11 +44,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: brew install cmake ninja qt vtk googletest
+        run: brew install cmake ninja qt vtk googletest nlohmann-json hdf5
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_PREFIX_PATH="$(brew --prefix qt);$(brew --prefix vtk)"
+                -DCMAKE_PREFIX_PATH="$(brew --prefix qt);$(brew --prefix vtk);$(brew --prefix hdf5)"
       - name: Build
         run: cmake --build build
       - name: Test
