@@ -4,6 +4,7 @@
 #include "vortia/geometry/TriangleMesh.hpp"
 
 #include <QVTKOpenGLNativeWidget.h>
+#include <QPointF>
 
 #include <vtkDataObject.h>
 #include <vtkSmartPointer.h>
@@ -81,6 +82,8 @@ private:
     // Authoritative Qt press state. Unlike a VTK interactor state, this
     // cannot be set by a stray vtkCommand::MouseMoveEvent.
     bool intentionalPointerDrag_{false};
+    Qt::MouseButton draggedButton_{Qt::NoButton};
+    QPointF previousPointerPosition_;
 };
 
 } // namespace vortia
