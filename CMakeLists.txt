@@ -74,6 +74,7 @@ if(VORTIA_BUILD_UI)
         FiltersModeling
         IOGeometry
         IOLegacy
+        IOXML
         InteractionStyle
         InteractionWidgets
         RenderingCore

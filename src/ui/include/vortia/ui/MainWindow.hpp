@@ -38,6 +38,7 @@ private slots:
     void onRun();
     void onCancel();
     void onJobFinished(bool success, const QString& summary);
+    void onResultsReady(const QString& vtmPath);
     void onToggleTheme();
     void onDetectOpenFoam();
     void onAbout();

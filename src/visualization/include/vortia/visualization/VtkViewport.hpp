@@ -37,6 +37,9 @@ public:
     /// Ownership of the dataset is NOT taken; the caller keeps it alive.
     void showDataSet(vtkObject* data);
 
+    /// Loads and displays a .vtm (VTK multiblock) file, e.g. from foamToVTK.
+    void loadVtmFile(const std::string& path);
+
     void clearScene();
     void resetCamera();
 

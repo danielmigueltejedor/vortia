@@ -21,6 +21,7 @@
 #include <vtkProperty.h>
 #include <vtkRenderer.h>
 #include <vtkUnstructuredGrid.h>
+#include <vtkXMLMultiBlockDataReader.h>
 
 #include <cmath>
 
@@ -207,6 +208,14 @@ void VtkViewport::showDataSet(vtkObject* data) {
     geometryActor_->GetProperty()->SetColor(0.62, 0.78, 0.9);
     renderer_->AddActor(geometryActor_);
     resetCamera();
+}
+
+void VtkViewport::loadVtmFile(const std::string& path) {
+    auto reader = vtkSmartPointer<vtkXMLMultiBlockDataReader>::New();
+    reader->SetFileName(path.c_str());
+    reader->Update();
+    if (reader->GetOutput() != nullptr)
+        showDataSet(reader->GetOutput());
 }
 
 void VtkViewport::clearScene() {

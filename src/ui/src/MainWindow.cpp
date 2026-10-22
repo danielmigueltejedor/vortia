@@ -81,6 +81,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     jobController_ = new JobController(this);
     connect(jobController_, &JobController::outputReceived, console_, &ConsolePanel::appendSolverOutput);
     connect(jobController_, &JobController::jobFinished, this, &MainWindow::onJobFinished);
+    connect(jobController_, &JobController::resultsReady, this, &MainWindow::onResultsReady);
     connect(jobController_, &JobController::progressUpdated, this,
             [this](double time, double coMax, const QString& residuals) {
                 setProjectState(QStringLiteral("t=%1  Co_max=%2  %3")
@@ -480,6 +481,12 @@ void MainWindow::onJobFinished(bool success, const QString& summary) {
     setProjectState(success ? tr("Run finished: %1").arg(summary)
                            : tr("Run failed: %1").arg(summary));
     console_->appendSolverOutput((success ? tr("SUCCESS: ") : tr("FAILED: ")) + summary + "\n");
+}
+
+void MainWindow::onResultsReady(const QString& vtmPath) {
+    viewport_->loadVtmFile(vtmPath.toStdString());
+    console_->appendSolverOutput(tr("Loaded results: %1\n").arg(vtmPath));
+    setProjectState(tr("Results loaded."));
 }
 
 void MainWindow::onToggleTheme() {

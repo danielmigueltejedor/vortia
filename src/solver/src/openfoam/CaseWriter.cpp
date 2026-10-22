@@ -172,6 +172,8 @@ std::string CaseWriter::fvSolution(const CaseSetup& setup) {
         << "}\n\n";
     if (steady) {
         out << "SIMPLE\n{\n"
+            << "    pRefCell        0;\n"
+            << "    pRefValue       0;\n"
             << "    nNonOrthogonalCorrectors 0;\n"
             << "    residualControl\n    {\n"
             << "        p               1e-4;\n"
@@ -188,6 +190,8 @@ std::string CaseWriter::fvSolution(const CaseSetup& setup) {
             << "}\n";
     } else {
         out << "PISO\n{\n"
+            << "    pRefCell        0;\n"
+            << "    pRefValue       0;\n"
             << "    nCorrectors     " << setup.numerics.pisoCorrectors << ";\n"
             << "    nNonOrthogonalCorrectors 0;\n"
             << "    pRefCell        0;\n"

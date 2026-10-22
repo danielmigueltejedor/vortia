@@ -1,6 +1,9 @@
 #include "vortia/ui/JobController.hpp"
 
 #include "vortia/core/Logger.hpp"
+#include "vortia/solver/openfoam/Detector.hpp"
+
+#include <filesystem>
 
 #include <QMetaObject>
 
@@ -84,6 +87,32 @@ void JobController::runJob(JobSpec spec) {
                 summary = QStringLiteral("Solver failed (exit %1)").arg(solverStep->process.exitCode);
             } else {
                 summary = QStringLiteral("Finished at t=%1").arg(last.time, 0, 'g', 6);
+                // Convert results to VTK for visualization (best-effort).
+                ProcessRequest vtkReq;
+                vtkReq.executable = "foamToVTK";
+                vtkReq.workingDirectory = spec.caseDir;
+                vtkReq.environment = spec.environment;
+                auto vtkPath = openfoam::Detector::resolveExecutable("foamToVTK", spec.environment);
+                if (vtkPath) {
+                    vtkReq.executable = vtkPath.value().string();
+                    auto vtkResult = processes.run(vtkReq, nullptr, nullptr);
+                    if (vtkResult && vtkResult->succeeded()) {
+                        // Find the latest .vtm file.
+                        std::filesystem::path latest;
+                        for (const auto& entry :
+                             std::filesystem::recursive_directory_iterator(spec.caseDir / "VTK")) {
+                            if (entry.path().extension() == ".vtm") {
+                                if (latest.empty() || entry.path() > latest)
+                                    latest = entry.path();
+                            }
+                        }
+                        if (!latest.empty()) {
+                            QMetaObject::invokeMethod(this, [this, latest]() {
+                                emit resultsReady(QString::fromStdString(latest.string()));
+                            }, Qt::QueuedConnection);
+                        }
+                    }
+                }
             }
         }
     }

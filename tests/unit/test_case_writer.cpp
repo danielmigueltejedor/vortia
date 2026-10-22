@@ -163,3 +163,19 @@ TEST_F(CaseWriterTest, SteadyCaseIncludesTurbulenceProperties) {
 }
 
 } // namespace
+
+TEST_F(CaseWriterTest, TransientCavityHasPressureReference) {
+    const auto fv = CaseWriter::fvSolution(cavitySetup());
+    EXPECT_NE(fv.find("pRefCell        0;"), std::string::npos);
+    EXPECT_NE(fv.find("pRefValue       0;"), std::string::npos);
+}
+
+TEST_F(CaseWriterTest, SteadyCavityHasPressureReference) {
+    auto s = cavitySetup();
+    s.solver = SolverApp::SimpleFoam;
+    s.numerics.ddt = TimeScheme::SteadyState;
+
+    const auto fv = CaseWriter::fvSolution(s);
+    EXPECT_NE(fv.find("pRefCell        0;"), std::string::npos);
+    EXPECT_NE(fv.find("pRefValue       0;"), std::string::npos);
+}
