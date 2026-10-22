@@ -22,7 +22,8 @@ Actualizado: 2026-10-22
 - Orquestador de ejecución `CaseRunner` (blockMesh → checkMesh → solver) con log persistente.
 - Viewport 3D VTK embebido en Qt (`QVTKOpenGLNativeWidget`): STL, contorno de dominio, ejes, tema.
 - Aplicación Qt: ventana principal con toolbar, docks (explorador, propiedades, consola), menús, temas claro/oscuro, i18n scaffold (en/es), persistencia de preferencias (QSettings).
-- Flujo GUI completo: nuevo/abrir/guardar proyecto, importar STL, editar setup, detectar OpenFOAM, generar caso, ejecutar y cancelar, ver progreso y logs.
+- Flujo GUI completo: nuevo/abrir/guardar proyecto, importar STL, importar ANSYS Fluent (.msh/.cas.h5/.dat.h5), editar setup, detectar OpenFOAM, generar caso, ejecutar y cancelar, ver progreso y logs.
+- Interoperabilidad Fluent: detector de formato por magia, parser de .msh ASCII, conversor a OpenFOAM polyMesh (tet/hex/pyramid/wedge), lector CFF vía VTK, informe de compatibilidad.
 
 ## Pruebas
 

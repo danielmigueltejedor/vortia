@@ -5,6 +5,7 @@
 
 #include <QVTKOpenGLNativeWidget.h>
 
+#include <vtkDataObject.h>
 #include <vtkSmartPointer.h>
 
 #include <string>
@@ -31,6 +32,10 @@ public:
     void showTriangleMesh(const TriangleMesh* mesh);
     /// Replaces the computational-domain outline (nullptr clears it).
     void showBoxDomain(const BoxDomain* box);
+
+    /// Displays an arbitrary VTK dataset (e.g. a Fluent CFF multiblock).
+    /// Ownership of the dataset is NOT taken; the caller keeps it alive.
+    void showDataSet(vtkObject* data);
 
     void clearScene();
     void resetCamera();

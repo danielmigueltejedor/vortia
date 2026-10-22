@@ -1,10 +1,15 @@
 #include "vortia/visualization/VtkViewport.hpp"
 
 #include <vtkActor.h>
+#include <vtkAppendPolyData.h>
 #include <vtkAxesActor.h>
 #include <vtkCellArray.h>
+#include <vtkCompositeDataIterator.h>
 #include <vtkCubeSource.h>
+#include <vtkDataObject.h>
+#include <vtkDataSetSurfaceFilter.h>
 #include <vtkGenericOpenGLRenderWindow.h>
+#include <vtkMultiBlockDataSet.h>
 #include <vtkNew.h>
 #include <vtkOrientationMarkerWidget.h>
 #include <vtkOutlineFilter.h>
@@ -13,6 +18,7 @@
 #include <vtkPolyDataMapper.h>
 #include <vtkProperty.h>
 #include <vtkRenderer.h>
+#include <vtkUnstructuredGrid.h>
 
 namespace vortia {
 
@@ -103,6 +109,56 @@ void VtkViewport::showBoxDomain(const BoxDomain* box) {
         domainActor_->GetProperty()->SetLineWidth(1.5);
         renderer_->AddActor(domainActor_);
     }
+    resetCamera();
+}
+
+void VtkViewport::showDataSet(vtkObject* data) {
+    auto* asData = vtkDataObject::SafeDownCast(data);
+    // Remove previous geometry actor.
+    if (geometryActor_) {
+        renderer_->RemoveActor(geometryActor_);
+        geometryActor_ = nullptr;
+    }
+    if (asData == nullptr)
+        return;
+
+    // Collect unstructured grids from a (possibly composite) dataset.
+    std::vector<vtkUnstructuredGrid*> grids;
+    if (auto* mb = vtkMultiBlockDataSet::SafeDownCast(asData)) {
+        auto* it = mb->NewIterator();
+        for (it->InitTraversal(); !it->IsDoneWithTraversal(); it->GoToNextItem()) {
+            if (auto* g = vtkUnstructuredGrid::SafeDownCast(it->GetCurrentDataObject()))
+                grids.push_back(g);
+        }
+        it->Delete();
+    } else if (auto* g = vtkUnstructuredGrid::SafeDownCast(asData)) {
+        grids.push_back(g);
+    }
+
+    if (grids.empty()) {
+        resetCamera();
+        return;
+    }
+
+    // Render the surface of each grid as a single actor with multiple parts
+    // is not trivial; use one actor per grid appended via a vtkAppendPolyData.
+    auto append = vtkSmartPointer<vtkAppendPolyData>::New();
+    for (auto* g : grids) {
+        auto* sf = vtkDataSetSurfaceFilter::New();
+        sf->SetInputData(g);
+        sf->Update();
+        append->AddInputData(sf->GetOutput());
+        sf->Delete();
+    }
+    append->Update();
+
+    auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    mapper->SetInputData(append->GetOutput());
+    mapper->ScalarVisibilityOff();
+    geometryActor_ = vtkSmartPointer<vtkActor>::New();
+    geometryActor_->SetMapper(mapper);
+    geometryActor_->GetProperty()->SetColor(0.62, 0.78, 0.9);
+    renderer_->AddActor(geometryActor_);
     resetCamera();
 }
 

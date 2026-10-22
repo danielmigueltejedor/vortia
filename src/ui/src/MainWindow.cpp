@@ -3,6 +3,10 @@
 #include "vortia/core/Logger.hpp"
 #include "vortia/core/Project.hpp"
 #include "vortia/geometry/StlReader.hpp"
+#include "vortia/interop/fluent/FluentCffImporter.hpp"
+#include "vortia/interop/fluent/FluentFormatDetector.hpp"
+#include "vortia/interop/fluent/FluentMeshReader.hpp"
+#include "vortia/interop/fluent/FluentToOpenFoam.hpp"
 #include "vortia/mesh/BlockMeshDict.hpp"
 #include "vortia/physics/CaseSetupJson.hpp"
 #include "vortia/solver/openfoam/CaseWriter.hpp"
@@ -107,6 +111,7 @@ void MainWindow::buildMenusAndToolbar() {
     fileMenu->addAction(tr("Save Project"), this, &MainWindow::onSaveProject, QKeySequence::Save);
     fileMenu->addSeparator();
     fileMenu->addAction(tr("Import STL…"), this, &MainWindow::onImportStl);
+    fileMenu->addAction(tr("Import ANSYS Fluent…"), this, &MainWindow::onImportFluent);
     fileMenu->addSeparator();
     fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
 
@@ -277,6 +282,113 @@ void MainWindow::onImportStl() {
     setProjectState(tr("Imported STL: %1 (%2 triangles)")
                        .arg(QFileInfo(path).fileName())
                        .arg(static_cast<qlonglong>(mesh->triangles().size())));
+}
+
+void MainWindow::onImportFluent() {
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Import ANSYS Fluent"), QString(),
+        tr("Fluent files (*.msh *.msh.h5 *.cas *.cas.h5 *.dat *.dat.h5 *.gz);;All files (*)"));
+    if (path.isEmpty())
+        return;
+
+    using namespace fluent;
+    const auto format = detectFormat(path.toStdString());
+    console_->appendSolverOutput(
+        tr("Detected Fluent format: %1\n").arg(QString::fromStdString(std::string(toString(format)))));
+
+    if (format == FluentFormat::CaseHdf5 || format == FluentFormat::DataHdf5) {
+        auto result = FluentCffImporter::import(path.toStdString());
+        if (!result.ok) {
+            QMessageBox::warning(this, tr("Import failed"), tr("Could not open CFF file."));
+            return;
+        }
+        viewport_->showDataSet(result.data);
+        // Build a summary.
+        QString summary = tr("Imported Fluent CFF (visualization only).\n");
+        for (const auto& n : result.report.notes)
+            summary += QString::fromStdString(n) + "\n";
+        for (const auto& w : result.report.warnings)
+            summary += tr("warning: %1\n").arg(QString::fromStdString(w));
+        QMessageBox::information(this, tr("Fluent import"), summary);
+        setProjectState(tr("Imported Fluent CFF (visualization only)."));
+        return;
+    }
+
+    if (format == FluentFormat::MeshAscii) {
+        auto mesh = readTraditionalMesh(path.toStdString());
+        if (!mesh) {
+            QMessageBox::warning(this, tr("Import failed"), QString::fromStdString(mesh.error().describe()));
+            return;
+        }
+        const auto report = assessCompatibility(*mesh, format, path.toStdString());
+
+        // Show mesh in viewport as a point cloud of nodes is not useful; instead
+        // show the converted OpenFOAM mesh's... we don't have VTK unstructured
+        // here. Show node count in dialog.
+        QString summary;
+        summary += tr("Format: %1\n").arg(QString::fromStdString(std::string(toString(format))));
+        summary += tr("Nodes: %1\nFaces: %2\nCells: %3\nZones: %4\n")
+                       .arg(static_cast<qlonglong>(mesh->nodes.size()))
+                       .arg(static_cast<qlonglong>(mesh->faces.size()))
+                       .arg(static_cast<qlonglong>(mesh->cells.size()))
+                       .arg(static_cast<qlonglong>(mesh->zones.size()));
+        summary += tr("Dimension: %1D\n").arg(mesh->dimension);
+        summary += tr("Compatibility: %1\n").arg(QString::fromStdString(std::string(toString(report.level))));
+        for (const auto& inc : report.incompatibilities)
+            summary += tr("  - %1: %2 (%3)\n")
+                           .arg(QString::fromStdString(inc.component))
+                           .arg(QString::fromStdString(inc.fluentValue))
+                           .arg(QString::fromStdString(inc.reason));
+        for (const auto& n : report.notes)
+            summary += tr("  note: %1\n").arg(QString::fromStdString(n));
+
+        // Offer conversion.
+        const auto reply = QMessageBox::question(
+            this, tr("Convert to OpenFOAM?"),
+            summary + "\n" + tr("Convert this mesh to an OpenFOAM case now?"),
+            QMessageBox::Yes | QMessageBox::No);
+        if (reply == QMessageBox::Yes) {
+            const QString outDir = QFileDialog::getExistingDirectory(this, tr("Output case directory"));
+            if (!outDir.isEmpty()) {
+                CompatibilityReport r = report;
+                auto written = convertToOpenFoam(*mesh, outDir.toStdString(), &r);
+                if (written) {
+                    console_->appendSolverOutput(
+                        tr("Converted Fluent mesh to OpenFOAM: %1 files written to %2\n")
+                            .arg(static_cast<int>(written->size()))
+                            .arg(outDir));
+                    for (const auto& p : *written)
+                        console_->appendSolverOutput("  " + QString::fromStdString(p.string()) + "\n");
+                } else {
+                    QMessageBox::warning(this, tr("Conversion failed"),
+                                         QString::fromStdString(written.error().describe()));
+                }
+            }
+        }
+        setProjectState(tr("Imported Fluent mesh (%1 nodes, %2 cells).")
+                           .arg(static_cast<qlonglong>(mesh->nodes.size()))
+                           .arg(static_cast<qlonglong>(mesh->cells.size())));
+        return;
+    }
+
+    if (format == FluentFormat::MeshHdf5) {
+        QMessageBox::information(
+            this, tr("Fluent import"),
+            tr("CFF .msh.h5 mesh detected. Direct calculation-grade import is planned (P1). "
+               "Open it via this dialog for visualization using the CFF reader if a .cas.h5 "
+               "companion is available, or convert with fluentMeshToFoam when installed."));
+        return;
+    }
+
+    if (format == FluentFormat::Compressed) {
+        QMessageBox::information(this, tr("Fluent import"),
+                                 tr("Compressed Fluent file detected. Decompress it first, "
+                                    "then re-import."));
+        return;
+    }
+
+    QMessageBox::warning(this, tr("Fluent import"),
+                        tr("Unrecognised or unsupported Fluent file: %1").arg(path));
 }
 
 void MainWindow::onNodeActivated(int nodeId) {

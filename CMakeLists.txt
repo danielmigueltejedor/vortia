@@ -46,6 +46,9 @@ endif()
 # nlohmann_json is a core dependency (project persistence).
 find_package(nlohmann_json 3.11 REQUIRED)
 
+# HDF5 is required for Fluent CFF (.cas.h5 / .dat.h5 / .msh.h5) interop.
+find_package(HDF5 REQUIRED)
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # --------------------------------------------------------------------------
@@ -67,6 +70,7 @@ if(VORTIA_BUILD_UI)
         CommonCore
         CommonDataModel
         FiltersCore
+        FiltersGeometry
         FiltersModeling
         IOGeometry
         IOLegacy
@@ -80,6 +84,7 @@ if(VORTIA_BUILD_UI)
     if(Qt6_FOUND AND VTK_FOUND)
         message(STATUS "Vortia: Qt ${Qt6_VERSION} and VTK ${VTK_VERSION} found — building UI")
         add_subdirectory(src/visualization)
+        add_subdirectory(src/interop)
         add_subdirectory(src/ui)
         add_subdirectory(src/app)
     else()

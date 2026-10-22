@@ -31,6 +31,7 @@ private slots:
     void onOpenProject();
     void onSaveProject();
     void onImportStl();
+    void onImportFluent();
     void onNodeActivated(int nodeId);
     void onApplySetup(const CaseSetup& setup);
     void onValidationReport(const QString& text);

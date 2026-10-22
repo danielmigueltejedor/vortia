@@ -23,6 +23,7 @@ target_include_directories(vortia_ui
 target_link_libraries(vortia_ui
     PUBLIC
         vortia::visualization
+        vortia::interop
         vortia::solver
         vortia::physics
         vortia::mesh
