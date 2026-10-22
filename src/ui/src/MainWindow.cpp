@@ -14,6 +14,14 @@
 #include "vortia/ui/ThemeManager.hpp"
 
 #include <QMenuBar>
+#include <initializer_list>
+#include <QWidget>
+#include <QSizePolicy>
+#include <QToolButton>
+#include <QTabWidget>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QFrame>
 #include <QStyle>
 #include <QSize>
 
@@ -108,6 +116,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 MainWindow::~MainWindow() = default;
 
 void MainWindow::buildMenusAndToolbar() {
+    // Native macOS menu actions remain the source of truth. All ribbon
+    // buttons use the SAME QAction instances (shortcuts, enabled state,
+    // progress and accessibility stay synchronized).
     auto* fileMenu = menuBar()->addMenu(tr("File"));
     auto* newProject = fileMenu->addAction(tr("New Project"), this, &MainWindow::onNewProject, QKeySequence::New);
     auto* openProject = fileMenu->addAction(tr("Open Project…"), this, &MainWindow::onOpenProject, QKeySequence::Open);
@@ -115,12 +126,12 @@ void MainWindow::buildMenusAndToolbar() {
     auto* saveProject = fileMenu->addAction(tr("Save Project"), this, &MainWindow::onSaveProject, QKeySequence::Save);
     fileMenu->addSeparator();
     auto* importStl = fileMenu->addAction(tr("Import STL…"), this, &MainWindow::onImportStl);
-    fileMenu->addAction(tr("Import ANSYS Fluent…"), this, &MainWindow::onImportFluent);
+    auto* importFluent = fileMenu->addAction(tr("Import ANSYS Fluent…"), this, &MainWindow::onImportFluent);
     fileMenu->addSeparator();
     fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
 
     auto* simMenu = menuBar()->addMenu(tr("Simulation"));
-    simMenu->addAction(tr("Detect OpenFOAM Installation"), this, &MainWindow::onDetectOpenFoam);
+    auto* detectBackend = simMenu->addAction(tr("Detect OpenFOAM"), this, &MainWindow::onDetectOpenFoam);
     runAction_ = simMenu->addAction(tr("Run Simulation"), this, &MainWindow::onRun, QKeySequence(tr("Ctrl+R")));
     cancelAction_ = simMenu->addAction(tr("Cancel Simulation"), this, &MainWindow::onCancel);
     cancelAction_->setEnabled(false);
@@ -132,61 +143,136 @@ void MainWindow::buildMenusAndToolbar() {
     auto* helpMenu = menuBar()->addMenu(tr("Help"));
     helpMenu->addAction(tr("About Vortia"), this, &MainWindow::onAbout);
 
-    // Retain explicit action pointers: relying on menu indices broke Save when
-    // "Open OpenFOAM Case" was inserted before it.
-    auto* tb = addToolBar(tr("Workspace"));
-    tb->setObjectName(QStringLiteral("vortia-main-toolbar"));
-    tb->setMovable(false);
-    tb->setFloatable(false);
-    tb->setIconSize(QSize(18, 18));
-    tb->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    newProject->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
-    openProject->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
-    saveProject->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
-    runAction_->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    cancelAction_->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
-    tb->addAction(newProject);
-    tb->addAction(openProject);
-    tb->addAction(saveProject);
-    tb->addSeparator();
-    tb->addAction(openFoam);
-    tb->addAction(importStl);
-    tb->addSeparator();
-    tb->addAction(runAction_);
-    tb->addAction(cancelAction_);
-    tb->addSeparator();
+    // Use Qt style icons so that no third-party icons/fonts or platform-specific
+    // assets need bundling, and provide real actions rather than decorative tools.
+    const auto icon = [this](QStyle::StandardPixmap type) { return style()->standardIcon(type); };
+    newProject->setIcon(icon(QStyle::SP_FileIcon));
+    openProject->setIcon(icon(QStyle::SP_DialogOpenButton));
+    openFoam->setIcon(icon(QStyle::SP_DirOpenIcon));
+    saveProject->setIcon(icon(QStyle::SP_DialogSaveButton));
+    importStl->setIcon(icon(QStyle::SP_FileDialogDetailedView));
+    importFluent->setIcon(icon(QStyle::SP_DriveHDIcon));
+    detectBackend->setIcon(icon(QStyle::SP_ComputerIcon));
+    runAction_->setIcon(icon(QStyle::SP_MediaPlay));
+    cancelAction_->setIcon(icon(QStyle::SP_MediaStop));
+    themeAction_->setIcon(icon(QStyle::SP_DesktopIcon));
 
-    auto* fieldLabel = new QLabel(tr("FIELD"), this);
-    fieldLabel->setObjectName(QStringLiteral("vortia-field-label"));
-    tb->addWidget(fieldLabel);
-    fieldCombo_ = new QComboBox(this);
-    fieldCombo_->setObjectName(QStringLiteral("vortia-field-selector"));
-    fieldCombo_->setMinimumWidth(92);
-    fieldCombo_->setToolTip(tr("Select a field to display on the current CFD result."));
-    fieldCombo_->addItems({QStringLiteral("p"), QStringLiteral("U"), QStringLiteral("|U|"),
-                           QStringLiteral("Ux"), QStringLiteral("Uy"), QStringLiteral("Uz"),
-                           QStringLiteral("T")});
-    tb->addWidget(fieldCombo_);
-    connect(fieldCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-            &MainWindow::onFieldChanged);
+    auto* geometryEditor = new QAction(icon(QStyle::SP_DirIcon), tr("Geometry"), this);
+    auto* meshEditor = new QAction(icon(QStyle::SP_FileDialogDetailedView), tr("Mesh"), this);
+    auto* materialsEditor = new QAction(icon(QStyle::SP_DriveHDIcon), tr("Materials"), this);
+    auto* boundaryEditor = new QAction(icon(QStyle::SP_DirLinkIcon), tr("Boundaries"), this);
+    auto* solverEditor = new QAction(icon(QStyle::SP_ComputerIcon), tr("Solver"), this);
+    connect(geometryEditor, &QAction::triggered, this,
+            [this]() { properties_->showNode(ProjectExplorerPanel::GeometryNode); });
+    connect(meshEditor, &QAction::triggered, this,
+            [this]() { properties_->showNode(ProjectExplorerPanel::MeshNode); });
+    connect(materialsEditor, &QAction::triggered, this,
+            [this]() { properties_->showNode(ProjectExplorerPanel::MaterialsNode); });
+    connect(boundaryEditor, &QAction::triggered, this,
+            [this]() { properties_->showNode(ProjectExplorerPanel::BoundaryConditionsNode); });
+    connect(solverEditor, &QAction::triggered, this,
+            [this]() { properties_->showNode(ProjectExplorerPanel::SolverNode); });
 
-    tb->addSeparator();
-    auto* viewXY = tb->addAction(tr("XY"));
-    auto* viewXZ = tb->addAction(tr("XZ"));
-    auto* viewYZ = tb->addAction(tr("YZ"));
-    auto* viewIso = tb->addAction(tr("3D"));
-    auto* viewReset = tb->addAction(tr("Fit"));
-    viewXY->setToolTip(tr("Look along Z at the XY plane"));
-    viewXZ->setToolTip(tr("Look along Y at the XZ plane"));
-    viewYZ->setToolTip(tr("Look along X at the YZ plane"));
-    viewIso->setToolTip(tr("Isometric view"));
-    viewReset->setToolTip(tr("Fit the geometry into the view"));
+    auto* viewXY = new QAction(icon(QStyle::SP_ArrowUp), tr("XY"), this);
+    auto* viewXZ = new QAction(icon(QStyle::SP_ArrowRight), tr("XZ"), this);
+    auto* viewYZ = new QAction(icon(QStyle::SP_ArrowLeft), tr("YZ"), this);
+    auto* viewIso = new QAction(icon(QStyle::SP_FileDialogDetailedView), tr("3D"), this);
+    auto* viewReset = new QAction(icon(QStyle::SP_BrowserReload), tr("Fit View"), this);
     connect(viewXY, &QAction::triggered, this, [this]() { viewport_->setViewXY(); });
     connect(viewXZ, &QAction::triggered, this, [this]() { viewport_->setViewXZ(); });
     connect(viewYZ, &QAction::triggered, this, [this]() { viewport_->setViewYZ(); });
     connect(viewIso, &QAction::triggered, this, [this]() { viewport_->setViewIsometric(); });
     connect(viewReset, &QAction::triggered, this, [this]() { viewport_->resetCamera(); });
 
+    auto* toolbar = addToolBar(tr("Engineering tools"));
+    toolbar->setObjectName(QStringLiteral("vortia-main-toolbar"));
+    toolbar->setMovable(false);
+    toolbar->setFloatable(false);
+    auto* tabs = new QTabWidget(toolbar);
+    tabs->setObjectName(QStringLiteral("vortia-ribbon"));
+    tabs->setDocumentMode(true);
+    tabs->setUsesScrollButtons(true);
+    tabs->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    tabs->setMinimumHeight(126);
+
+    auto newPage = [this, tabs](const QString& name) {
+        auto* page = new QWidget(tabs);
+        auto* layout = new QHBoxLayout(page);
+        layout->setContentsMargins(12, 6, 12, 3);
+        layout->setSpacing(11);
+        layout->setAlignment(Qt::AlignLeft);
+        tabs->addTab(page, name);
+        return layout;
+    };
+    auto addGroup = [this](QHBoxLayout* parent, const QString& title,
+                           std::initializer_list<QAction*> actions) {
+        auto* group = new QWidget(this);
+        auto* vbox = new QVBoxLayout(group);
+        vbox->setContentsMargins(0, 0, 0, 0);
+        vbox->setSpacing(2);
+        auto* buttons = new QHBoxLayout();
+        buttons->setSpacing(2);
+        for (auto* action : actions) {
+            auto* button = new QToolButton(group);
+            button->setObjectName(QStringLiteral("vortia-ribbon-button"));
+            button->setDefaultAction(action);
+            button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+            button->setIconSize(QSize(28, 28));
+            button->setMinimumSize(QSize(78, 69));
+            button->setMaximumWidth(110);
+            button->setAccessibleName(action->text());
+            buttons->addWidget(button);
+        }
+        vbox->addLayout(buttons);
+        auto* caption = new QLabel(title, group);
+        caption->setObjectName(QStringLiteral("vortia-ribbon-group"));
+        caption->setAlignment(Qt::AlignCenter);
+        vbox->addWidget(caption);
+        parent->addWidget(group);
+        auto* separator = new QFrame(this);
+        separator->setFrameShape(QFrame::VLine);
+        separator->setObjectName(QStringLiteral("vortia-ribbon-separator"));
+        parent->addWidget(separator);
+    };
+
+    auto* homePage = newPage(tr("Home"));
+    addGroup(homePage, tr("Project"), {newProject, openProject, saveProject});
+    addGroup(homePage, tr("Import"), {openFoam, importStl, importFluent});
+
+    auto* modelPage = newPage(tr("Model"));
+    addGroup(modelPage, tr("Geometry & mesh"), {geometryEditor, meshEditor});
+    addGroup(modelPage, tr("Physics"), {materialsEditor, boundaryEditor});
+    addGroup(modelPage, tr("Solver setup"), {solverEditor});
+
+    auto* simPage = newPage(tr("Simulation"));
+    addGroup(simPage, tr("Backend"), {detectBackend});
+    addGroup(simPage, tr("Execution"), {runAction_, cancelAction_});
+
+    auto* resultsPage = newPage(tr("Results"));
+    auto* fields = new QWidget(this);
+    auto* fv = new QVBoxLayout(fields);
+    fv->setContentsMargins(0, 0, 0, 0);
+    fv->setSpacing(7);
+    auto* fieldTitle = new QLabel(tr("DISPLAY FIELD"), fields);
+    fieldTitle->setObjectName(QStringLiteral("vortia-ribbon-group"));
+    fv->addWidget(fieldTitle);
+    fieldCombo_ = new QComboBox(fields);
+    fieldCombo_->setObjectName(QStringLiteral("vortia-field-selector"));
+    fieldCombo_->setMinimumWidth(125);
+    fieldCombo_->addItems({QStringLiteral("p"), QStringLiteral("U"), QStringLiteral("|U|"),
+                           QStringLiteral("Ux"), QStringLiteral("Uy"), QStringLiteral("Uz"),
+                           QStringLiteral("T")});
+    fieldCombo_->setToolTip(tr("Choose a field from the current CFD result"));
+    fv->addWidget(fieldCombo_);
+    connect(fieldCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onFieldChanged);
+    resultsPage->addWidget(fields);
+    addGroup(resultsPage, tr("Camera"), {viewXY, viewXZ, viewYZ, viewIso, viewReset});
+
+    auto* viewPage = newPage(tr("View"));
+    addGroup(viewPage, tr("Appearance"), {themeAction_, viewReset});
+
+    toolbar->addWidget(tabs);
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("vortia-status-text"));
     statusBar()->addWidget(statusLabel_, 1);
