@@ -4,6 +4,7 @@
 #include <vtkAppendPolyData.h>
 #include <vtkAxesActor.h>
 #include <vtkCamera.h>
+#include <vtkCallbackCommand.h>
 #include <vtkCellArray.h>
 #include <vtkCompositeDataIterator.h>
 #include <vtkCubeSource.h>
@@ -81,6 +82,17 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     if (renderWindow->GetInteractor() != nullptr) {
         auto style = vtkSmartPointer<vtkInteractorStyleTrackballCamera>::New();
         renderWindow->GetInteractor()->SetInteractorStyle(style);
+    }
+
+    // Keep the corner axes aligned with the main camera orientation.
+    if (renderer_->GetActiveCamera() != nullptr) {
+        auto cb = vtkSmartPointer<vtkCallbackCommand>::New();
+        cb->SetCallback([](vtkObject*, unsigned long, void* clientData, void*) {
+            auto* self = static_cast<VtkViewport*>(clientData);
+            self->syncCornerCamera();
+        });
+        cb->SetClientData(this);
+        renderer_->GetActiveCamera()->AddObserver(vtkCommand::ModifiedEvent, cb);
     }
 
     setFocusPolicy(Qt::StrongFocus);
