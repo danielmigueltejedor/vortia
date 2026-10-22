@@ -1,4 +1,4 @@
-#include "vortia/visualization/VtkInteractorStyle.hpp"
+// Navigation is controlled exclusively by Qt; VTK is only the renderer.
 #include "vortia/visualization/VtkViewport.hpp"
 
 #include <vtkActor.h>
@@ -13,7 +13,8 @@
 #include <vtkDataObject.h>
 #include <vtkDataSetSurfaceFilter.h>
 #include <vtkGenericOpenGLRenderWindow.h>
-#include <vtkInteractorStyleTrackballCamera.h>
+#include <vtkInteractorStyleUser.h>
+#include <vtkMath.h>
 #include <vtkMultiBlockDataSet.h>
 #include <vtkNew.h>
 #include <vtkOutlineFilter.h>
@@ -41,6 +42,7 @@
 #include <QMouseEvent>
 #include <QEvent>
 #include <QWheelEvent>
+#include <numbers>
 #include <QEvent>
 
 namespace vortia {
@@ -101,6 +103,7 @@ vtkSmartPointer<vtkPolyData> toPolyData(const TriangleMesh& mesh) {
 VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     auto renderWindow = vtkSmartPointer<vtkGenericOpenGLRenderWindow>::New();
     setRenderWindow(renderWindow);
+    setEnableTouchEventProcessing(false); // Avoid duplicate synthesized touch events.
 
     // Main scene renderer.
     renderer_ = vtkSmartPointer<vtkRenderer>::New();
@@ -154,10 +157,11 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     axes->SetPickable(0);
     cornerRenderer_->AddActor(axes);
 
-    if (renderWindow->GetInteractor() != nullptr) {
-        auto style = vtkSmartPointer<vortia::VtkInteractorStyle>::New();
-        style->setQtDragAuthorized(false);
-        renderWindow->GetInteractor()->SetInteractorStyle(style);
+    // A passive style has NO camera movement on mouse, timer or touch events.
+    // Prior trackball style still moved the scene through Qt's native adapter.
+    if (auto* iren = renderWindow->GetInteractor()) {
+        auto passive = vtkSmartPointer<vtkInteractorStyleUser>::New();
+        iren->SetInteractorStyle(passive);
     }
 
     // Keep the corner axes aligned with the main camera orientation.
@@ -179,13 +183,12 @@ VtkViewport::~VtkViewport() = default;
 
 void VtkViewport::showEvent(QShowEvent* event) {
     QVTKOpenGLNativeWidget::showEvent(event);
+    // Qt may replace the interactor during OpenGL initialization.
     if (auto* rw = renderWindow()) {
-        if (auto* iren = rw->GetInteractor()) {
-            if (iren->GetInteractorStyle() == nullptr ||
-                dynamic_cast<vortia::VtkInteractorStyle*>(iren->GetInteractorStyle()) == nullptr) {
-                auto style = vtkSmartPointer<vortia::VtkInteractorStyle>::New();
-                style->setQtDragAuthorized(false);
-                iren->SetInteractorStyle(style);
+        if (auto* interactor = rw->GetInteractor()) {
+            if (!vtkInteractorStyleUser::SafeDownCast(interactor->GetInteractorStyle())) {
+                auto passive = vtkSmartPointer<vtkInteractorStyleUser>::New();
+                interactor->SetInteractorStyle(passive);
             }
         }
     }
@@ -193,12 +196,8 @@ void VtkViewport::showEvent(QShowEvent* event) {
 
 void VtkViewport::cancelPointerDrag() {
     intentionalPointerDrag_ = false;
-    if (auto* rw = renderWindow()) {
-        if (auto* interactor = rw->GetInteractor()) {
-            if (auto* style = VtkInteractorStyle::SafeDownCast(interactor->GetInteractorStyle()))
-                style->setQtDragAuthorized(false);
-        }
-    }
+    draggedButton_ = Qt::NoButton;
+    unsetCursor();
 }
 
 void VtkViewport::leaveEvent(QEvent* event) {
@@ -208,59 +207,107 @@ void VtkViewport::leaveEvent(QEvent* event) {
 
 void VtkViewport::mousePressEvent(QMouseEvent* event) {
     const auto button = event->button();
-    // Motion/gesture synthesis alone must never arm the VTK camera.
-    if (button != Qt::LeftButton && button != Qt::MiddleButton && button != Qt::RightButton) {
-        event->accept();
-        return;
+    if (button == Qt::LeftButton || button == Qt::MiddleButton || button == Qt::RightButton) {
+        intentionalPointerDrag_ = true;
+        draggedButton_ = button;
+        previousPointerPosition_ = event->position();
+        setCursor(Qt::ClosedHandCursor);
     }
-    intentionalPointerDrag_ = true;
-    if (auto* rw = renderWindow()) {
-        if (auto* iren = rw->GetInteractor()) {
-            if (auto* style = VtkInteractorStyle::SafeDownCast(iren->GetInteractorStyle()))
-                style->setQtDragAuthorized(true);
-        }
-    }
-    QVTKOpenGLNativeWidget::mousePressEvent(event);
+    event->accept(); // NEVER forward navigation to VTK's adapter.
 }
 
 void VtkViewport::mouseReleaseEvent(QMouseEvent* event) {
-    if (intentionalPointerDrag_) {
-        // Allow VTK to end the interaction before disarming its style.
-        QVTKOpenGLNativeWidget::mouseReleaseEvent(event);
-    } else {
-        event->accept();
-    }
-    cancelPointerDrag();
+    if (event->button() == draggedButton_)
+        cancelPointerDrag();
+    event->accept();
 }
 
 void VtkViewport::mouseMoveEvent(QMouseEvent* event) {
-    // Verify Qt's own button mask, not VTK's potentially stale State.
-    // A trackpad hover, inertia or synthesized move is never a drag.
-    if (!intentionalPointerDrag_ || event->buttons() == Qt::NoButton) {
+    if (!intentionalPointerDrag_ || !(event->buttons() & draggedButton_)) {
         cancelPointerDrag();
         event->accept();
         return;
     }
-    QVTKOpenGLNativeWidget::mouseMoveEvent(event);
+
+    const QPointF delta = event->position() - previousPointerPosition_;
+    previousPointerPosition_ = event->position();
+    auto* camera = renderer_->GetActiveCamera();
+    if (camera && !delta.isNull()) {
+        if (draggedButton_ == Qt::LeftButton) {
+            // Only an explicit left-button drag can orbit.
+            const double degreesPerPixel = 180.0 / std::max(1, height());
+            camera->Azimuth(-delta.x() * degreesPerPixel);
+            camera->Elevation(delta.y() * degreesPerPixel);
+            camera->OrthogonalizeViewUp();
+        } else {
+            double direction[3], viewUp[3], right[3], up[3];
+            camera->GetDirectionOfProjection(direction);
+            camera->GetViewUp(viewUp);
+            vtkMath::Cross(direction, viewUp, right);
+            if (vtkMath::Normalize(right) > 1e-12) {
+                vtkMath::Cross(right, direction, up);
+                vtkMath::Normalize(up);
+                const double worldHeight = camera->GetParallelProjection()
+                    ? 2.0 * camera->GetParallelScale()
+                    : 2.0 * camera->GetDistance() *
+                          std::tan(camera->GetViewAngle() * std::numbers::pi / 360.0);
+                const double step = worldHeight / std::max(1, height());
+                double position[3], focal[3];
+                camera->GetPosition(position);
+                camera->GetFocalPoint(focal);
+                for (int i = 0; i < 3; ++i) {
+                    const double shift = (-delta.x() * right[i] + delta.y() * up[i]) * step;
+                    position[i] += shift;
+                    focal[i] += shift;
+                }
+                camera->SetPosition(position);
+                camera->SetFocalPoint(focal);
+            }
+        }
+        renderer_->ResetCameraClippingRange();
+        update();
+    }
+    event->accept();
 }
 
 void VtkViewport::wheelEvent(QWheelEvent* event) {
-    // On macOS, two-finger scrolling provides pixelDelta and is easy to
-    // trigger inadvertently when navigating the UI. Require Cmd/Ctrl to
-    // zoom with a precision trackpad; traditional mouse wheels still zoom.
     const bool precisionScroll = !event->pixelDelta().isNull();
-    const auto modifiers = event->modifiers();
-    if (precisionScroll && !(modifiers & (Qt::ControlModifier | Qt::MetaModifier))) {
-        event->accept();
-        return;
+    const auto mods = event->modifiers();
+    if (!precisionScroll || (mods & (Qt::ControlModifier | Qt::MetaModifier))) {
+        const double steps = precisionScroll
+            ? event->pixelDelta().y() / 100.0
+            : event->angleDelta().y() / 120.0;
+        if (auto* camera = renderer_->GetActiveCamera()) {
+            const double factor = std::pow(1.14, std::clamp(steps, -6.0, 6.0));
+            if (camera->GetParallelProjection())
+                camera->SetParallelScale(std::max(1e-9, camera->GetParallelScale() / factor));
+            else
+                camera->Dolly(factor);
+            renderer_->ResetCameraClippingRange();
+            update();
+        }
     }
-    QVTKOpenGLNativeWidget::wheelEvent(event);
+    event->accept();
 }
 
 bool VtkViewport::event(QEvent* event) {
-    // Centralized Qt gate catches events even if the QVTK adapter handles
-    // them through QWidget::event instead of the mouse handler overrides.
+    // QVTKOpenGLNativeWidget's event adapter may handle mouse events without
+    // calling our mouseMoveEvent override. Intercept BEFORE the adapter so
+    // bare hover can never reach VTK's native trackball event pipeline.
     switch (event->type()) {
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonDblClick:
+        mousePressEvent(static_cast<QMouseEvent*>(event));
+        return true;
+    case QEvent::MouseButtonRelease:
+        mouseReleaseEvent(static_cast<QMouseEvent*>(event));
+        return true;
+    case QEvent::MouseMove:
+        mouseMoveEvent(static_cast<QMouseEvent*>(event));
+        return true;
+    case QEvent::Wheel:
+        wheelEvent(static_cast<QWheelEvent*>(event));
+        return true;
     case QEvent::NativeGesture:
     case QEvent::TouchBegin:
     case QEvent::TouchUpdate:
@@ -270,14 +317,8 @@ bool VtkViewport::event(QEvent* event) {
     case QEvent::FocusOut:
     case QEvent::WindowDeactivate:
     case QEvent::Hide:
+    case QEvent::Leave:
         cancelPointerDrag();
-        break;
-    case QEvent::MouseMove:
-        // Do not let QVTK interpret pointer hover as an implicit drag.
-        if (!intentionalPointerDrag_) {
-            event->accept();
-            return true;
-        }
         break;
     default:
         break;
