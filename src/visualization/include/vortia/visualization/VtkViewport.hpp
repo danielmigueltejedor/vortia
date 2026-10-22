@@ -55,6 +55,8 @@ protected:
     void showEvent(QShowEvent* event) override;
     void leaveEvent(QEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+    bool event(QEvent* event) override;
 
 private:
     void syncCornerCamera();
