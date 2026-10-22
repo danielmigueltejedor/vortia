@@ -1,6 +1,6 @@
 #include "vortia/geometry/StlReader.hpp"
 
-#include <charconv>
+#include <locale>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -79,11 +79,16 @@ public:
         auto word = next();
         if (!word)
             return word.error();
+        // macOS libc++ on GitHub's macos-15 runner lacks floating
+        // std::from_chars. A classic-locale stream keeps STL's '.' decimals
+        // independent of the user's UI language (including Spanish locales).
+        std::istringstream stream(word.value());
+        stream.imbue(std::locale::classic());
         double value = 0.0;
-        const auto* begin = word.value().data();
-        const auto* end = begin + word.value().size();
-        auto [ptr, ec] = std::from_chars(begin, end, value);
-        if (ec != std::errc() || ptr != end)
+        if (!(stream >> value))
+            return Error::make(ErrorCode::ParseError, "invalid number '" + word.value() + "'");
+        stream >> std::ws;
+        if (!stream.eof() || !std::isfinite(value))
             return Error::make(ErrorCode::ParseError, "invalid number '" + word.value() + "'");
         return value;
     }
