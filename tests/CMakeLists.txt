@@ -45,3 +45,12 @@ add_executable(test_integration
     integration/test_case_runner_fake_backend.cpp)
 target_link_libraries(test_integration PRIVATE vortia::solver GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_integration)
+
+# VTK camera safety regression: no real Qt press, no camera interaction.
+# The test uses the interactor style only, so it needs no OpenGL context.
+if(TARGET vortia_visualization)
+    add_executable(test_vtk_input unit/test_vtk_input.cpp)
+    target_link_libraries(test_vtk_input PRIVATE vortia::visualization
+                          GTest::gtest_main vortia_warnings)
+    gtest_discover_tests(test_vtk_input)
+endif()

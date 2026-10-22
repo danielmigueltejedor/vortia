@@ -54,12 +54,15 @@ public:
 protected:
     void showEvent(QShowEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     bool event(QEvent* event) override;
 
 private:
     void syncCornerCamera();
+    void cancelPointerDrag();
 
 public slots:
     void setDarkTheme(bool dark);
@@ -75,6 +78,9 @@ private:
     std::string currentField_;
     std::string loadedFile_;
     bool resetViewOnNextData_{true};
+    // Authoritative Qt press state. Unlike a VTK interactor state, this
+    // cannot be set by a stray vtkCommand::MouseMoveEvent.
+    bool intentionalPointerDrag_{false};
 };
 
 } // namespace vortia
