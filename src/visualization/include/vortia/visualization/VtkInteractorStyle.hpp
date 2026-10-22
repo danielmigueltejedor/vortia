@@ -13,6 +13,10 @@ public:
     static VtkInteractorStyle* New();
     vtkTypeMacro(VtkInteractorStyle, vtkInteractorStyleTrackballCamera);
 
+    // Only a real Qt press in VtkViewport may authorize VTK camera changes.
+    void setQtDragAuthorized(bool authorized) noexcept;
+    [[nodiscard]] bool qtDragAuthorized() const noexcept;
+
     void OnMouseMove() override;
     void OnLeftButtonDown() override;
     void OnLeftButtonUp() override;
@@ -26,6 +30,7 @@ protected:
 
 private:
     bool buttonDown_{false};
+    bool qtDragAuthorized_{false};
 };
 
 } // namespace vortia

@@ -39,6 +39,7 @@
 #include <iostream>
 
 #include <QMouseEvent>
+#include <QEvent>
 #include <QWheelEvent>
 #include <QEvent>
 
@@ -155,6 +156,7 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
 
     if (renderWindow->GetInteractor() != nullptr) {
         auto style = vtkSmartPointer<vortia::VtkInteractorStyle>::New();
+        style->setQtDragAuthorized(false);
         renderWindow->GetInteractor()->SetInteractorStyle(style);
     }
 
@@ -182,20 +184,60 @@ void VtkViewport::showEvent(QShowEvent* event) {
             if (iren->GetInteractorStyle() == nullptr ||
                 dynamic_cast<vortia::VtkInteractorStyle*>(iren->GetInteractorStyle()) == nullptr) {
                 auto style = vtkSmartPointer<vortia::VtkInteractorStyle>::New();
+                style->setQtDragAuthorized(false);
                 iren->SetInteractorStyle(style);
             }
         }
     }
 }
 
+void VtkViewport::cancelPointerDrag() {
+    intentionalPointerDrag_ = false;
+    if (auto* rw = renderWindow()) {
+        if (auto* interactor = rw->GetInteractor()) {
+            if (auto* style = VtkInteractorStyle::SafeDownCast(interactor->GetInteractorStyle()))
+                style->setQtDragAuthorized(false);
+        }
+    }
+}
+
 void VtkViewport::leaveEvent(QEvent* event) {
+    cancelPointerDrag();
     QVTKOpenGLNativeWidget::leaveEvent(event);
 }
 
+void VtkViewport::mousePressEvent(QMouseEvent* event) {
+    const auto button = event->button();
+    // Motion/gesture synthesis alone must never arm the VTK camera.
+    if (button != Qt::LeftButton && button != Qt::MiddleButton && button != Qt::RightButton) {
+        event->accept();
+        return;
+    }
+    intentionalPointerDrag_ = true;
+    if (auto* rw = renderWindow()) {
+        if (auto* iren = rw->GetInteractor()) {
+            if (auto* style = VtkInteractorStyle::SafeDownCast(iren->GetInteractorStyle()))
+                style->setQtDragAuthorized(true);
+        }
+    }
+    QVTKOpenGLNativeWidget::mousePressEvent(event);
+}
+
+void VtkViewport::mouseReleaseEvent(QMouseEvent* event) {
+    if (intentionalPointerDrag_) {
+        // Allow VTK to end the interaction before disarming its style.
+        QVTKOpenGLNativeWidget::mouseReleaseEvent(event);
+    } else {
+        event->accept();
+    }
+    cancelPointerDrag();
+}
+
 void VtkViewport::mouseMoveEvent(QMouseEvent* event) {
-    // Trackpads can synthesize motion events while there is no deliberate
-    // drag. Never forward those to the VTK trackball style.
-    if (event->buttons() == Qt::NoButton) {
+    // Verify Qt's own button mask, not VTK's potentially stale State.
+    // A trackpad hover, inertia or synthesized move is never a drag.
+    if (!intentionalPointerDrag_ || event->buttons() == Qt::NoButton) {
+        cancelPointerDrag();
         event->accept();
         return;
     }
@@ -216,12 +258,29 @@ void VtkViewport::wheelEvent(QWheelEvent* event) {
 }
 
 bool VtkViewport::event(QEvent* event) {
-    // VTK/Qt may interpret native touchpad rotate/pan gestures as a camera
-    // interaction, even without a mouse-button drag. A dedicated gesture
-    // navigation mode can be added later with explicit user controls.
-    if (event->type() == QEvent::NativeGesture) {
+    // Centralized Qt gate catches events even if the QVTK adapter handles
+    // them through QWidget::event instead of the mouse handler overrides.
+    switch (event->type()) {
+    case QEvent::NativeGesture:
+    case QEvent::TouchBegin:
+    case QEvent::TouchUpdate:
+    case QEvent::TouchEnd:
         event->accept();
         return true;
+    case QEvent::FocusOut:
+    case QEvent::WindowDeactivate:
+    case QEvent::Hide:
+        cancelPointerDrag();
+        break;
+    case QEvent::MouseMove:
+        // Do not let QVTK interpret pointer hover as an implicit drag.
+        if (!intentionalPointerDrag_) {
+            event->accept();
+            return true;
+        }
+        break;
+    default:
+        break;
     }
     return QVTKOpenGLNativeWidget::event(event);
 }
