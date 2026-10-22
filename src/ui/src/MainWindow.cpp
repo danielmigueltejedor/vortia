@@ -215,6 +215,14 @@ void MainWindow::onOpenProject() {
         return;
     auto project = Project::open(dir.toStdString());
     if (!project) {
+        // Not a Vortia project — maybe it's an OpenFOAM case directory.
+        if (std::filesystem::exists(dir.toStdString() + "/system/controlDict")) {
+            existingCaseDir_ = dir.toStdString();
+            useExistingCase_ = true;
+            setProjectState(tr("Opened existing OpenFOAM case: %1").arg(dir));
+            console_->appendSolverOutput(tr("Opened existing OpenFOAM case: %1\n").arg(dir));
+            return;
+        }
         QMessageBox::warning(this, tr("Open failed"), QString::fromStdString(project.error().describe()));
         return;
     }
