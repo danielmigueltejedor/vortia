@@ -55,15 +55,14 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     renderer_->SetBackground(0.13, 0.14, 0.16); // dark by default
     renderWindow->AddRenderer(renderer_);
 
-    if (renderWindow->GetInteractor() != nullptr) {
-        auto axes = vtkSmartPointer<vtkAxesActor>::New();
-        orientationMarker_ = vtkSmartPointer<vtkOrientationMarkerWidget>::New();
-        orientationMarker_->SetOrientationMarker(axes);
-        orientationMarker_->SetInteractor(renderWindow->GetInteractor());
-        orientationMarker_->SetViewport(0.0, 0.0, 0.18, 0.18);
-        orientationMarker_->SetEnabled(1);
-        orientationMarker_->InteractiveOff();
-    }
+    // Orientation marker widget disabled: with VTK 9.7 on macOS it spins
+    // continuously on mouse hover (known interactor issue). A fixed
+    // world-space axes actor is used instead until a proper overlay is
+    // implemented.
+    auto axes = vtkSmartPointer<vtkAxesActor>::New();
+    axes->SetTotalLength(0.1, 0.1, 0.1);
+    axes->SetPickable(0);
+    renderer_->AddActor(axes);
 
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(320, 240);
