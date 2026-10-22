@@ -437,6 +437,7 @@ void MainWindow::onValidationReport(const QString& text) {
 }
 
 void MainWindow::onRun() {
+    try {
     ensureOpenFoamInstallation();
     if (!hasOfInstallation_) {
         QMessageBox::warning(this, tr("No OpenFOAM installation"),
@@ -520,6 +521,12 @@ void MainWindow::onRun() {
     spec.environment = ofEnvironment_;
     spec.solverOverride = detectedSolver;
     jobController_->start(spec);
+    } catch (const std::exception& e) {
+        QMessageBox::warning(this, tr("Run failed"),
+                             QString::fromStdString(std::string("exception: ") + e.what()));
+    } catch (...) {
+        QMessageBox::warning(this, tr("Run failed"), tr("unknown exception"));
+    }
 }
 
 void MainWindow::onCancel() {
@@ -536,9 +543,15 @@ void MainWindow::onJobFinished(bool success, const QString& summary) {
 }
 
 void MainWindow::onResultsReady(const QString& vtmPath) {
-    viewport_->loadVtmFile(vtmPath.toStdString());
-    console_->appendSolverOutput(tr("Loaded results: %1\n").arg(vtmPath));
-    setProjectState(tr("Results loaded."));
+    try {
+        viewport_->loadVtmFile(vtmPath.toStdString());
+        console_->appendSolverOutput(tr("Loaded results: %1\n").arg(vtmPath));
+        setProjectState(tr("Results loaded."));
+    } catch (const std::exception& e) {
+        console_->appendSolverOutput(tr("Failed to load results: %1\n").arg(QString::fromStdString(e.what())));
+    } catch (...) {
+        console_->appendSolverOutput(tr("Failed to load results: unknown error\n"));
+    }
 }
 
 void MainWindow::onToggleTheme() {

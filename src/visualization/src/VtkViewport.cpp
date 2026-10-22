@@ -28,6 +28,7 @@
 #include <vtkXMLMultiBlockDataReader.h>
 
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 
 namespace vortia {
@@ -264,11 +265,17 @@ void VtkViewport::showDataSet(vtkObject* data) {
 }
 
 void VtkViewport::loadVtmFile(const std::string& path) {
-    auto reader = vtkSmartPointer<vtkXMLMultiBlockDataReader>::New();
-    reader->SetFileName(path.c_str());
-    reader->Update();
-    if (reader->GetOutput() != nullptr)
-        showDataSet(reader->GetOutput());
+    if (path.empty() || !std::filesystem::exists(path))
+        return;
+    try {
+        auto reader = vtkSmartPointer<vtkXMLMultiBlockDataReader>::New();
+        reader->SetFileName(path.c_str());
+        reader->Update();
+        if (reader->GetOutput() != nullptr)
+            showDataSet(reader->GetOutput());
+    } catch (...) {
+        // Swallow; the caller logs the failure.
+    }
 }
 
 void VtkViewport::clearScene() {

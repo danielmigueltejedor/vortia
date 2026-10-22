@@ -33,6 +33,7 @@ Expected<StepOutcome> CaseRunner::execute(const std::string& label,
                                           const std::filesystem::path& caseDir,
                                           const RunCallbacks& callbacks,
                                           CancellationToken* token) {
+    try {
     auto exePath = Detector::resolveExecutable(executable, environment_);
     if (!exePath)
         return Error::make(ErrorCode::BackendUnavailable,
@@ -74,6 +75,11 @@ Expected<StepOutcome> CaseRunner::execute(const std::string& label,
     outcome.divergenceReason = parser.progress().divergenceReason;
     outcome.finalTime = parser.progress().time;
     return outcome;
+    } catch (const std::exception& e) {
+        return Error::make(ErrorCode::Internal, std::string("exception in ") + label + ": " + e.what());
+    } catch (...) {
+        return Error::make(ErrorCode::Internal, "unknown exception in " + label);
+    }
 }
 
 Expected<StepOutcome> CaseRunner::runMeshing(const std::filesystem::path& caseDir,

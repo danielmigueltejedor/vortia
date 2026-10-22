@@ -38,6 +38,7 @@ void JobController::cancel() {
 bool JobController::isRunning() const { return running_.load(); }
 
 void JobController::runJob(JobSpec spec) {
+    try {
     PosixProcessRunner processes;
     openfoam::CaseRunner runner(processes, spec.environment);
 
@@ -104,9 +105,15 @@ void JobController::runJob(JobSpec spec) {
                         // trailing time token.
                         std::filesystem::path latest;
                         std::filesystem::path vtkDir = spec.caseDir / "VTK";
-                        if (std::filesystem::is_directory(vtkDir)) {
-                            for (const auto& entry : std::filesystem::directory_iterator(vtkDir)) {
-                                if (!entry.is_regular_file())
+                        std::error_code ec;
+                        if (std::filesystem::is_directory(vtkDir, ec)) {
+                            std::filesystem::directory_iterator it(vtkDir, ec);
+                            std::filesystem::directory_iterator end;
+                            while (it != end) {
+                                std::error_code ec2;
+                                auto entry = *it;
+                                ++it;
+                                if (!entry.is_regular_file(ec2))
                                     continue;
                                 if (entry.path().extension() != ".vtm")
                                     continue;
@@ -139,6 +146,17 @@ void JobController::runJob(JobSpec spec) {
     QMetaObject::invokeMethod(this, [this, success, summary]() {
         emit jobFinished(success, summary);
     }, Qt::QueuedConnection);
+    } catch (const std::exception& e) {
+        running_.store(false);
+        QMetaObject::invokeMethod(this, [this, e]() {
+            emit jobFinished(false, QString::fromStdString(std::string("exception: ") + e.what()));
+        }, Qt::QueuedConnection);
+    } catch (...) {
+        running_.store(false);
+        QMetaObject::invokeMethod(this, [this]() {
+            emit jobFinished(false, QStringLiteral("unknown exception"));
+        }, Qt::QueuedConnection);
+    }
 }
 
 } // namespace vortia
