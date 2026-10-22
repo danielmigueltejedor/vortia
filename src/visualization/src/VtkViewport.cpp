@@ -96,9 +96,16 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
         renderWindow->GetInteractor()->SetInteractorStyle(style);
     }
 
-    // Corner axes sync disabled for debugging hover-spin. Re-enable once
-    // the spin is resolved.
-    (void)0;
+    // Keep the corner axes aligned with the main camera orientation.
+    if (renderer_->GetActiveCamera() != nullptr) {
+        auto cb = vtkSmartPointer<vtkCallbackCommand>::New();
+        cb->SetCallback([](vtkObject*, unsigned long, void* clientData, void*) {
+            auto* self = static_cast<VtkViewport*>(clientData);
+            self->syncCornerCamera();
+        });
+        cb->SetClientData(this);
+        renderer_->GetActiveCamera()->AddObserver(vtkCommand::ModifiedEvent, cb);
+    }
 
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(320, 240);
