@@ -33,3 +33,4 @@ qrc_*.cpp
 **/case/[0-9]*/
 !**/case/0/
 *.foam
+log.vortia
