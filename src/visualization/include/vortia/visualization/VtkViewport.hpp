@@ -45,9 +45,9 @@ public slots:
 
 private:
     vtkSmartPointer<vtkRenderer> renderer_;
+    vtkSmartPointer<vtkRenderer> cornerRenderer_;
     vtkSmartPointer<vtkActor> geometryActor_;
     vtkSmartPointer<vtkActor> domainActor_;
-    vtkSmartPointer<vtkOrientationMarkerWidget> orientationMarker_;
 };
 
 } // namespace vortia

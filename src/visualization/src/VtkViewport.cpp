@@ -3,22 +3,24 @@
 #include <vtkActor.h>
 #include <vtkAppendPolyData.h>
 #include <vtkAxesActor.h>
+#include <vtkCamera.h>
 #include <vtkCellArray.h>
 #include <vtkCompositeDataIterator.h>
 #include <vtkCubeSource.h>
 #include <vtkDataObject.h>
 #include <vtkDataSetSurfaceFilter.h>
 #include <vtkGenericOpenGLRenderWindow.h>
+#include <vtkInteractorStyleTrackballCamera.h>
 #include <vtkMultiBlockDataSet.h>
 #include <vtkNew.h>
-#include <vtkOrientationMarkerWidget.h>
-#include <vtkOutlineFilter.h>
 #include <vtkPoints.h>
 #include <vtkPolyData.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkProperty.h>
 #include <vtkRenderer.h>
 #include <vtkUnstructuredGrid.h>
+
+#include <cmath>
 
 namespace vortia {
 
@@ -51,26 +53,62 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     auto renderWindow = vtkSmartPointer<vtkGenericOpenGLRenderWindow>::New();
     setRenderWindow(renderWindow);
 
+    // Main scene renderer.
     renderer_ = vtkSmartPointer<vtkRenderer>::New();
-    renderer_->SetBackground(0.13, 0.14, 0.16); // dark by default
+    renderer_->SetBackground(0.13, 0.14, 0.16);
+    renderer_->SetViewport(0.0, 0.0, 1.0, 1.0);
     renderWindow->AddRenderer(renderer_);
 
-    // Orientation marker widget disabled: with VTK 9.7 on macOS it spins
-    // continuously on mouse hover (known interactor issue). A fixed
-    // world-space axes actor is used instead until a proper overlay is
-    // implemented.
+    // Corner axes overlay: separate renderer with its own camera, so the
+    // axes never steal mouse events and never spin on hover.
+    cornerRenderer_ = vtkSmartPointer<vtkRenderer>::New();
+    cornerRenderer_->SetBackground(0.13, 0.14, 0.16);
+    cornerRenderer_->SetViewport(0.82, 0.0, 1.0, 0.18);
+    cornerRenderer_->InteractiveOff();
+    auto cornerCamera = vtkSmartPointer<vtkCamera>::New();
+    cornerCamera->SetPosition(1.5, 1.5, 1.5);
+    cornerCamera->SetFocalPoint(0.0, 0.0, 0.0);
+    cornerCamera->SetViewUp(0.0, 0.0, 1.0);
+    cornerRenderer_->SetActiveCamera(cornerCamera);
+    renderWindow->AddRenderer(cornerRenderer_);
+
     auto axes = vtkSmartPointer<vtkAxesActor>::New();
-    axes->SetTotalLength(0.1, 0.1, 0.1);
+    axes->SetTotalLength(1.0, 1.0, 1.0);
     axes->SetPickable(0);
-    renderer_->AddActor(axes);
+    cornerRenderer_->AddActor(axes);
+
+    if (renderWindow->GetInteractor() != nullptr) {
+        auto style = vtkSmartPointer<vtkInteractorStyleTrackballCamera>::New();
+        renderWindow->GetInteractor()->SetInteractorStyle(style);
+    }
 
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(320, 240);
 }
 
-VtkViewport::~VtkViewport() {
-    if (orientationMarker_)
-        orientationMarker_->SetEnabled(0);
+VtkViewport::~VtkViewport() = default;
+
+void VtkViewport::syncCornerCamera() {
+    if (cornerRenderer_ == nullptr || renderer_ == nullptr)
+        return;
+    vtkCamera* mainCam = renderer_->GetActiveCamera();
+    vtkCamera* cornerCam = cornerRenderer_->GetActiveCamera();
+    if (mainCam == nullptr || cornerCam == nullptr)
+        return;
+    double pos[3], fp[3], vu[3];
+    mainCam->GetPosition(pos);
+    mainCam->GetFocalPoint(fp);
+    mainCam->GetViewUp(vu);
+    // Mirror orientation: keep the main camera's view direction.
+    double dir[3] = {fp[0] - pos[0], fp[1] - pos[1], fp[2] - pos[2]};
+    double len = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    if (len < 1e-12)
+        return;
+    // Place corner camera at a fixed distance along the same direction.
+    double dist = 3.0;
+    cornerCam->SetPosition(dir[0] / len * dist, dir[1] / len * dist, dir[2] / len * dist);
+    cornerCam->SetFocalPoint(0.0, 0.0, 0.0);
+    cornerCam->SetViewUp(vu[0], vu[1], vu[2]);
 }
 
 void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
@@ -85,7 +123,6 @@ void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
         geometryActor_ = vtkSmartPointer<vtkActor>::New();
         geometryActor_->SetMapper(mapper);
         geometryActor_->GetProperty()->SetColor(0.62, 0.78, 0.9);
-        geometryActor_->GetProperty()->SetEdgeVisibility(0);
         renderer_->AddActor(geometryActor_);
     }
     resetCamera();
@@ -114,16 +151,14 @@ void VtkViewport::showBoxDomain(const BoxDomain* box) {
 }
 
 void VtkViewport::showDataSet(vtkObject* data) {
-    auto* asData = vtkDataObject::SafeDownCast(data);
-    // Remove previous geometry actor.
     if (geometryActor_) {
         renderer_->RemoveActor(geometryActor_);
         geometryActor_ = nullptr;
     }
+    auto* asData = vtkDataObject::SafeDownCast(data);
     if (asData == nullptr)
         return;
 
-    // Collect unstructured grids from a (possibly composite) dataset.
     std::vector<vtkUnstructuredGrid*> grids;
     if (auto* mb = vtkMultiBlockDataSet::SafeDownCast(asData)) {
         auto* it = mb->NewIterator();
@@ -141,8 +176,6 @@ void VtkViewport::showDataSet(vtkObject* data) {
         return;
     }
 
-    // Render the surface of each grid as a single actor with multiple parts
-    // is not trivial; use one actor per grid appended via a vtkAppendPolyData.
     auto append = vtkSmartPointer<vtkAppendPolyData>::New();
     for (auto* g : grids) {
         auto* sf = vtkDataSetSurfaceFilter::New();
@@ -170,17 +203,19 @@ void VtkViewport::clearScene() {
 
 void VtkViewport::resetCamera() {
     renderer_->ResetCamera();
+    syncCornerCamera();
     if (auto* window = renderWindow())
         window->Render();
 }
 
 void VtkViewport::setDarkTheme(bool dark) {
-    if (dark)
+    if (dark) {
         renderer_->SetBackground(0.13, 0.14, 0.16);
-    else
+        cornerRenderer_->SetBackground(0.13, 0.14, 0.16);
+    } else {
         renderer_->SetBackground(0.93, 0.94, 0.96);
+        cornerRenderer_->SetBackground(0.93, 0.94, 0.96);
+    }
     if (auto* window = renderWindow())
         window->Render();
 }
-
-} // namespace vortia
