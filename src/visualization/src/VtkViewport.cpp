@@ -22,6 +22,7 @@
 #include <vtkPointData.h>
 #include <vtkPoints.h>
 #include <vtkScalarBarActor.h>
+#include <vtkLookupTable.h>
 #include <vtkTextProperty.h>
 #include <vtkPolyData.h>
 #include <vtkPolyDataMapper.h>
@@ -30,6 +31,8 @@
 #include <vtkUnstructuredGrid.h>
 #include <vtkXMLMultiBlockDataReader.h>
 
+#include <array>
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -39,6 +42,34 @@
 namespace vortia {
 
 namespace {
+
+// A perceptually ordered blue/teal/yellow scale (no misleading rainbow jumps).
+vtkSmartPointer<vtkLookupTable> makeScientificPalette(const double range[2]) {
+    constexpr std::array<std::array<double, 3>, 7> stops{{
+        {{0.267, 0.005, 0.329}},
+        {{0.283, 0.141, 0.458}},
+        {{0.254, 0.265, 0.530}},
+        {{0.163, 0.471, 0.558}},
+        {{0.134, 0.658, 0.518}},
+        {{0.478, 0.821, 0.318}},
+        {{0.993, 0.906, 0.144}},
+    }};
+    auto lut = vtkSmartPointer<vtkLookupTable>::New();
+    lut->SetNumberOfTableValues(256);
+    lut->SetTableRange(range);
+    lut->Build();
+    for (int i = 0; i < 256; ++i) {
+        const double scaled = (static_cast<double>(i) / 255.0) * (stops.size() - 1);
+        const auto base = std::min(static_cast<std::size_t>(scaled), stops.size() - 2);
+        const double fraction = scaled - static_cast<double>(base);
+        const auto color = [&](std::size_t channel) {
+            return stops[base][channel] * (1.0 - fraction) +
+                   stops[base + 1][channel] * fraction;
+        };
+        lut->SetTableValue(i, color(0), color(1), color(2), 1.0);
+    }
+    return lut;
+}
 
 vtkSmartPointer<vtkPolyData> toPolyData(const TriangleMesh& mesh) {
     auto points = vtkSmartPointer<vtkPoints>::New();
@@ -72,6 +103,23 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     renderer_->SetBackground(0.13, 0.14, 0.16);
     renderer_->SetViewport(0.0, 0.0, 1.0, 1.0);
     renderWindow->AddRenderer(renderer_);
+
+    // One owned legend for the lifetime of the viewport. Recoloring must
+    // never stack a new title and color bar on top of the previous one.
+    scalarBar_ = vtkSmartPointer<vtkScalarBarActor>::New();
+    scalarBar_->SetOrientationToVertical();
+    scalarBar_->SetNumberOfLabels(4);
+    scalarBar_->SetPosition(0.87, 0.27);
+    scalarBar_->SetWidth(0.10);
+    scalarBar_->SetHeight(0.44);
+    scalarBar_->SetUnconstrainedFontSize(1);
+    scalarBar_->GetTitleTextProperty()->SetFontSize(12);
+    scalarBar_->GetTitleTextProperty()->BoldOff();
+    scalarBar_->GetLabelTextProperty()->SetFontSize(10);
+    scalarBar_->GetLabelTextProperty()->BoldOff();
+    scalarBar_->SetVisibility(false);
+    renderer_->AddActor2D(scalarBar_);
+
 
     // Corner axes overlay: separate renderer with its own camera, so the
     // axes never steal mouse events and never spin on hover.
@@ -164,6 +212,9 @@ void VtkViewport::syncCornerCamera() {
 }
 
 void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
+    currentData_ = nullptr;
+    loadedFile_.clear();
+    if (scalarBar_) scalarBar_->SetVisibility(false);
     if (geometryActor_) {
         renderer_->RemoveActor(geometryActor_);
         geometryActor_ = nullptr;
@@ -181,6 +232,9 @@ void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
 }
 
 void VtkViewport::showBoxDomain(const BoxDomain* box) {
+    currentData_ = nullptr;
+    loadedFile_.clear();
+    if (scalarBar_) scalarBar_->SetVisibility(false);
     if (domainActor_) {
         renderer_->RemoveActor(domainActor_);
         domainActor_ = nullptr;
@@ -216,9 +270,7 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
         return;
     currentData_ = asData;
     currentField_ = scalarField;
-    // Remove old scalar bar actors.
-    // (Simple: remove all actors that are vtkScalarBarActor.)
-    // VTK doesn't easily filter, so we track via a re-render; acceptable for MVP.
+    if (scalarBar_) scalarBar_->SetVisibility(false);
 
     std::vector<vtkUnstructuredGrid*> grids;
     if (auto* mb = vtkMultiBlockDataSet::SafeDownCast(asData)) {
@@ -298,7 +350,7 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
             }
         }
     }
-    if (scalars == nullptr) {
+    if (scalars == nullptr && lookupName.empty()) {
         const char* preferred[] = {"p", "T", "U", "Ma", nullptr};
         for (int i = 0; preferred[i] != nullptr; ++i) {
             scalars = poly->GetPointData()->GetArray(preferred[i]);
@@ -308,24 +360,24 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
             }
         }
     }
-    if (scalars == nullptr && poly->GetPointData()->GetNumberOfArrays() > 0) {
+    if (scalars == nullptr && lookupName.empty() && poly->GetPointData()->GetNumberOfArrays() > 0) {
         scalars = poly->GetPointData()->GetArray(0);
         if (scalars != nullptr)
             poly->GetPointData()->SetActiveScalars(scalars->GetName());
     }
-    if (scalars == nullptr) {
+    if (scalars == nullptr && lookupName.empty()) {
         scalars = poly->GetCellData()->GetArray(0);
         if (scalars != nullptr) {
             poly->GetCellData()->SetActiveScalars(scalars->GetName());
             useCellData = true;
         }
     }
-    if (scalars == nullptr && poly->GetPointData()->GetNumberOfArrays() > 0) {
+    if (scalars == nullptr && lookupName.empty() && poly->GetPointData()->GetNumberOfArrays() > 0) {
         scalars = poly->GetPointData()->GetArray(0);
         if (scalars != nullptr)
             poly->GetPointData()->SetActiveScalars(scalars->GetName());
     }
-    if (scalars == nullptr) {
+    if (scalars == nullptr && lookupName.empty()) {
         scalars = poly->GetCellData()->GetArray(0);
         if (scalars != nullptr) {
             poly->GetCellData()->SetActiveScalars(scalars->GetName());
@@ -338,37 +390,56 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
     if (scalars != nullptr) {
         if (useCellData)
             mapper->SetScalarModeToUseCellData();
+        else
+            mapper->SetScalarModeToUsePointData();
         mapper->ScalarVisibilityOn();
         double rng[2];
-        poly->GetScalarRange(rng);
+        scalars->GetRange(rng);  // Range of the SELECTED field, not a stale active array.
+        if (rng[0] == rng[1]) {
+            const double padding = std::max(1e-9, std::abs(rng[0]) * 1e-6);
+            rng[0] -= padding;
+            rng[1] += padding;
+        }
+        auto palette = makeScientificPalette(rng);
+        mapper->SetLookupTable(palette);
         mapper->SetScalarRange(rng);
+        mapper->UseLookupTableScalarRangeOn();
         mapper->SetColorModeToMapScalars();
-        auto* sb = vtkScalarBarActor::New();
-        sb->SetLookupTable(mapper->GetLookupTable());
-        std::string title = scalars->GetName() ? scalars->GetName() : "field";
-        sb->SetTitle(title.c_str());
-        sb->SetNumberOfLabels(5);
-        // Keep the bar compact and out of the way of the geometry.
-        sb->SetWidth(0.08);
-        sb->SetHeight(0.4);
-        sb->SetPosition(0.90, 0.30);
-        vtkTextProperty* tprop = sb->GetTitleTextProperty();
-        if (tprop) { tprop->SetFontSize(12); tprop->BoldOff(); }
-        vtkTextProperty* lprop = sb->GetLabelTextProperty();
-        if (lprop) { lprop->SetFontSize(10); }
-        renderer_->AddActor(sb);
-        sb->Delete();
-        std::cout << "VtkViewport: coloring by '" << (scalars->GetName() ? scalars->GetName() : "?")
-                  << "' range=[" << rng[0] << ", " << rng[1] << "] "
-                  << (useCellData ? "(cell)" : "(point)") << "\\n";
+
+        scalarBar_->SetLookupTable(palette);
+        scalarBar_->SetTitle(scalars->GetName() ? scalars->GetName() : "Field");
+        scalarBar_->SetVisibility(true);
     } else {
+        // An unavailable field should never show a stale legend.
         mapper->ScalarVisibilityOff();
-        std::cout << "VtkViewport: no scalar field found\\n";
+        scalarBar_->SetVisibility(false);
     }
     geometryActor_ = vtkSmartPointer<vtkActor>::New();
     geometryActor_->SetMapper(mapper);
     renderer_->AddActor(geometryActor_);
-    resetCamera();
+    if (resetViewOnNextData_) {
+        // Thin extruded 2D cases are best presented face-on, not at an
+        // accidental isometric angle inherited from an empty scene.
+        double bounds[6];
+        poly->GetBounds(bounds);
+        const double dx = bounds[1] - bounds[0];
+        const double dy = bounds[3] - bounds[2];
+        const double dz = bounds[5] - bounds[4];
+        const double cx = (bounds[0] + bounds[1]) * 0.5;
+        const double cy = (bounds[2] + bounds[3]) * 0.5;
+        const double cz = (bounds[4] + bounds[5]) * 0.5;
+        const double maxExtent = std::max({dx, dy, dz});
+        if (maxExtent > 0.0 && dz <= 0.1 * std::min(dx, dy)) {
+            auto* camera = renderer_->GetActiveCamera();
+            camera->ParallelProjectionOn();
+            camera->SetFocalPoint(cx, cy, cz);
+            camera->SetPosition(cx, cy, cz + 2.0 * maxExtent);
+            camera->SetViewUp(0.0, 1.0, 0.0);
+        }
+        resetCamera();
+    } else if (auto* window = renderWindow()) {
+        window->Render();
+    }
 }
 
 void VtkViewport::loadVtmFile(const std::string& path, const std::string& scalarField) {
@@ -378,8 +449,11 @@ void VtkViewport::loadVtmFile(const std::string& path, const std::string& scalar
         auto reader = vtkSmartPointer<vtkXMLMultiBlockDataReader>::New();
         reader->SetFileName(path.c_str());
         reader->Update();
-        if (reader->GetOutput() != nullptr)
+        if (reader->GetOutput() != nullptr) {
+            resetViewOnNextData_ = (path != loadedFile_);
             showDataSet(reader->GetOutput(), scalarField);
+            loadedFile_ = path;
+        }
     } catch (...) {
         // Swallow; the caller logs the failure.
     }
@@ -389,6 +463,7 @@ void VtkViewport::setColorField(const std::string& fieldName) {
     if (currentData_ == nullptr)
         return;
     currentField_ = fieldName;
+    resetViewOnNextData_ = false;
     showDataSet(currentData_, fieldName);
 }
 

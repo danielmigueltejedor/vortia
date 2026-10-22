@@ -11,6 +11,7 @@
 #include <string>
 
 class vtkActor;
+class vtkScalarBarActor;
 class vtkOrientationMarkerWidget;
 class vtkRenderer;
 
@@ -64,10 +65,13 @@ public slots:
 private:
     vtkSmartPointer<vtkRenderer> renderer_;
     vtkSmartPointer<vtkRenderer> cornerRenderer_;
+    vtkSmartPointer<vtkScalarBarActor> scalarBar_;
     vtkSmartPointer<vtkActor> geometryActor_;
     vtkSmartPointer<vtkActor> domainActor_;
     vtkSmartPointer<vtkDataObject> currentData_;
     std::string currentField_;
+    std::string loadedFile_;
+    bool resetViewOnNextData_{true};
 };
 
 } // namespace vortia
