@@ -32,7 +32,7 @@ void vortia::VtkInteractorStyle::OnRightButtonUp() {
 }
 
 void vortia::VtkInteractorStyle::OnMouseMove() {
-    if (!buttonDown_)
-        return; // ignore bare motion
+    if (this->State == VTKIS_NONE)
+        return; // no button pressed -> ignore motion
     Superclass::OnMouseMove();
 }
