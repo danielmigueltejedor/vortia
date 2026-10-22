@@ -54,6 +54,8 @@ constexpr std::size_t kMaxBashrcBytes = 4 * 1024 * 1024; // sanity limit for par
     roots.emplace_back("/usr/lib/openfoam");
     roots.emplace_back("/usr/local/opt");
     roots.emplace_back("/opt/homebrew/opt");
+    roots.emplace_back("/Volumes");
+    roots.emplace_back("/Applications");
     if (const char* home = std::getenv("HOME"))
         roots.emplace_back(std::filesystem::path(home) / "OpenFOAM");
     roots.emplace_back("/Applications");

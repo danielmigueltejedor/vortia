@@ -1,0 +1,40 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      p;
+}
+dimensions      [1 -1 -2 0 0 0 0];
+internalField   uniform 101325;
+boundaryField
+{
+    axis
+    {
+        type            empty;
+    }
+    inlet
+    {
+        type            totalPressure;
+        p0              uniform 120000;
+        gamma           1.4;
+        value           uniform 120000;
+    }
+    walls
+    {
+        type            zeroGradient;
+    }
+    atmosphere
+    {
+        type            fixedValue;
+        value           uniform 101325;
+    }
+    front
+    {
+        type            wedge;
+    }
+    back
+    {
+        type            wedge;
+    }
+}
