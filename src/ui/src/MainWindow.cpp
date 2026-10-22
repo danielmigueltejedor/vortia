@@ -142,6 +142,15 @@ void MainWindow::buildMenusAndToolbar() {
     tb->addSeparator();
     tb->addAction(runAction_);
     tb->addAction(cancelAction_);
+    tb->addSeparator();
+    tb->addWidget(new QLabel(tr("Field:"), this));
+    fieldCombo_ = new QComboBox(this);
+    fieldCombo_->addItems({QStringLiteral("p"), QStringLiteral("U"), QStringLiteral("|U|"),
+                           QStringLiteral("Ux"), QStringLiteral("Uy"), QStringLiteral("Uz"),
+                           QStringLiteral("T")});
+    tb->addWidget(fieldCombo_);
+    connect(fieldCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &MainWindow::onFieldChanged);
 
     statusLabel_ = new QLabel(this);
     statusBar()->addPermanentWidget(statusLabel_);
@@ -164,6 +173,8 @@ void MainWindow::buildDocks() {
     auto* consoleDock = new QDockWidget(tr("Console"), this);
     console_ = new ConsolePanel(this);
     consoleDock->setWidget(console_);
+    consoleDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
+    consoleDock->setMaximumHeight(180);
     addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
 }
 
@@ -544,7 +555,8 @@ void MainWindow::onJobFinished(bool success, const QString& summary) {
 
 void MainWindow::onResultsReady(const QString& vtmPath) {
     try {
-        viewport_->loadVtmFile(vtmPath.toStdString());
+        lastVtmPath_ = vtmPath;
+        viewport_->loadVtmFile(vtmPath.toStdString(), fieldCombo_->currentText().toStdString());
         console_->appendSolverOutput(tr("Loaded results: %1\n").arg(vtmPath));
         setProjectState(tr("Results loaded."));
     } catch (const std::exception& e) {
@@ -552,6 +564,12 @@ void MainWindow::onResultsReady(const QString& vtmPath) {
     } catch (...) {
         console_->appendSolverOutput(tr("Failed to load results: unknown error\n"));
     }
+}
+
+void MainWindow::onFieldChanged(int /*index*/) {
+    if (lastVtmPath_.isEmpty())
+        return;
+    viewport_->loadVtmFile(lastVtmPath_.toStdString(), fieldCombo_->currentText().toStdString());
 }
 
 void MainWindow::onToggleTheme() {

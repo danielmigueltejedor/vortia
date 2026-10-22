@@ -18,6 +18,7 @@
 #include <vtkOutlineFilter.h>
 #include <vtkCellData.h>
 #include <vtkDataArray.h>
+#include <vtkFloatArray.h>
 #include <vtkPointData.h>
 #include <vtkPoints.h>
 #include <vtkScalarBarActor.h>
@@ -194,7 +195,7 @@ void VtkViewport::showBoxDomain(const BoxDomain* box) {
     resetCamera();
 }
 
-void VtkViewport::showDataSet(vtkObject* data) {
+void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
     if (geometryActor_) {
         renderer_->RemoveActor(geometryActor_);
         geometryActor_ = nullptr;
@@ -206,6 +207,11 @@ void VtkViewport::showDataSet(vtkObject* data) {
     auto* asData = vtkDataObject::SafeDownCast(data);
     if (asData == nullptr)
         return;
+    currentData_ = asData;
+    currentField_ = scalarField;
+    // Remove old scalar bar actors.
+    // (Simple: remove all actors that are vtkScalarBarActor.)
+    // VTK doesn't easily filter, so we track via a re-render; acceptable for MVP.
 
     std::vector<vtkUnstructuredGrid*> grids;
     if (auto* mb = vtkMultiBlockDataSet::SafeDownCast(asData)) {
@@ -235,15 +241,76 @@ void VtkViewport::showDataSet(vtkObject* data) {
     append->Update();
 
     auto* poly = append->GetOutput();
-    // Choose a scalar field: prefer pressure, then temperature, then first.
+    // Special derived fields from U.
+    if (currentField_ == "|U|" || currentField_ == "Ux" || currentField_ == "Uy" ||
+        currentField_ == "Uz") {
+        vtkDataArray* uarr = poly->GetPointData()->GetArray("U");
+        if (uarr != nullptr && uarr->GetNumberOfComponents() >= 3) {
+            vtkIdType n = uarr->GetNumberOfTuples();
+            auto* derived = vtkFloatArray::New();
+            std::string name = currentField_;
+            if (name == "|U|")
+                name = "Umag";
+            derived->SetName(name.c_str());
+            derived->SetNumberOfTuples(n);
+            for (vtkIdType i = 0; i < n; ++i) {
+                double v[3];
+                uarr->GetTuple(i, v);
+                if (currentField_ == "|U|")
+                    derived->SetTuple1(i, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+                else if (currentField_ == "Ux")
+                    derived->SetTuple1(i, v[0]);
+                else if (currentField_ == "Uy")
+                    derived->SetTuple1(i, v[1]);
+                else
+                    derived->SetTuple1(i, v[2]);
+            }
+            // Replace existing if present.
+            poly->GetPointData()->RemoveArray(name.c_str());
+            poly->GetPointData()->AddArray(derived);
+            poly->GetPointData()->SetActiveScalars(name.c_str());
+            derived->Delete();
+        }
+    }
+
+    // Choose a scalar field: explicit request first, then preferred list.
     vtkDataArray* scalars = nullptr;
     bool useCellData = false;
-    const char* preferred[] = {"p", "T", "U", "Ma", nullptr};
-    for (int i = 0; preferred[i] != nullptr; ++i) {
-        scalars = poly->GetPointData()->GetArray(preferred[i]);
+    std::string lookupName = currentField_;
+    if (lookupName == "|U|")
+        lookupName = "Umag";
+    if (!lookupName.empty()) {
+        scalars = poly->GetPointData()->GetArray(lookupName.c_str());
+        if (scalars) {
+            poly->GetPointData()->SetActiveScalars(lookupName.c_str());
+        } else {
+            scalars = poly->GetCellData()->GetArray(lookupName.c_str());
+            if (scalars) {
+                poly->GetCellData()->SetActiveScalars(lookupName.c_str());
+                useCellData = true;
+            }
+        }
+    }
+    if (scalars == nullptr) {
+        const char* preferred[] = {"p", "T", "U", "Ma", nullptr};
+        for (int i = 0; preferred[i] != nullptr; ++i) {
+            scalars = poly->GetPointData()->GetArray(preferred[i]);
+            if (scalars != nullptr) {
+                poly->GetPointData()->SetActiveScalars(preferred[i]);
+                break;
+            }
+        }
+    }
+    if (scalars == nullptr && poly->GetPointData()->GetNumberOfArrays() > 0) {
+        scalars = poly->GetPointData()->GetArray(0);
+        if (scalars != nullptr)
+            poly->GetPointData()->SetActiveScalars(scalars->GetName());
+    }
+    if (scalars == nullptr) {
+        scalars = poly->GetCellData()->GetArray(0);
         if (scalars != nullptr) {
-            poly->GetPointData()->SetActiveScalars(preferred[i]);
-            break;
+            poly->GetCellData()->SetActiveScalars(scalars->GetName());
+            useCellData = true;
         }
     }
     if (scalars == nullptr && poly->GetPointData()->GetNumberOfArrays() > 0) {
@@ -297,7 +364,7 @@ void VtkViewport::showDataSet(vtkObject* data) {
     resetCamera();
 }
 
-void VtkViewport::loadVtmFile(const std::string& path) {
+void VtkViewport::loadVtmFile(const std::string& path, const std::string& scalarField) {
     if (path.empty() || !std::filesystem::exists(path))
         return;
     try {
@@ -305,10 +372,17 @@ void VtkViewport::loadVtmFile(const std::string& path) {
         reader->SetFileName(path.c_str());
         reader->Update();
         if (reader->GetOutput() != nullptr)
-            showDataSet(reader->GetOutput());
+            showDataSet(reader->GetOutput(), scalarField);
     } catch (...) {
         // Swallow; the caller logs the failure.
     }
+}
+
+void VtkViewport::setColorField(const std::string& fieldName) {
+    if (currentData_ == nullptr)
+        return;
+    currentField_ = fieldName;
+    showDataSet(currentData_, fieldName);
 }
 
 void VtkViewport::clearScene() {

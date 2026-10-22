@@ -9,6 +9,7 @@
 #include "vortia/ui/PropertiesPanel.hpp"
 #include "vortia/visualization/VtkViewport.hpp"
 
+#include <QComboBox>
 #include <QLabel>
 #include <QMainWindow>
 #include <QSettings>
@@ -40,6 +41,7 @@ private slots:
     void onCancel();
     void onJobFinished(bool success, const QString& summary);
     void onResultsReady(const QString& vtmPath);
+    void onFieldChanged(int index);
     void onToggleTheme();
     void onDetectOpenFoam();
     void onAbout();
@@ -75,7 +77,9 @@ private:
     QAction* runAction_{nullptr};
     QAction* cancelAction_{nullptr};
     QAction* themeAction_{nullptr};
+    QComboBox* fieldCombo_{nullptr};
     QLabel* statusLabel_{nullptr};
+    QString lastVtmPath_;
     std::unique_ptr<QSettings> settings_;
 };
 

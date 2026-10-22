@@ -35,10 +35,13 @@ public:
 
     /// Displays an arbitrary VTK dataset (e.g. a Fluent CFF multiblock).
     /// Ownership of the dataset is NOT taken; the caller keeps it alive.
-    void showDataSet(vtkObject* data);
+    void showDataSet(vtkObject* data, const std::string& scalarField = {});
 
     /// Loads and displays a .vtm (VTK multiblock) file, e.g. from foamToVTK.
-    void loadVtmFile(const std::string& path);
+    void loadVtmFile(const std::string& path, const std::string& scalarField = {});
+
+    /// Re-colors the currently loaded dataset by the given field name.
+    void setColorField(const std::string& fieldName);
 
     void clearScene();
     void resetCamera();
@@ -59,6 +62,8 @@ private:
     vtkSmartPointer<vtkRenderer> cornerRenderer_;
     vtkSmartPointer<vtkActor> geometryActor_;
     vtkSmartPointer<vtkActor> domainActor_;
+    vtkSmartPointer<vtkDataObject> currentData_;
+    std::string currentField_;
 };
 
 } // namespace vortia
