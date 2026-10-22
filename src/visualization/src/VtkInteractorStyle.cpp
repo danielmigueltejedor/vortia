@@ -32,7 +32,9 @@ void vortia::VtkInteractorStyle::OnRightButtonUp() {
 }
 
 void vortia::VtkInteractorStyle::OnMouseMove() {
-    if (this->State == VTKIS_NONE)
-        return; // no button pressed -> ignore motion
+    // State alone is insufficient: macOS gesture synthesis can leave a stale
+    // VTK interaction state after the physical pointer was released.
+    if (!buttonDown_ || this->State == VTKIS_NONE)
+        return;
     Superclass::OnMouseMove();
 }
