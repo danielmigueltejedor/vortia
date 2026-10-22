@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>Vortia</string>
+    <key>CFBundleDisplayName</key><string>Vortia</string>
+    <key>CFBundleIdentifier</key><string>dev.vortia.app</string>
+    <key>CFBundleExecutable</key><string>vortia</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconFile</key><string>Vortia.icns</string>
+    <key>CFBundleVersion</key><string>0.1.0</string>
+    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>LSMinimumSystemVersion</key><string>13.0</string>
+</dict>
+</plist>

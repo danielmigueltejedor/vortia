@@ -51,5 +51,11 @@ jobs:
                 -DCMAKE_PREFIX_PATH="$(brew --prefix qt);$(brew --prefix vtk);$(brew --prefix hdf5)"
       - name: Build
         run: cmake --build build
+      - name: Build local macOS app bundle
+        run: |
+          cmake --build build --target vortia_macos_bundle
+          test -f build/Vortia.app/Contents/MacOS/vortia
+          test -s build/Vortia.app/Contents/Resources/Vortia.icns
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' build/Vortia.app/Contents/Info.plist
       - name: Test
         run: ctest --test-dir build --output-on-failure

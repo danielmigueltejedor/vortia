@@ -54,3 +54,20 @@ ctest --test-dir build --output-on-failure
 ## Licencia
 
 GPL-3.0-or-later (propuesta tras la revisión de compatibilidad de dependencias; ver `docs/architecture/research.md` §8). Vortia es una marca e implementación originales, sin relación con ANSYS, Inc.
+
+## Icono de aplicación
+
+El icono oficial de Vortia está en `resources/icons/vortia.png` y se incluye en el
+ejecutable con el sistema de recursos de Qt (`:/vortia/app-icon.png`), para que
+la ventana y Dock utilicen el mismo diseño.
+
+En macOS, para generar una aplicación `.app` con icono de Finder:
+
+```sh
+cmake --build build-macos --target vortia_macos_bundle
+open build-macos/Vortia.app
+```
+
+El ejecutable de desarrollo `build-macos/bin/vortia` sigue disponible. El
+paquete `.app` está pensado para **uso local**; distribuirlo en otros Mac
+requerirá incorporar las dependencias de Qt/VTK y firmarlo/notarizarlo.
