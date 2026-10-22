@@ -15,7 +15,11 @@
 #include <vtkMultiBlockDataSet.h>
 #include <vtkNew.h>
 #include <vtkOutlineFilter.h>
+#include <vtkCellData.h>
+#include <vtkDataArray.h>
+#include <vtkPointData.h>
 #include <vtkPoints.h>
+#include <vtkScalarBarActor.h>
 #include <vtkPolyData.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkProperty.h>
@@ -200,12 +204,50 @@ void VtkViewport::showDataSet(vtkObject* data) {
     }
     append->Update();
 
+    auto* poly = append->GetOutput();
+    // Choose a scalar field: prefer pressure, then temperature, then first.
+    vtkDataArray* scalars = nullptr;
+    bool useCellData = false;
+    const char* preferred[] = {"p", "T", "U", "Ma", nullptr};
+    for (int i = 0; preferred[i] != nullptr; ++i) {
+        scalars = poly->GetPointData()->GetArray(preferred[i]);
+        if (scalars != nullptr) {
+            poly->GetPointData()->SetActiveScalars(preferred[i]);
+            break;
+        }
+    }
+    if (scalars == nullptr && poly->GetPointData()->GetNumberOfArrays() > 0) {
+        scalars = poly->GetPointData()->GetArray(0);
+        if (scalars != nullptr)
+            poly->GetPointData()->SetActiveScalars(scalars->GetName());
+    }
+    if (scalars == nullptr) {
+        scalars = poly->GetCellData()->GetArray(0);
+        if (scalars != nullptr) {
+            poly->GetCellData()->SetActiveScalars(scalars->GetName());
+            useCellData = true;
+        }
+    }
+
     auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputData(append->GetOutput());
-    mapper->ScalarVisibilityOff();
+    mapper->SetInputData(poly);
+    if (scalars != nullptr) {
+        if (useCellData)
+            mapper->SetScalarModeToUseCellData();
+        mapper->ScalarVisibilityOn();
+        mapper->SetScalarRange(poly->GetScalarRange());
+        mapper->SetColorModeToMapScalars();
+        auto* sb = vtkScalarBarActor::New();
+        sb->SetLookupTable(mapper->GetLookupTable());
+        sb->SetTitle(scalars->GetName() ? scalars->GetName() : "field");
+        sb->SetNumberOfLabels(5);
+        renderer_->AddActor(sb);
+        sb->Delete();
+    } else {
+        mapper->ScalarVisibilityOff();
+    }
     geometryActor_ = vtkSmartPointer<vtkActor>::New();
     geometryActor_->SetMapper(mapper);
-    geometryActor_->GetProperty()->SetColor(0.62, 0.78, 0.9);
     renderer_->AddActor(geometryActor_);
     resetCamera();
 }
