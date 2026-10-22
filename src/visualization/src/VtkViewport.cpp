@@ -39,6 +39,8 @@
 #include <iostream>
 
 #include <QMouseEvent>
+#include <QWheelEvent>
+#include <QEvent>
 
 namespace vortia {
 
@@ -191,13 +193,37 @@ void VtkViewport::leaveEvent(QEvent* event) {
 }
 
 void VtkViewport::mouseMoveEvent(QMouseEvent* event) {
-    // Only forward mouse motion to VTK when a button is pressed. This
-    // prevents hover from triggering any camera movement.
+    // Trackpads can synthesize motion events while there is no deliberate
+    // drag. Never forward those to the VTK trackball style.
     if (event->buttons() == Qt::NoButton) {
         event->accept();
         return;
     }
     QVTKOpenGLNativeWidget::mouseMoveEvent(event);
+}
+
+void VtkViewport::wheelEvent(QWheelEvent* event) {
+    // On macOS, two-finger scrolling provides pixelDelta and is easy to
+    // trigger inadvertently when navigating the UI. Require Cmd/Ctrl to
+    // zoom with a precision trackpad; traditional mouse wheels still zoom.
+    const bool precisionScroll = !event->pixelDelta().isNull();
+    const auto modifiers = event->modifiers();
+    if (precisionScroll && !(modifiers & (Qt::ControlModifier | Qt::MetaModifier))) {
+        event->accept();
+        return;
+    }
+    QVTKOpenGLNativeWidget::wheelEvent(event);
+}
+
+bool VtkViewport::event(QEvent* event) {
+    // VTK/Qt may interpret native touchpad rotate/pan gestures as a camera
+    // interaction, even without a mouse-button drag. A dedicated gesture
+    // navigation mode can be added later with explicit user controls.
+    if (event->type() == QEvent::NativeGesture) {
+        event->accept();
+        return true;
+    }
+    return QVTKOpenGLNativeWidget::event(event);
 }
 
 void VtkViewport::syncCornerCamera() {

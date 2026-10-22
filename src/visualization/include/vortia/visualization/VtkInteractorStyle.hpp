@@ -2,7 +2,6 @@
 
 #include <vtkInteractorStyleTrackballCamera.h>
 
-#include <atomic>
 
 namespace vortia {
 
