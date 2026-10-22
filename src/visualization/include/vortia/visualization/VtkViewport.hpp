@@ -46,6 +46,7 @@ public:
 protected:
     void showEvent(QShowEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
 
 private:
     void syncCornerCamera();

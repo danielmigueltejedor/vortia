@@ -32,6 +32,8 @@
 #include <filesystem>
 #include <iostream>
 
+#include <QMouseEvent>
+
 namespace vortia {
 
 namespace {
@@ -117,17 +119,16 @@ void VtkViewport::showEvent(QShowEvent* event) {
 
 void VtkViewport::leaveEvent(QEvent* event) {
     QVTKOpenGLNativeWidget::leaveEvent(event);
-    // Reset any stuck drag state.
-    if (auto* rw = renderWindow()) {
-        if (auto* iren = rw->GetInteractor()) {
-            if (auto* style = dynamic_cast<vortia::VtkInteractorStyle*>(iren->GetInteractorStyle())) {
-                // Force release all buttons.
-                iren->InvokeEvent(vtkCommand::LeftButtonReleaseEvent, nullptr);
-                iren->InvokeEvent(vtkCommand::MiddleButtonReleaseEvent, nullptr);
-                iren->InvokeEvent(vtkCommand::RightButtonReleaseEvent, nullptr);
-            }
-        }
+}
+
+void VtkViewport::mouseMoveEvent(QMouseEvent* event) {
+    // Only forward mouse motion to VTK when a button is pressed. This
+    // prevents hover from triggering any camera movement.
+    if (event->buttons() == Qt::NoButton) {
+        event->accept();
+        return;
     }
+    QVTKOpenGLNativeWidget::mouseMoveEvent(event);
 }
 
 void VtkViewport::syncCornerCamera() {
