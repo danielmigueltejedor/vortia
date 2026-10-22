@@ -14,6 +14,8 @@
 #include "vortia/ui/ThemeManager.hpp"
 
 #include <QMenuBar>
+#include <QStyle>
+#include <QSize>
 
 #include <QAction>
 #include <QApplication>
@@ -26,12 +28,7 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QToolBar>
-#include <QFileDialog>
 #include <QLabel>
-#include <QMenu>
-#include <QMessageBox>
-#include <QStatusBar>
-#include <QToolBar>
 
 #include <filesystem>
 #include <fstream>
@@ -110,12 +107,12 @@ MainWindow::~MainWindow() = default;
 
 void MainWindow::buildMenusAndToolbar() {
     auto* fileMenu = menuBar()->addMenu(tr("File"));
-    fileMenu->addAction(tr("New Project"), this, &MainWindow::onNewProject, QKeySequence::New);
-    fileMenu->addAction(tr("Open Project…"), this, &MainWindow::onOpenProject, QKeySequence::Open);
-    fileMenu->addAction(tr("Open OpenFOAM Case…"), this, &MainWindow::onOpenExistingCase);
-    fileMenu->addAction(tr("Save Project"), this, &MainWindow::onSaveProject, QKeySequence::Save);
+    auto* newProject = fileMenu->addAction(tr("New Project"), this, &MainWindow::onNewProject, QKeySequence::New);
+    auto* openProject = fileMenu->addAction(tr("Open Project…"), this, &MainWindow::onOpenProject, QKeySequence::Open);
+    auto* openFoam = fileMenu->addAction(tr("Open OpenFOAM Case…"), this, &MainWindow::onOpenExistingCase);
+    auto* saveProject = fileMenu->addAction(tr("Save Project"), this, &MainWindow::onSaveProject, QKeySequence::Save);
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("Import STL…"), this, &MainWindow::onImportStl);
+    auto* importStl = fileMenu->addAction(tr("Import STL…"), this, &MainWindow::onImportStl);
     fileMenu->addAction(tr("Import ANSYS Fluent…"), this, &MainWindow::onImportFluent);
     fileMenu->addSeparator();
     fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
@@ -127,24 +124,43 @@ void MainWindow::buildMenusAndToolbar() {
     cancelAction_->setEnabled(false);
 
     auto* viewMenu = menuBar()->addMenu(tr("View"));
+    viewMenu->setObjectName(QStringLiteral("vortia-view-menu"));
     themeAction_ = viewMenu->addAction(tr("Toggle Dark/Light Theme"), this, &MainWindow::onToggleTheme);
 
     auto* helpMenu = menuBar()->addMenu(tr("Help"));
     helpMenu->addAction(tr("About Vortia"), this, &MainWindow::onAbout);
 
-    auto* tb = addToolBar(tr("Main"));
+    // Retain explicit action pointers: relying on menu indices broke Save when
+    // "Open OpenFOAM Case" was inserted before it.
+    auto* tb = addToolBar(tr("Workspace"));
+    tb->setObjectName(QStringLiteral("vortia-main-toolbar"));
     tb->setMovable(false);
-    tb->addAction(fileMenu->actions().at(0)); // New
-    tb->addAction(fileMenu->actions().at(1)); // Open
-    tb->addAction(fileMenu->actions().at(2)); // Save
+    tb->setFloatable(false);
+    tb->setIconSize(QSize(18, 18));
+    tb->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    newProject->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
+    openProject->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
+    saveProject->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
+    runAction_->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    cancelAction_->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
+    tb->addAction(newProject);
+    tb->addAction(openProject);
+    tb->addAction(saveProject);
     tb->addSeparator();
-    tb->addAction(fileMenu->actions().at(4)); // Import STL
+    tb->addAction(openFoam);
+    tb->addAction(importStl);
     tb->addSeparator();
     tb->addAction(runAction_);
     tb->addAction(cancelAction_);
     tb->addSeparator();
-    tb->addWidget(new QLabel(tr("Field:"), this));
+
+    auto* fieldLabel = new QLabel(tr("FIELD"), this);
+    fieldLabel->setObjectName(QStringLiteral("vortia-field-label"));
+    tb->addWidget(fieldLabel);
     fieldCombo_ = new QComboBox(this);
+    fieldCombo_->setObjectName(QStringLiteral("vortia-field-selector"));
+    fieldCombo_->setMinimumWidth(92);
+    fieldCombo_->setToolTip(tr("Select a field to display on the current CFD result."));
     fieldCombo_->addItems({QStringLiteral("p"), QStringLiteral("U"), QStringLiteral("|U|"),
                            QStringLiteral("Ux"), QStringLiteral("Uy"), QStringLiteral("Uz"),
                            QStringLiteral("T")});
@@ -156,8 +172,13 @@ void MainWindow::buildMenusAndToolbar() {
     auto* viewXY = tb->addAction(tr("XY"));
     auto* viewXZ = tb->addAction(tr("XZ"));
     auto* viewYZ = tb->addAction(tr("YZ"));
-    auto* viewIso = tb->addAction(tr("Iso"));
-    auto* viewReset = tb->addAction(tr("Reset"));
+    auto* viewIso = tb->addAction(tr("3D"));
+    auto* viewReset = tb->addAction(tr("Fit"));
+    viewXY->setToolTip(tr("Look along Z at the XY plane"));
+    viewXZ->setToolTip(tr("Look along Y at the XZ plane"));
+    viewYZ->setToolTip(tr("Look along X at the YZ plane"));
+    viewIso->setToolTip(tr("Isometric view"));
+    viewReset->setToolTip(tr("Fit the geometry into the view"));
     connect(viewXY, &QAction::triggered, this, [this]() { viewport_->setViewXY(); });
     connect(viewXZ, &QAction::triggered, this, [this]() { viewport_->setViewXZ(); });
     connect(viewYZ, &QAction::triggered, this, [this]() { viewport_->setViewYZ(); });
@@ -165,29 +186,64 @@ void MainWindow::buildMenusAndToolbar() {
     connect(viewReset, &QAction::triggered, this, [this]() { viewport_->resetCamera(); });
 
     statusLabel_ = new QLabel(this);
-    statusBar()->addPermanentWidget(statusLabel_);
+    statusLabel_->setObjectName(QStringLiteral("vortia-status-text"));
+    statusBar()->addWidget(statusLabel_, 1);
 }
 
 void MainWindow::buildDocks() {
+    setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowTabbedDocks
+                   | QMainWindow::AllowNestedDocks);
     viewport_ = new VtkViewport(this);
     setCentralWidget(viewport_);
 
     auto* explorerDock = new QDockWidget(tr("Project Explorer"), this);
+    explorerDock->setObjectName(QStringLiteral("vortia-dock-project"));
+    explorerDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     explorer_ = new ProjectExplorerPanel(this);
     explorerDock->setWidget(explorer_);
     addDockWidget(Qt::LeftDockWidgetArea, explorerDock);
 
     auto* propsDock = new QDockWidget(tr("Properties"), this);
+    propsDock->setObjectName(QStringLiteral("vortia-dock-properties"));
+    propsDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     properties_ = new PropertiesPanel(this);
     propsDock->setWidget(properties_);
     addDockWidget(Qt::RightDockWidgetArea, propsDock);
 
-    auto* consoleDock = new QDockWidget(tr("Console"), this);
+    auto* consoleDock = new QDockWidget(tr("Simulation Console"), this);
+    consoleDock->setObjectName(QStringLiteral("vortia-dock-console"));
+    consoleDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
+    consoleDock->setFeatures(QDockWidget::DockWidgetClosable |
+                             QDockWidget::DockWidgetMovable |
+                             QDockWidget::DockWidgetFloatable);
     console_ = new ConsolePanel(this);
     consoleDock->setWidget(console_);
-    consoleDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
-    consoleDock->setMaximumHeight(180);
     addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
+    resizeDocks({explorerDock, propsDock}, {230, 295}, Qt::Horizontal);
+    resizeDocks({consoleDock}, {155}, Qt::Vertical);
+
+    if (auto* viewMenu = findChild<QMenu*>(QStringLiteral("vortia-view-menu"))) {
+        viewMenu->addSeparator();
+        viewMenu->addAction(explorerDock->toggleViewAction());
+        viewMenu->addAction(propsDock->toggleViewAction());
+        viewMenu->addAction(consoleDock->toggleViewAction());
+        viewMenu->addSeparator();
+        auto* resetWorkspace = viewMenu->addAction(tr("Reset Workspace Layout"));
+        connect(resetWorkspace, &QAction::triggered, this,
+                [this, explorerDock, propsDock, consoleDock]() {
+                    explorerDock->setFloating(false);
+                    propsDock->setFloating(false);
+                    consoleDock->setFloating(false);
+                    addDockWidget(Qt::LeftDockWidgetArea, explorerDock);
+                    addDockWidget(Qt::RightDockWidgetArea, propsDock);
+                    addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
+                    explorerDock->show();
+                    propsDock->show();
+                    consoleDock->show();
+                    resizeDocks({explorerDock, propsDock}, {230, 295}, Qt::Horizontal);
+                    resizeDocks({consoleDock}, {155}, Qt::Vertical);
+                });
+    }
 }
 
 void MainWindow::loadSettings() {

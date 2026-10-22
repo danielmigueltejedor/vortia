@@ -1,10 +1,18 @@
 #include "vortia/ui/ProjectExplorerPanel.hpp"
 
+#include <QApplication>
+#include <QStyle>
+
 namespace vortia {
 
 ProjectExplorerPanel::ProjectExplorerPanel(QWidget* parent) : QTreeWidget(parent) {
     setHeaderHidden(true);
-    setMinimumWidth(200);
+    setMinimumWidth(190);
+    setIconSize(QSize(17, 17));
+    setUniformRowHeights(true);
+    setAnimated(false);
+    setRootIsDecorated(false);
+    setSelectionMode(QAbstractItemView::SingleSelection);
     buildTree();
 
     connect(this, &QTreeWidget::currentItemChanged, this,
@@ -24,12 +32,14 @@ void ProjectExplorerPanel::buildTree() {
         return item;
     };
 
-    addNode(tr("Geometry"), GeometryNode);
-    addNode(tr("Mesh"), MeshNode);
-    addNode(tr("Materials"), MaterialsNode);
-    addNode(tr("Boundary Conditions"), BoundaryConditionsNode);
-    addNode(tr("Solver"), SolverNode);
+    auto* style = QApplication::style();
+    addNode(tr("Geometry"), GeometryNode)->setIcon(0, style->standardIcon(QStyle::SP_DirIcon));
+    addNode(tr("Mesh"), MeshNode)->setIcon(0, style->standardIcon(QStyle::SP_FileDialogDetailedView));
+    addNode(tr("Materials"), MaterialsNode)->setIcon(0, style->standardIcon(QStyle::SP_DriveHDIcon));
+    addNode(tr("Boundary Conditions"), BoundaryConditionsNode)->setIcon(0, style->standardIcon(QStyle::SP_DirLinkIcon));
+    addNode(tr("Solver"), SolverNode)->setIcon(0, style->standardIcon(QStyle::SP_ComputerIcon));
     resultsItem_ = addNode(tr("Results"), ResultsNode);
+    resultsItem_->setIcon(0, style->standardIcon(QStyle::SP_DialogApplyButton));
 
     expandAll();
     if (topLevelItemCount() > 0)
