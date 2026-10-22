@@ -7,6 +7,7 @@
 #include <vtkCamera.h>
 #include <vtkCallbackCommand.h>
 #include <vtkCellArray.h>
+#include <vtkCellDataToPointData.h>
 #include <vtkCompositeDataIterator.h>
 #include <vtkCubeSource.h>
 #include <vtkDataObject.h>
@@ -101,24 +102,35 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     // Main scene renderer.
     renderer_ = vtkSmartPointer<vtkRenderer>::New();
     renderer_->SetBackground(0.13, 0.14, 0.16);
-    renderer_->SetViewport(0.0, 0.0, 1.0, 1.0);
+    // Reserve the right side for the scientific legend; never overlap CFD geometry.
+    renderer_->SetViewport(0.0, 0.0, 0.82, 1.0);
     renderWindow->AddRenderer(renderer_);
+
+    // The legend lives in its own non-interactive renderer. This avoids stale
+    // OpenGL text/color-bar fragments when Qt+VTK switches arrays repeatedly.
+    legendRenderer_ = vtkSmartPointer<vtkRenderer>::New();
+    legendRenderer_->SetViewport(0.82, 0.18, 1.0, 1.0);
+    legendRenderer_->SetBackground(0.13, 0.14, 0.16);
+    legendRenderer_->InteractiveOff();
+    renderWindow->AddRenderer(legendRenderer_);
 
     // One owned legend for the lifetime of the viewport. Recoloring must
     // never stack a new title and color bar on top of the previous one.
     scalarBar_ = vtkSmartPointer<vtkScalarBarActor>::New();
     scalarBar_->SetOrientationToVertical();
     scalarBar_->SetNumberOfLabels(4);
-    scalarBar_->SetPosition(0.87, 0.27);
-    scalarBar_->SetWidth(0.10);
-    scalarBar_->SetHeight(0.44);
-    scalarBar_->SetUnconstrainedFontSize(1);
+    scalarBar_->SetPosition(0.07, 0.27);
+    scalarBar_->SetWidth(0.88);
+    scalarBar_->SetHeight(0.48);
+    scalarBar_->SetMaximumWidthInPixels(140);
+    scalarBar_->SetMaximumHeightInPixels(320);
+    scalarBar_->SetUnconstrainedFontSize(false);
     scalarBar_->GetTitleTextProperty()->SetFontSize(12);
     scalarBar_->GetTitleTextProperty()->BoldOff();
     scalarBar_->GetLabelTextProperty()->SetFontSize(10);
     scalarBar_->GetLabelTextProperty()->BoldOff();
     scalarBar_->SetVisibility(false);
-    renderer_->AddViewProp(scalarBar_);
+    legendRenderer_->AddViewProp(scalarBar_);
 
 
     // Corner axes overlay: separate renderer with its own camera, so the
@@ -291,31 +303,42 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
 
     auto append = vtkSmartPointer<vtkAppendPolyData>::New();
     for (auto* g : grids) {
-        auto* sf = vtkDataSetSurfaceFilter::New();
-        sf->SetInputData(g);
-        sf->Update();
-        append->AddInputData(sf->GetOutput());
-        sf->Delete();
+        auto surface = vtkSmartPointer<vtkDataSetSurfaceFilter>::New();
+        // OpenFOAM exports some fields per cell. Convert these to point
+        // values for CONTINUOUS DISPLAY only; the solver's original data
+        // and discretization remain unchanged.
+        if (g->GetPointData()->GetNumberOfArrays() == 0 &&
+            g->GetCellData()->GetNumberOfArrays() > 0) {
+            auto interpolate = vtkSmartPointer<vtkCellDataToPointData>::New();
+            interpolate->SetInputData(g);
+            interpolate->PassCellDataOn();
+            interpolate->Update();
+            surface->SetInputConnection(interpolate->GetOutputPort());
+        } else {
+            surface->SetInputData(g);
+        }
+        surface->Update();
+        append->AddInputData(surface->GetOutput());
     }
     append->Update();
 
     auto* poly = append->GetOutput();
     // Special derived fields from U.
-    if (currentField_ == "|U|" || currentField_ == "Ux" || currentField_ == "Uy" ||
-        currentField_ == "Uz") {
+    if (currentField_ == "U" || currentField_ == "|U|" || currentField_ == "Ux" ||
+        currentField_ == "Uy" || currentField_ == "Uz") {
         vtkDataArray* uarr = poly->GetPointData()->GetArray("U");
         if (uarr != nullptr && uarr->GetNumberOfComponents() >= 3) {
             vtkIdType n = uarr->GetNumberOfTuples();
             auto* derived = vtkFloatArray::New();
             std::string name = currentField_;
-            if (name == "|U|")
+            if (name == "U" || name == "|U|")
                 name = "Umag";
             derived->SetName(name.c_str());
             derived->SetNumberOfTuples(n);
             for (vtkIdType i = 0; i < n; ++i) {
                 double v[3];
                 uarr->GetTuple(i, v);
-                if (currentField_ == "|U|")
+                if (currentField_ == "U" || currentField_ == "|U|")
                     derived->SetTuple1(i, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
                 else if (currentField_ == "Ux")
                     derived->SetTuple1(i, v[0]);
@@ -336,7 +359,7 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
     vtkDataArray* scalars = nullptr;
     bool useCellData = false;
     std::string lookupName = currentField_;
-    if (lookupName == "|U|")
+    if (lookupName == "U" || lookupName == "|U|")
         lookupName = "Umag";
     if (!lookupName.empty()) {
         scalars = poly->GetPointData()->GetArray(lookupName.c_str());
@@ -407,7 +430,9 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
         mapper->SetColorModeToMapScalars();
 
         scalarBar_->SetLookupTable(palette);
-        scalarBar_->SetTitle(scalars->GetName() ? scalars->GetName() : "Field");
+        const char* label = (lookupName == "Umag") ? "|U| (m/s)" :
+                            (scalars->GetName() ? scalars->GetName() : "Field");
+        scalarBar_->SetTitle(label);
         scalarBar_->SetVisibility(true);
     } else {
         // An unavailable field should never show a stale legend.
@@ -515,9 +540,11 @@ void VtkViewport::setViewIsometric() {
 void VtkViewport::setDarkTheme(bool dark) {
     if (dark) {
         renderer_->SetBackground(0.13, 0.14, 0.16);
+        legendRenderer_->SetBackground(0.13, 0.14, 0.16);
         cornerRenderer_->SetBackground(0.13, 0.14, 0.16);
     } else {
         renderer_->SetBackground(0.93, 0.94, 0.96);
+        legendRenderer_->SetBackground(0.93, 0.94, 0.96);
         cornerRenderer_->SetBackground(0.93, 0.94, 0.96);
     }
     if (auto* window = renderWindow())

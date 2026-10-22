@@ -65,6 +65,7 @@ public slots:
 private:
     vtkSmartPointer<vtkRenderer> renderer_;
     vtkSmartPointer<vtkRenderer> cornerRenderer_;
+    vtkSmartPointer<vtkRenderer> legendRenderer_;
     vtkSmartPointer<vtkScalarBarActor> scalarBar_;
     vtkSmartPointer<vtkActor> geometryActor_;
     vtkSmartPointer<vtkActor> domainActor_;

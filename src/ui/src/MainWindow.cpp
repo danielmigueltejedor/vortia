@@ -42,7 +42,9 @@ namespace {
 CaseSetup makeCavity() {
     CaseSetup s;
     s.domain = BoxDomain::fromExtents({0, 0, 0}, {0.1, 0.1, 0.01}).value();
-    s.mesh.cells = {20, 20, 1};
+    // A useful default for inspecting flow gradients on modern laptops.
+    // Users can refine or coarsen these values from the Mesh properties.
+    s.mesh.cells = {48, 48, 1};
     s.mesh.patches = {{
         {BoxDomain::XMin, "fixedWalls", PatchKind::Wall},
         {BoxDomain::XMax, "fixedWalls2", PatchKind::Wall},
@@ -637,7 +639,9 @@ void MainWindow::onResultsReady(const QString& vtmPath) {
 void MainWindow::onFieldChanged(int /*index*/) {
     if (lastVtmPath_.isEmpty())
         return;
-    viewport_->loadVtmFile(lastVtmPath_.toStdString(), fieldCombo_->currentText().toStdString());
+    // Reuse the already loaded VTK dataset: repeated reads previously made
+    // each field change much heavier and could leave stale legend artifacts.
+    viewport_->setColorField(fieldCombo_->currentText().toStdString());
 }
 
 void MainWindow::onToggleTheme() {
