@@ -14,7 +14,8 @@ namespace vortia {
 
 PropertiesPanel::PropertiesPanel(QWidget* parent) : QWidget(parent) {
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setContentsMargins(14, 16, 14, 14);
+    layout->setSpacing(12);
     stack_ = new QStackedWidget(this);
     layout->addWidget(stack_);
 
@@ -38,12 +39,17 @@ PropertiesPanel::PropertiesPanel(QWidget* parent) : QWidget(parent) {
             emit validationReported(report.trimmed());
         emit setupChanged(setup_);
     });
+    applyButton_->setMinimumHeight(36);
+    applyButton_->setToolTip(tr("Validate and apply the current simulation settings."));
     layout->addWidget(applyButton_);
 }
 
 void PropertiesPanel::buildDomainPage() {
     auto* page = new QWidget(this);
     auto* form = new QFormLayout(page);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(10);
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
     dx0_ = new QDoubleSpinBox(page);
     dx1_ = new QDoubleSpinBox(page);
     dy0_ = new QDoubleSpinBox(page);
@@ -70,6 +76,9 @@ void PropertiesPanel::buildDomainPage() {
 void PropertiesPanel::buildMeshPage() {
     auto* page = new QWidget(this);
     auto* form = new QFormLayout(page);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(10);
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
     cellsX_ = new QSpinBox(page);
     cellsY_ = new QSpinBox(page);
     cellsZ_ = new QSpinBox(page);
@@ -86,6 +95,9 @@ void PropertiesPanel::buildMeshPage() {
 void PropertiesPanel::buildMaterialPage() {
     auto* page = new QWidget(this);
     auto* form = new QFormLayout(page);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(10);
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
     nuEdit_ = new QDoubleSpinBox(page);
     nuEdit_->setRange(1e-12, 1.0);
     nuEdit_->setDecimals(6);
@@ -97,6 +109,9 @@ void PropertiesPanel::buildMaterialPage() {
 void PropertiesPanel::buildBoundaryPage() {
     auto* page = new QWidget(this);
     auto* form = new QFormLayout(page);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(10);
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
     lidUx_ = new QDoubleSpinBox(page);
     lidUx_->setRange(-1000, 1000);
     lidUx_->setDecimals(3);
@@ -111,6 +126,9 @@ void PropertiesPanel::buildBoundaryPage() {
 void PropertiesPanel::buildSolverPage() {
     auto* page = new QWidget(this);
     auto* form = new QFormLayout(page);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(10);
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
     solverCombo_ = new QComboBox(page);
     solverCombo_->addItem(tr("Transient laminar (icoFoam)"), static_cast<int>(SolverApp::IcoFoam));
     solverCombo_->addItem(tr("Steady laminar (simpleFoam)"), static_cast<int>(SolverApp::SimpleFoam));
