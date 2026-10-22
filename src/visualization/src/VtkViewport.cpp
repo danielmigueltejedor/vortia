@@ -239,7 +239,9 @@ void VtkViewport::showDataSet(vtkObject* data) {
         if (useCellData)
             mapper->SetScalarModeToUseCellData();
         mapper->ScalarVisibilityOn();
-        mapper->SetScalarRange(poly->GetScalarRange());
+        double rng[2];
+        poly->GetScalarRange(rng);
+        mapper->SetScalarRange(rng);
         mapper->SetColorModeToMapScalars();
         auto* sb = vtkScalarBarActor::New();
         sb->SetLookupTable(mapper->GetLookupTable());
@@ -247,8 +249,12 @@ void VtkViewport::showDataSet(vtkObject* data) {
         sb->SetNumberOfLabels(5);
         renderer_->AddActor(sb);
         sb->Delete();
+        std::cout << "VtkViewport: coloring by '" << (scalars->GetName() ? scalars->GetName() : "?")
+                  << "' range=[" << rng[0] << ", " << rng[1] << "] "
+                  << (useCellData ? "(cell)" : "(point)") << "\\n";
     } else {
         mapper->ScalarVisibilityOff();
+        std::cout << "VtkViewport: no scalar field found\\n";
     }
     geometryActor_ = vtkSmartPointer<vtkActor>::New();
     geometryActor_->SetMapper(mapper);

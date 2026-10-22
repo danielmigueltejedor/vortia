@@ -1,11 +1,6 @@
 {
   "file-series-version" : "1.0",
   "files" : [
-    { "name" : "nozzle-practice-2026_0.vtm", "time" : 0 },
-    { "name" : "nozzle-practice-2026_100.vtm", "time" : 100 },
-    { "name" : "nozzle-practice-2026_200.vtm", "time" : 200 },
-    { "name" : "nozzle-practice-2026_300.vtm", "time" : 300 },
-    { "name" : "nozzle-practice-2026_400.vtm", "time" : 400 },
     { "name" : "nozzle-practice-2026_500.vtm", "time" : 500 }
   ]
 }
