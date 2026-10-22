@@ -13,6 +13,7 @@
 #include <vtkInteractorStyleTrackballCamera.h>
 #include <vtkMultiBlockDataSet.h>
 #include <vtkNew.h>
+#include <vtkOutlineFilter.h>
 #include <vtkPoints.h>
 #include <vtkPolyData.h>
 #include <vtkPolyDataMapper.h>
@@ -219,3 +220,5 @@ void VtkViewport::setDarkTheme(bool dark) {
     if (auto* window = renderWindow())
         window->Render();
 }
+
+} // namespace vortia

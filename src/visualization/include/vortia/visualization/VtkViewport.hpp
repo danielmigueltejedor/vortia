@@ -40,6 +40,9 @@ public:
     void clearScene();
     void resetCamera();
 
+private:
+    void syncCornerCamera();
+
 public slots:
     void setDarkTheme(bool dark);
 
