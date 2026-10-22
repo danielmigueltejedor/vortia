@@ -21,6 +21,7 @@
 #include <vtkPointData.h>
 #include <vtkPoints.h>
 #include <vtkScalarBarActor.h>
+#include <vtkTextProperty.h>
 #include <vtkPolyData.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkProperty.h>
@@ -270,8 +271,17 @@ void VtkViewport::showDataSet(vtkObject* data) {
         mapper->SetColorModeToMapScalars();
         auto* sb = vtkScalarBarActor::New();
         sb->SetLookupTable(mapper->GetLookupTable());
-        sb->SetTitle(scalars->GetName() ? scalars->GetName() : "field");
+        std::string title = scalars->GetName() ? scalars->GetName() : "field";
+        sb->SetTitle(title.c_str());
         sb->SetNumberOfLabels(5);
+        // Keep the bar compact and out of the way of the geometry.
+        sb->SetWidth(0.08);
+        sb->SetHeight(0.4);
+        sb->SetPosition(0.90, 0.30);
+        vtkTextProperty* tprop = sb->GetTitleTextProperty();
+        if (tprop) { tprop->SetFontSize(12); tprop->BoldOff(); }
+        vtkTextProperty* lprop = sb->GetLabelTextProperty();
+        if (lprop) { lprop->SetFontSize(10); }
         renderer_->AddActor(sb);
         sb->Delete();
         std::cout << "VtkViewport: coloring by '" << (scalars->GetName() ? scalars->GetName() : "?")
