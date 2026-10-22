@@ -28,6 +28,7 @@
 #include <vtkXMLMultiBlockDataReader.h>
 
 #include <cmath>
+#include <iostream>
 
 namespace vortia {
 
