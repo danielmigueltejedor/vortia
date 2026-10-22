@@ -1,0 +1,35 @@
+# Build
+build/
+build-*/
+out/
+*.o
+*.a
+*.dylib
+*.so
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+.ninja*
+
+# Qt
+*.pro.user
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Project outputs (Vortia runtime)
+**/case/constant/polyMesh/
+**/case/[0-9]*/
+!**/case/0/
+*.foam
