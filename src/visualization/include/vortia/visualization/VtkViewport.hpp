@@ -45,6 +45,10 @@ public:
 
     void clearScene();
     void resetCamera();
+    void setViewXY();
+    void setViewXZ();
+    void setViewYZ();
+    void setViewIsometric();
 
 protected:
     void showEvent(QShowEvent* event) override;

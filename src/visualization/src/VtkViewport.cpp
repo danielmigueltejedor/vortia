@@ -392,9 +392,42 @@ void VtkViewport::clearScene() {
 
 void VtkViewport::resetCamera() {
     renderer_->ResetCamera();
-    syncCornerCamera();
     if (auto* window = renderWindow())
         window->Render();
+}
+
+void VtkViewport::setViewXY() {
+    auto* cam = renderer_->GetActiveCamera();
+    cam->SetPosition(0, 0, 1);
+    cam->SetFocalPoint(0, 0, 0);
+    cam->SetViewUp(0, 1, 0);
+    cam->SetParallelProjection(1);
+    renderer_->ResetCamera();
+    if (auto* w = renderWindow()) w->Render();
+}
+void VtkViewport::setViewXZ() {
+    auto* cam = renderer_->GetActiveCamera();
+    cam->SetPosition(0, 1, 0);
+    cam->SetFocalPoint(0, 0, 0);
+    cam->SetViewUp(0, 0, 1);
+    renderer_->ResetCamera();
+    if (auto* w = renderWindow()) w->Render();
+}
+void VtkViewport::setViewYZ() {
+    auto* cam = renderer_->GetActiveCamera();
+    cam->SetPosition(1, 0, 0);
+    cam->SetFocalPoint(0, 0, 0);
+    cam->SetViewUp(0, 1, 0);
+    renderer_->ResetCamera();
+    if (auto* w = renderWindow()) w->Render();
+}
+void VtkViewport::setViewIsometric() {
+    auto* cam = renderer_->GetActiveCamera();
+    cam->SetPosition(1, 1, 1);
+    cam->SetFocalPoint(0, 0, 0);
+    cam->SetViewUp(0, 1, 0);
+    renderer_->ResetCamera();
+    if (auto* w = renderWindow()) w->Render();
 }
 
 void VtkViewport::setDarkTheme(bool dark) {

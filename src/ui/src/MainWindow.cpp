@@ -152,6 +152,18 @@ void MainWindow::buildMenusAndToolbar() {
     connect(fieldCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &MainWindow::onFieldChanged);
 
+    tb->addSeparator();
+    auto* viewXY = tb->addAction(tr("XY"));
+    auto* viewXZ = tb->addAction(tr("XZ"));
+    auto* viewYZ = tb->addAction(tr("YZ"));
+    auto* viewIso = tb->addAction(tr("Iso"));
+    auto* viewReset = tb->addAction(tr("Reset"));
+    connect(viewXY, &QAction::triggered, this, [this]() { viewport_->setViewXY(); });
+    connect(viewXZ, &QAction::triggered, this, [this]() { viewport_->setViewXZ(); });
+    connect(viewYZ, &QAction::triggered, this, [this]() { viewport_->setViewYZ(); });
+    connect(viewIso, &QAction::triggered, this, [this]() { viewport_->setViewIsometric(); });
+    connect(viewReset, &QAction::triggered, this, [this]() { viewport_->resetCamera(); });
+
     statusLabel_ = new QLabel(this);
     statusBar()->addPermanentWidget(statusLabel_);
 }
