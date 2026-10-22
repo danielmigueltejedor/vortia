@@ -1,3 +1,4 @@
+#include "vortia/visualization/VtkInteractorStyle.hpp"
 #include "vortia/visualization/VtkViewport.hpp"
 
 #include <vtkActor.h>
@@ -87,7 +88,7 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     cornerRenderer_->AddActor(axes);
 
     if (renderWindow->GetInteractor() != nullptr) {
-        auto style = vtkSmartPointer<vtkInteractorStyleTrackballCamera>::New();
+        auto style = vtkSmartPointer<vortia::VtkInteractorStyle>::New();
         renderWindow->GetInteractor()->SetInteractorStyle(style);
     }
 
