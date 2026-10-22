@@ -65,10 +65,14 @@ Expected<StepOutcome> CaseRunner::execute(const std::string& label,
         return result.error();
 
     StepOutcome outcome;
+    parser.flush();
+    if (callbacks.onProgress)
+        callbacks.onProgress(parser.progress());
     outcome.name = label;
     outcome.process = std::move(result.value());
     outcome.diverged = parser.progress().diverged;
     outcome.divergenceReason = parser.progress().divergenceReason;
+    outcome.finalTime = parser.progress().time;
     return outcome;
 }
 

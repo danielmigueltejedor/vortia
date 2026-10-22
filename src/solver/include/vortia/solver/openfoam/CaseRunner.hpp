@@ -16,6 +16,7 @@ struct StepOutcome {
     ProcessResult process;
     bool diverged{false};
     std::string divergenceReason;
+    double finalTime{0.0}; ///< Last "Time = " parsed from the solver log.
 };
 
 /// Progress sink for GUI/console wiring.

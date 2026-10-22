@@ -73,3 +73,11 @@ TEST(LogParser, ResetClearsState) {
     EXPECT_DOUBLE_EQ(parser.progress().time, 0.0);
     EXPECT_TRUE(parser.progress().residuals.empty());
 }
+
+TEST(LogParser, FlushCapturesTrailingLineWithoutNewline) {
+    LogParser parser;
+    parser.feed("Time = 0.5");
+    EXPECT_DOUBLE_EQ(parser.progress().time, 0.0); // not yet processed
+    parser.flush();
+    EXPECT_DOUBLE_EQ(parser.progress().time, 0.5);
+}

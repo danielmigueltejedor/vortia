@@ -34,6 +34,8 @@ struct SolverProgress {
 class LogParser {
 public:
     void feed(std::string_view chunk);
+    /// Processes any trailing partial line (call when the stream ends).
+    void flush();
     [[nodiscard]] const SolverProgress& progress() const { return progress_; }
     void reset();
 

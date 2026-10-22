@@ -86,10 +86,12 @@ void JobController::runJob(JobSpec spec) {
                 success = false;
                 summary = QStringLiteral("Solver failed (exit %1)").arg(solverStep->process.exitCode);
             } else {
-                summary = QStringLiteral("Finished at t=%1").arg(last.time, 0, 'g', 6);
+                double finalT = solverStep->finalTime > 0 ? solverStep->finalTime : last.time;
+                summary = QStringLiteral("Finished at t=%1").arg(finalT, 0, 'g', 6);
                 // Convert results to VTK for visualization (best-effort).
                 ProcessRequest vtkReq;
                 vtkReq.executable = "foamToVTK";
+                vtkReq.arguments = {"-latestTime"};
                 vtkReq.workingDirectory = spec.caseDir;
                 vtkReq.environment = spec.environment;
                 auto vtkPath = openfoam::Detector::resolveExecutable("foamToVTK", spec.environment);
@@ -97,12 +99,18 @@ void JobController::runJob(JobSpec spec) {
                     vtkReq.executable = vtkPath.value().string();
                     auto vtkResult = processes.run(vtkReq, nullptr, nullptr);
                     if (vtkResult && vtkResult->succeeded()) {
-                        // Find the latest .vtm file.
+                        // Select the ROOT .vtm (directly in VTK/), not nested
+                        // boundary patches. Pick the one with the highest
+                        // trailing time token.
                         std::filesystem::path latest;
-                        for (const auto& entry :
-                             std::filesystem::recursive_directory_iterator(spec.caseDir / "VTK")) {
-                            if (entry.path().extension() == ".vtm") {
-                                if (latest.empty() || entry.path() > latest)
+                        std::filesystem::path vtkDir = spec.caseDir / "VTK";
+                        if (std::filesystem::is_directory(vtkDir)) {
+                            for (const auto& entry : std::filesystem::directory_iterator(vtkDir)) {
+                                if (!entry.is_regular_file())
+                                    continue;
+                                if (entry.path().extension() != ".vtm")
+                                    continue;
+                                if (latest.empty() || entry.path().filename() > latest.filename())
                                     latest = entry.path();
                             }
                         }
@@ -110,7 +118,17 @@ void JobController::runJob(JobSpec spec) {
                             QMetaObject::invokeMethod(this, [this, latest]() {
                                 emit resultsReady(QString::fromStdString(latest.string()));
                             }, Qt::QueuedConnection);
+                        } else {
+                            QMetaObject::invokeMethod(this, [this]() {
+                                emit outputReceived(QStringLiteral("foamToVTK produced no .vtm file\n"));
+                            }, Qt::QueuedConnection);
                         }
+                    } else {
+                        QString err = vtkResult ? QString::fromStdString(vtkResult->stdErr)
+                                                : QStringLiteral("foamToVTK not run");
+                        QMetaObject::invokeMethod(this, [this, err]() {
+                            emit outputReceived(QStringLiteral("foamToVTK failed: %1\n").arg(err));
+                        }, Qt::QueuedConnection);
                     }
                 }
             }

@@ -11,7 +11,7 @@ namespace {
 const std::regex kResidual(
     R"(\bSolving for (\w+), Initial residual = ([0-9.eE+\-nanif]+), Final residual = ([0-9.eE+\-nanif]+), No Iterations (\d+))");
 
-const std::regex kTime(R"(^Time = ([0-9.eE+\-]+))");
+const std::regex kTime(R"(Time = ([0-9.eE+\-]+))");
 
 const std::regex kCourant(R"(Courant Number mean: ([0-9.eE+\-]+) max: ([0-9.eE+\-]+))");
 
@@ -33,6 +33,16 @@ void LogParser::feed(std::string_view chunk) {
         if (!line.empty() && line.back() == '\r')
             line.pop_back();
         pending_.erase(0, pos + 1);
+        processLine(line);
+    }
+}
+
+void LogParser::flush() {
+    if (!pending_.empty()) {
+        std::string line = pending_;
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        pending_.clear();
         processLine(line);
     }
 }

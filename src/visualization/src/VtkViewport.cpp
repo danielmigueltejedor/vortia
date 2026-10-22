@@ -173,6 +173,10 @@ void VtkViewport::showDataSet(vtkObject* data) {
         renderer_->RemoveActor(geometryActor_);
         geometryActor_ = nullptr;
     }
+    if (domainActor_) {
+        renderer_->RemoveActor(domainActor_);
+        domainActor_ = nullptr;
+    }
     auto* asData = vtkDataObject::SafeDownCast(data);
     if (asData == nullptr)
         return;
