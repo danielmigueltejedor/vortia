@@ -118,7 +118,7 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     scalarBar_->GetLabelTextProperty()->SetFontSize(10);
     scalarBar_->GetLabelTextProperty()->BoldOff();
     scalarBar_->SetVisibility(false);
-    renderer_->AddActor2D(scalarBar_);
+    renderer_->AddViewProp(scalarBar_);
 
 
     // Corner axes overlay: separate renderer with its own camera, so the
