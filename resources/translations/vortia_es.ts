@@ -380,6 +380,19 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>OpenFOAM dictionary (blockMeshDict)</source><translation>Diccionario OpenFOAM (blockMeshDict)</translation></message>
     <message><source>Exported a planar 2D mesh dictionary. Validate it with blockMesh and checkMesh. This is NOT an axisymmetric wedge or a complete compressible nozzle CFD case.</source><translation>Se ha exportado un diccionario de malla plana 2D. Valídalo con blockMesh y checkMesh. NO es una cuña axisimétrica ni un caso CFD completo de tobera compresible.</translation></message>
     <message><source>Vortia sketch (*.vsketch.json)</source><translation>Croquis Vortia (*.vsketch.json)</translation></message>
+    <message><source>Round vertex…</source><translation>Redondear vértice…</translation></message>
+    <message><source>Arc radius…</source><translation>Radio del arco…</translation></message>
+    <message><source>Arc %1: radius %2 mm · length %3 mm</source><translation>Arco %1: radio %2 mm · longitud %3 mm</translation></message>
+    <message><source>This vertex supports a tangent arc. Select the arc and edit its radius.</source><translation>Este vértice pertenece al soporte de un arco tangente. Selecciona el arco y edita su radio.</translation></message>
+    <message><source>Round vertex</source><translation>Redondear vértice</translation></message>
+    <message><source>Select a corner vertex between two straight segments first.</source><translation>Selecciona primero un vértice de esquina entre dos segmentos rectos.</translation></message>
+    <message><source>Tangent rounding</source><translation>Redondeo tangente</translation></message>
+    <message><source>Radius (mm)</source><translation>Radio (mm)</translation></message>
+    <message><source>Rounding failed</source><translation>No se pudo redondear</translation></message>
+    <message><source>The radius must fit both adjacent straight segments. Endpoints, straight vertices and existing arcs cannot be rounded.</source><translation>El radio debe caber en los dos segmentos rectos adyacentes. No se pueden redondear extremos, vértices alineados ni arcos existentes.</translation></message>
+    <message><source>Arc radius</source><translation>Radio del arco</translation></message>
+    <message><source>Select a tangent rounding arc first.</source><translation>Selecciona primero un arco de redondeo tangente.</translation></message>
+    <message><source>This radius does not fit the tangent lines, or the selected arc has been split. The sketch was not changed.</source><translation>El radio no cabe en las rectas tangentes o el arco seleccionado se ha dividido. El croquis no ha cambiado.</translation></message>
 </context>
 <context>
     <name>QObject</name>

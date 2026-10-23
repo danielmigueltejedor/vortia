@@ -44,6 +44,8 @@ private:
     void movePoint();
     void split();
     void changeLength();
+    void fillet();
+    void changeRadius();
     void save();
     void load();
     Sketch2D sketch_;

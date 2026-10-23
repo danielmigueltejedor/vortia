@@ -2,6 +2,7 @@
 
 add_library(vortia_geometry STATIC
     src/BoxDomain.cpp
+    src/Sketch2D.cpp
     src/StlReader.cpp
     src/TriangleMesh.cpp)
 

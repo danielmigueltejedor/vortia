@@ -27,6 +27,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QSplitter>
@@ -36,6 +37,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numbers>
 
 namespace vortia {
 
@@ -93,7 +95,18 @@ protected:
             const bool picked = static_cast<int>(i) == selectedSegment_;
             p.setPen(QPen(picked ? QColor(255, 184, 74) : QColor(87, 199, 239),
                           picked ? 3.2 : 2.0));
-            p.drawLine(project(a), project(b));
+            if (const auto c = sketch_->arc(i)) {
+                const QPointF center = project(c->center);
+                const double radius = c->radiusMm * scale_;
+                QPainterPath path;
+                path.moveTo(project(a));
+                path.arcTo(QRectF(center.x()-radius, center.y()-radius, 2*radius, 2*radius),
+                           c->startRadians * 180.0 / std::numbers::pi,
+                           c->sweepRadians * 180.0 / std::numbers::pi);
+                p.drawPath(path);
+            } else {
+                p.drawLine(project(a), project(b));
+            }
         }
         // Dense nozzle profiles have many short wall segments. Keep the
         // profile readable; selection always exposes its exact dimension.
@@ -102,10 +115,13 @@ protected:
         const auto labelSegment = [&](std::size_t i, bool selected) {
             const QPointF a = project(sketch_->points()[i]);
             const QPointF b = project(sketch_->points()[(i + 1) % sketch_->points().size()]);
-            const QString text = QString::number(sketch_->segmentLength(i), 'f', 2) + QStringLiteral(" mm");
+            const auto arc = sketch_->arc(i);
+            const QString text = arc
+                ? QStringLiteral("R %1 mm").arg(arc->radiusMm, 0, 'f', 2)
+                : QString::number(sketch_->segmentLength(i), 'f', 2) + QStringLiteral(" mm");
             const auto bounds = p.fontMetrics().boundingRect(text);
             if (!selected && QLineF(a, b).length() < bounds.width() + 16.0) return;
-            const QPointF midpoint = (a + b) * 0.5;
+            const QPointF midpoint = project(sketch_->segmentPoint(i, 0.5));
             const QPointF delta = b - a;
             const double length = std::max(1.0, QLineF(a, b).length());
             const QPointF center = midpoint + outside * QPointF(-delta.y(), delta.x())
@@ -168,16 +184,19 @@ protected:
         int bestSegment = -1;
         double bestSegmentDistance = 13.0;
         for (std::size_t i = 0; i < sketch_->segmentCount(); ++i) {
-            const QPointF a = project(sketch_->points()[i]);
-            const QPointF b = project(sketch_->points()[(i + 1) % sketch_->points().size()]);
-            const QPointF v = b - a;
-            const QPointF w = pos - a;
-            const double denom = QPointF::dotProduct(v, v);
-            const double t = denom > 0 ? std::clamp(QPointF::dotProduct(w, v) / denom, 0.0, 1.0) : 0.0;
-            const double d = QLineF(pos, a + t * v).length();
-            if (d < bestSegmentDistance) {
-                bestSegmentDistance = d;
-                bestSegment = static_cast<int>(i);
+            const int pieces = sketch_->arc(i) ? 48 : 1;
+            for (int piece = 0; piece < pieces; ++piece) {
+                const QPointF a = project(sketch_->segmentPoint(i, static_cast<double>(piece) / pieces));
+                const QPointF b = project(sketch_->segmentPoint(i, static_cast<double>(piece+1) / pieces));
+                const QPointF v = b - a;
+                const QPointF w = pos - a;
+                const double denom = QPointF::dotProduct(v, v);
+                const double t = denom > 0 ? std::clamp(QPointF::dotProduct(w, v) / denom, 0.0, 1.0) : 0.0;
+                const double d = QLineF(pos, a + t * v).length();
+                if (d < bestSegmentDistance) {
+                    bestSegmentDistance = d;
+                    bestSegment = static_cast<int>(i);
+                }
             }
         }
         if (bestSegment >= 0 && onSegmentSelected) onSegmentSelected(bestSegment);
@@ -226,6 +245,20 @@ private:
             maxX = std::max(maxX, v.xMm);
             minY = std::min(minY, v.yMm);
             maxY = std::max(maxY, v.yMm);
+        }
+        for (std::size_t i = 0; i < sketch_->segmentCount(); ++i) {
+            if (const auto c = sketch_->arc(i)) {
+                // Include all axis extrema that lie on the signed arc sweep.
+                for (int quadrant = 0; quadrant < 4; ++quadrant) {
+                    double t = quadrant * std::numbers::pi / 2.0 - c->startRadians;
+                    t = c->sweepRadians > 0 ? std::fmod(t + 4*std::numbers::pi, 2*std::numbers::pi)
+                                           : -std::fmod(-t + 4*std::numbers::pi, 2*std::numbers::pi);
+                    if (std::abs(t) > std::abs(c->sweepRadians)) continue;
+                    const auto v = sketch_->segmentPoint(i, t / c->sweepRadians);
+                    minX = std::min(minX, v.xMm); maxX = std::max(maxX, v.xMm);
+                    minY = std::min(minY, v.yMm); maxY = std::max(maxY, v.yMm);
+                }
+            }
         }
         const double dx = std::max(1.0, maxX - minX);
         const double dy = std::max(1.0, maxY - minY);
@@ -324,6 +357,14 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     auto* close = new QPushButton(tr("Close / Open profile"), sidebar);
     for (auto* b : {draw, rectangle, circle, nozzle, exportMeshButton, add, move,
                     splitButton, dimension, close}) tools->addWidget(b);
+    auto* arcActions = new QHBoxLayout;
+    auto* round = new QPushButton(tr("Round vertex…"), sidebar);
+    auto* radius = new QPushButton(tr("Arc radius…"), sidebar);
+    round->setObjectName(QStringLiteral("vortia-sketch-fillet"));
+    radius->setObjectName(QStringLiteral("vortia-sketch-radius"));
+    arcActions->addWidget(round);
+    arcActions->addWidget(radius);
+    tools->addLayout(arcActions);
     table_ = new QTableWidget(sidebar);
     table_->setColumnCount(3);
     table_->setHorizontalHeaderLabels({tr("Vertex"), tr("X (mm)"), tr("Y (mm)")});
@@ -391,6 +432,8 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     connect(move, &QPushButton::clicked, this, [this]() { movePoint(); });
     connect(splitButton, &QPushButton::clicked, this, [this]() { this->split(); });
     connect(dimension, &QPushButton::clicked, this, [this]() { changeLength(); });
+    connect(round, &QPushButton::clicked, this, &SketchEditorDialog::fillet);
+    connect(radius, &QPushButton::clicked, this, &SketchEditorDialog::changeRadius);
     connect(close, &QPushButton::clicked, this, [this]() {
         if (sketch_.closed()) {
             sketch_.open();
@@ -469,6 +512,14 @@ void SketchEditorDialog::refresh() {
         ? tr("Segment %1: %2 mm").arg(selectedSegment_)
                  .arg(sketch_.segmentLength(static_cast<std::size_t>(selectedSegment_)), 0, 'f', 3)
         : tr("Select a segment or vertex in the drawing."));
+    if (selectedSegment_ >= 0) {
+        if (const auto c = sketch_.arc(static_cast<std::size_t>(selectedSegment_)))
+            selected_->setText(tr("Arc %1: radius %2 mm · length %3 mm")
+                .arg(selectedSegment_).arg(c->radiusMm, 0, 'f', 3)
+                .arg(sketch_.segmentLength(static_cast<std::size_t>(selectedSegment_)), 0, 'f', 3));
+    } else if (selectedPoint_ >= 0 && sketch_.pointLockedByArcs(static_cast<std::size_t>(selectedPoint_))) {
+        selected_->setText(tr("This vertex supports a tangent arc. Select the arc and edit its radius."));
+    }
     status_->setText(tr("%1 vertices · %2 segments · Perimeter: %3 mm · %4")
         .arg(sketch_.points().size()).arg(sketch_.segmentCount())
         .arg(sketch_.perimeter(), 0, 'f', 3)
@@ -524,6 +575,10 @@ void SketchEditorDialog::changeLength() {
         return;
     }
     const std::size_t index = static_cast<std::size_t>(selectedSegment_);
+    if (sketch_.arc(index)) {
+        changeRadius();
+        return;
+    }
     bool ok = false;
     const double value = QInputDialog::getDouble(this, tr("Exact dimension"),
         tr("Length (mm)"), sketch_.segmentLength(index), 0.001, 1000000.0, 3, &ok);
@@ -532,6 +587,47 @@ void SketchEditorDialog::changeLength() {
                              tr("Could not set that length without creating a degenerate segment."));
     else if (ok)
         emit sketchChanged();
+    refresh();
+}
+
+void SketchEditorDialog::fillet() {
+    if (selectedPoint_ < 0) {
+        QMessageBox::information(this, tr("Round vertex"), tr("Select a corner vertex between two straight segments first."));
+        return;
+    }
+    bool ok = false;
+    const double radius = QInputDialog::getDouble(this, tr("Tangent rounding"), tr("Radius (mm)"),
+                                                10.0, 0.001, 1000000.0, 3, &ok);
+    if (!ok) return;
+    const auto corner = static_cast<std::size_t>(selectedPoint_);
+    if (!sketch_.filletVertex(corner, radius)) {
+        QMessageBox::warning(this, tr("Rounding failed"),
+            tr("The radius must fit both adjacent straight segments. Endpoints, straight vertices and existing arcs cannot be rounded."));
+        return;
+    }
+    selectedSegment_ = selectedPoint_;
+    selectedPoint_ = -1;
+    emit sketchChanged();
+    refresh();
+}
+
+void SketchEditorDialog::changeRadius() {
+    const auto index = static_cast<std::size_t>(selectedSegment_);
+    const auto c = sketch_.arc(index);
+    if (!c) {
+        QMessageBox::information(this, tr("Arc radius"), tr("Select a tangent rounding arc first."));
+        return;
+    }
+    bool ok = false;
+    const double radius = QInputDialog::getDouble(this, tr("Arc radius"), tr("Radius (mm)"),
+                                                c->radiusMm, 0.001, 1000000.0, 3, &ok);
+    if (!ok) return;
+    if (!sketch_.setFilletRadius(index, radius)) {
+        QMessageBox::warning(this, tr("Rounding failed"),
+            tr("This radius does not fit the tangent lines, or the selected arc has been split. The sketch was not changed."));
+        return;
+    }
+    emit sketchChanged();
     refresh();
 }
 void SketchEditorDialog::setSketch(const Sketch2D& shape) {
@@ -544,13 +640,18 @@ void SketchEditorDialog::setSketch(const Sketch2D& shape) {
 }
 
 bool SketchEditorDialog::writeSketchFile(const QString& path) const {
-    QJsonObject root{{QStringLiteral("schemaVersion"), 1},
+    QJsonObject root{{QStringLiteral("schemaVersion"), sketch_.hasArcs() ? 2 : 1},
                      {QStringLiteral("units"), QStringLiteral("mm")},
                      {QStringLiteral("closed"), sketch_.closed()}};
     QJsonArray vertices;
     for (const auto& p : sketch_.points())
         vertices.append(QJsonArray{p.xMm, p.yMm});
     root.insert(QStringLiteral("vertices"), vertices);
+    if (sketch_.hasArcs()) {
+        QJsonArray bulges;
+        for (std::size_t i = 0; i < sketch_.segmentCount(); ++i) bulges.append(sketch_.segmentBulge(i));
+        root.insert(QStringLiteral("segmentBulges"), bulges);
+    }
     root.insert(QStringLiteral("nozzleDimensions"), QJsonObject{
         {QStringLiteral("inletDiameterMm"), nozzleDims_.inletDiameterMm},
         {QStringLiteral("throatDiameterMm"), nozzleDims_.throatDiameterMm},
@@ -575,9 +676,10 @@ bool SketchEditorDialog::readSketchFile(const QString& path) {
     QJsonParseError parse;
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parse);
     const QJsonObject root = document.object();
+    const double version = root.value(QStringLiteral("schemaVersion")).toDouble(-1);
     if (parse.error != QJsonParseError::NoError || !document.isObject() ||
         !root.value(QStringLiteral("schemaVersion")).isDouble() ||
-        root.value(QStringLiteral("schemaVersion")).toDouble() != 1.0 ||
+        (version != 1.0 && version != 2.0) ||
         root.value(QStringLiteral("units")).toString() != QStringLiteral("mm") ||
         !root.value(QStringLiteral("vertices")).isArray() ||
         !root.value(QStringLiteral("closed")).isBool())
@@ -598,6 +700,15 @@ bool SketchEditorDialog::readSketchFile(const QString& path) {
     }
     if (root.value(QStringLiteral("closed")).toBool() && !next.close())
         return false;
+    if (version == 2.0) {
+        const auto value = root.value(QStringLiteral("segmentBulges"));
+        if (!value.isArray() || static_cast<std::size_t>(value.toArray().size()) != next.segmentCount()) return false;
+        const auto bulges = value.toArray();
+        for (qsizetype i = 0; i < bulges.size(); ++i)
+            if (!bulges[i].isDouble() || !next.setSegmentBulge(static_cast<std::size_t>(i), bulges[i].toDouble())) return false;
+    } else if (root.contains(QStringLiteral("segmentBulges"))) {
+        return false;
+    }
     NozzleDimensions nextDimensions;
     if (root.contains(QStringLiteral("nozzleDimensions"))) {
         const auto value = root.value(QStringLiteral("nozzleDimensions"));
@@ -625,7 +736,7 @@ bool SketchEditorDialog::readSketchFile(const QString& path) {
 
 void SketchEditorDialog::exportNozzleMesh() {
     const auto reference = makeNozzleProfile(nozzleDims_);
-    if (!reference || !sketch_.closed() ||
+    if (!reference || !sketch_.closed() || sketch_.hasArcs() ||
         reference->points().size() != sketch_.points().size()) {
         QMessageBox::warning(this, tr("Nozzle mesh"),
             tr("This export currently supports unmodified parametric nozzle profiles only. "

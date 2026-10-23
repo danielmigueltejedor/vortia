@@ -581,13 +581,16 @@ bool MainWindow::openProjectDirectory(const QString& dir) {
             return true;
         }
     }
-    auto project = Project::open(dir.toStdString());
+    // Native folder pickers may append a slash; filesystem::path::filename()
+    // would then be empty and erase the project tab label on activation.
+    const QString normalizedDir = canonical.isEmpty() ? dir : canonical;
+    auto project = Project::open(normalizedDir.toStdString());
     if (!project) {
         // Not a Vortia project — maybe it's an OpenFOAM case directory.
         if (!std::filesystem::exists(std::filesystem::path(dir.toStdString()) / std::string(Project::kManifestFileName))
             && std::filesystem::exists(dir.toStdString() + "/system/controlDict")) {
-            addProjectTab(QFileInfo(dir).fileName(), makeCavity(),
-                          {}, std::filesystem::path(dir.toStdString()));
+            addProjectTab(QFileInfo(normalizedDir).fileName(), makeCavity(),
+                          {}, std::filesystem::path(normalizedDir.toStdString()));
             setProjectState(tr("Opened existing OpenFOAM case: %1").arg(dir));
             console_->appendSolverOutput(tr("Opened existing OpenFOAM case: %1\n").arg(dir));
             return true;
