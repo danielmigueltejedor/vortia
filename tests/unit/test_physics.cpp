@@ -109,3 +109,20 @@ TEST(Physics, SteadySimpleFoamIsConsistent) {
     for (const auto& i : issues)
         EXPECT_NE(i.severity, Severity::Error) << i.message;
 }
+
+TEST(Physics, NonUniformGradingRaisesEstimatedCourant) {
+    auto s = cavitySetup();
+    const double uniform = s.estimateMaxCourant();
+    s.mesh.grading = {9.0, 1.0, 1.0};
+    EXPECT_GT(s.estimateMaxCourant(), uniform);
+    s.mesh.grading = {1.0 / 9.0, 1.0, 1.0};
+    EXPECT_GT(s.estimateMaxCourant(), uniform);
+}
+
+TEST(Physics, GradedMeshCourantIsIndependentOfReversingCells) {
+    auto s = cavitySetup();
+    s.mesh.grading = {4.0, 0.25, 1.0};
+    const double first = s.estimateMaxCourant();
+    s.mesh.grading = {0.25, 4.0, 1.0};
+    EXPECT_NEAR(s.estimateMaxCourant(), first, 1e-9);
+}
