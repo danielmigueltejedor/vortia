@@ -28,6 +28,7 @@ public:
     bool writeSketchFile(const QString& path) const;
     bool readSketchFile(const QString& path);
     void exportNozzleMesh();
+    void exportWedgeMesh();
 
 signals:
     void sketchChanged();
