@@ -183,10 +183,10 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     tools->addLayout(form);
     auto* add = new QPushButton(tr("Add vertex"), sidebar);
     auto* move = new QPushButton(tr("Move selected vertex"), sidebar);
-    auto* split = new QPushButton(tr("Split selected segment"), sidebar);
+    auto* splitButton = new QPushButton(tr("Split selected segment"), sidebar);
     auto* dimension = new QPushButton(tr("Set exact segment length…"), sidebar);
     auto* close = new QPushButton(tr("Close / Open profile"), sidebar);
-    for (auto* b : {add, move, split, dimension, close}) tools->addWidget(b);
+    for (auto* b : {add, move, splitButton, dimension, close}) tools->addWidget(b);
     table_ = new QTableWidget(sidebar);
     table_->setColumnCount(3);
     table_->setHorizontalHeaderLabels({tr("Vertex"), tr("X (mm)"), tr("Y (mm)")});
@@ -215,7 +215,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
 
     connect(add, &QPushButton::clicked, this, [this]() { addPoint(); });
     connect(move, &QPushButton::clicked, this, [this]() { movePoint(); });
-    connect(split, &QPushButton::clicked, this, [this]() { split(); });
+    connect(splitButton, &QPushButton::clicked, this, [this]() { this->split(); });
     connect(dimension, &QPushButton::clicked, this, [this]() { changeLength(); });
     connect(close, &QPushButton::clicked, this, [this]() {
         if (sketch_.closed()) sketch_.open();
