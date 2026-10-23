@@ -2,4 +2,21 @@
   <qresource prefix="/vortia">
     <file alias="app-icon.png">icons/vortia.png</file>
   </qresource>
+  <qresource prefix="/vortia/icons">
+    <file alias="new.svg">icons/ui/new.svg</file>
+    <file alias="open.svg">icons/ui/open.svg</file>
+    <file alias="save.svg">icons/ui/save.svg</file>
+    <file alias="geometry.svg">icons/ui/geometry.svg</file>
+    <file alias="mesh.svg">icons/ui/mesh.svg</file>
+    <file alias="material.svg">icons/ui/material.svg</file>
+    <file alias="boundary.svg">icons/ui/boundary.svg</file>
+    <file alias="solver.svg">icons/ui/solver.svg</file>
+    <file alias="run.svg">icons/ui/run.svg</file>
+    <file alias="stop.svg">icons/ui/stop.svg</file>
+    <file alias="settings.svg">icons/ui/settings.svg</file>
+    <file alias="import.svg">icons/ui/import.svg</file>
+    <file alias="fluent.svg">icons/ui/fluent.svg</file>
+    <file alias="view.svg">icons/ui/view.svg</file>
+    <file alias="sketch.svg">icons/ui/sketch.svg</file>
+  </qresource>
 </RCC>

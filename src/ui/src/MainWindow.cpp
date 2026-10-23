@@ -157,23 +157,29 @@ void MainWindow::buildMenusAndToolbar() {
     // Use Qt style icons so that no third-party icons/fonts or platform-specific
     // assets need bundling, and provide real actions rather than decorative tools.
     const auto icon = [this](QStyle::StandardPixmap type) { return style()->standardIcon(type); };
-    newProject->setIcon(icon(QStyle::SP_FileIcon));
-    openProject->setIcon(icon(QStyle::SP_DialogOpenButton));
-    openFoam->setIcon(icon(QStyle::SP_DirOpenIcon));
-    saveProject->setIcon(icon(QStyle::SP_DialogSaveButton));
-    importStl->setIcon(icon(QStyle::SP_FileDialogDetailedView));
-    importFluent->setIcon(icon(QStyle::SP_DriveHDIcon));
-    detectBackend->setIcon(icon(QStyle::SP_ComputerIcon));
-    runAction_->setIcon(icon(QStyle::SP_MediaPlay));
-    cancelAction_->setIcon(icon(QStyle::SP_MediaStop));
-    themeAction_->setIcon(icon(QStyle::SP_DesktopIcon));
+    // Original stroke-based Vortia icons; retain Qt style fallbacks when SVG
+    // support is unavailable in a downstream Qt packaging environment.
+    const auto toolIcon = [this](const QString& id, QStyle::StandardPixmap fallback) {
+        const QIcon vector(QStringLiteral(":/vortia/icons/") + id + QStringLiteral(".svg"));
+        return vector.isNull() ? style()->standardIcon(fallback) : vector;
+    };
+    newProject->setIcon(toolIcon(QStringLiteral("new"), QStyle::SP_FileIcon));
+    openProject->setIcon(toolIcon(QStringLiteral("open"), QStyle::SP_DialogOpenButton));
+    openFoam->setIcon(toolIcon(QStringLiteral("fluent"), QStyle::SP_DirOpenIcon));
+    saveProject->setIcon(toolIcon(QStringLiteral("save"), QStyle::SP_DialogSaveButton));
+    importStl->setIcon(toolIcon(QStringLiteral("import"), QStyle::SP_FileDialogDetailedView));
+    importFluent->setIcon(toolIcon(QStringLiteral("fluent"), QStyle::SP_DriveHDIcon));
+    detectBackend->setIcon(toolIcon(QStringLiteral("solver"), QStyle::SP_ComputerIcon));
+    runAction_->setIcon(toolIcon(QStringLiteral("run"), QStyle::SP_MediaPlay));
+    cancelAction_->setIcon(toolIcon(QStringLiteral("stop"), QStyle::SP_MediaStop));
+    themeAction_->setIcon(toolIcon(QStringLiteral("settings"), QStyle::SP_DesktopIcon));
 
-    auto* geometryEditor = new QAction(icon(QStyle::SP_DirIcon), tr("Geometry"), this);
-    auto* meshEditor = new QAction(icon(QStyle::SP_FileDialogDetailedView), tr("Mesh"), this);
-    auto* materialsEditor = new QAction(icon(QStyle::SP_DriveHDIcon), tr("Materials"), this);
-    auto* boundaryEditor = new QAction(icon(QStyle::SP_DirLinkIcon), tr("Boundaries"), this);
-    auto* solverEditor = new QAction(icon(QStyle::SP_ComputerIcon), tr("Solver"), this);
-    auto* sketchEditor = new QAction(icon(QStyle::SP_FileDialogDetailedView), tr("2D Sketch…"), this);
+    auto* geometryEditor = new QAction(toolIcon(QStringLiteral("geometry"), QStyle::SP_DirIcon), tr("Geometry"), this);
+    auto* meshEditor = new QAction(toolIcon(QStringLiteral("mesh"), QStyle::SP_FileDialogDetailedView), tr("Mesh"), this);
+    auto* materialsEditor = new QAction(toolIcon(QStringLiteral("material"), QStyle::SP_DriveHDIcon), tr("Materials"), this);
+    auto* boundaryEditor = new QAction(toolIcon(QStringLiteral("boundary"), QStyle::SP_DirLinkIcon), tr("Boundaries"), this);
+    auto* solverEditor = new QAction(toolIcon(QStringLiteral("solver"), QStyle::SP_ComputerIcon), tr("Solver"), this);
+    auto* sketchEditor = new QAction(toolIcon(QStringLiteral("sketch"), QStyle::SP_FileDialogDetailedView), tr("2D Sketch…"), this);
     sketchEditor->setToolTip(tr("Draw a dimensioned polyline with split segments and exact mm lengths."));
     connect(sketchEditor, &QAction::triggered, this, [this]() {
         SketchEditorDialog dialog(this);
