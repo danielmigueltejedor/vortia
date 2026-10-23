@@ -23,6 +23,11 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp "$exe" "$bundle/Contents/MacOS/vortia"
 chmod +x "$bundle/Contents/MacOS/vortia"
 cp "$plist" "$bundle/Contents/Info.plist"
+# Install generated translations for the Finder-launched bundle as well.
+generated_qm="$(dirname "$(dirname "$exe")")/vortia_es.qm"
+if [[ -f "$generated_qm" ]]; then
+    cp "$generated_qm" "$bundle/Contents/Resources/vortia_es.qm"
+fi
 
 temporary="$(mktemp -d)"
 trap 'rm -rf "$temporary"' EXIT

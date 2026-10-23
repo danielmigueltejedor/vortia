@@ -27,6 +27,11 @@ if(VORTIA_LRELEASE)
         add_custom_target(vortia_translations ALL
             DEPENDS "${CMAKE_BINARY_DIR}/vortia_es.qm")
         add_dependencies(vortia vortia_translations)
+        # Embedded for both the unbundled developer binary and macOS bundles.
+        # Generate the RCC manifest at configure time; qm is created by lrelease.
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/vortia_lang.qrc"
+            "<RCC><qresource prefix=\"/translations\"><file alias=\"vortia_es.qm\">${CMAKE_BINARY_DIR}/vortia_es.qm</file></qresource></RCC>")
+        target_sources(vortia PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/vortia_lang.qrc")
     endif()
 endif()
 

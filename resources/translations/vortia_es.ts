@@ -87,4 +87,19 @@
         <translation>Consola Vortia — aquí aparecen la aplicación y la salida del solver.</translation>
     </message>
 </context>
+<context>
+    <name>MainWindow</name>
+    <message><source>Tools</source><translation>Herramientas</translation></message>
+    <message><source>Preferences…</source><translation>Preferencias…</translation></message>
+    <message><source>Vortia Preferences</source><translation>Preferencias de Vortia</translation></message>
+    <message><source>System language</source><translation>Idioma del sistema</translation></message>
+    <message><source>Choose the language used by Vortia after restarting.</source><translation>Elige el idioma de Vortia tras reiniciar.</translation></message>
+    <message><source>Dark</source><translation>Oscuro</translation></message>
+    <message><source>Light</source><translation>Claro</translation></message>
+    <message><source>Application language</source><translation>Idioma de la aplicación</translation></message>
+    <message><source>Appearance</source><translation>Apariencia</translation></message>
+    <message><source>Language changes take effect after restarting Vortia. Appearance changes take effect immediately.</source><translation>Los cambios de idioma se aplican después de reiniciar Vortia. Los cambios de apariencia se aplican inmediatamente.</translation></message>
+    <message><source>Language</source><translation>Idioma</translation></message>
+    <message><source>Restart Vortia to apply the selected language.</source><translation>Reinicia Vortia para aplicar el idioma seleccionado.</translation></message>
+  </context>
 </TS>
