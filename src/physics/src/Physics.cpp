@@ -48,9 +48,23 @@ double CaseSetup::estimateMaxCourant() const {
         return 0.0;
     const Vec3 size = domain.size();
     double minDx = std::numeric_limits<double>::max();
-    for (int axis = 0; axis < 3; ++axis)
-        if (mesh.cells[axis] > 0 && size[axis] > 0.0)
-            minDx = std::min(minDx, size[axis] / static_cast<double>(mesh.cells[axis]));
+    for (int axis = 0; axis < 3; ++axis) {
+        const int count = mesh.cells[axis];
+        const double length = size[axis];
+        const double grade = mesh.grading[axis];
+        if (count < 1 || !(length > 0.0) || !(grade > 0.0) || !std::isfinite(grade))
+            continue;
+        double smallest = length / count;
+        if (count > 1 && std::abs(std::log(grade)) > 1e-10) {
+            // simpleGrading is (last cell width) / (first cell width).
+            // Actual cell sizes form a geometric progression.
+            const double logQ = std::log(grade) / (count - 1);
+            const double first = length * std::expm1(logQ) /
+                                 std::expm1(count * logQ);
+            smallest = first * std::min(1.0, grade);
+        }
+        minDx = std::min(minDx, smallest);
+    }
     if (!std::isfinite(minDx) || minDx <= 0.0)
         return 0.0;
     return speed * time.deltaT / minDx;
