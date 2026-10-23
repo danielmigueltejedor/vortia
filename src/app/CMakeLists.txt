@@ -12,31 +12,26 @@ target_link_libraries(vortia
         vortia::visualization
         vortia_warnings)
 
-# Translation sources (compiled into the binary via the Qt resource system).
-# The .ts file is the source of truth; lrelease runs at build time.
-find_program(VORTIA_LRELEASE NAMES lrelease lrelease-qt6 Qt6::lrelease)
-if(VORTIA_LRELEASE)
-    set(VORTIA_TS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/translations/vortia_es.ts")
-    if(EXISTS "${VORTIA_TS_FILE}")
-        add_custom_command(
-            OUTPUT "${CMAKE_BINARY_DIR}/vortia_es.qm"
-            COMMAND ${VORTIA_LRELEASE} -silent "${VORTIA_TS_FILE}"
-                    -qm "${CMAKE_BINARY_DIR}/vortia_es.qm"
-            DEPENDS "${VORTIA_TS_FILE}"
-            VERBATIM)
-        add_custom_target(vortia_translations ALL
-            DEPENDS "${CMAKE_BINARY_DIR}/vortia_es.qm")
-        add_dependencies(vortia vortia_translations)
-        # Embedded for both the unbundled developer binary and macOS bundles.
-        # Generate the RCC manifest at configure time; qm is created by lrelease.
-        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/vortia_lang.qrc"
-            "<RCC><qresource prefix=\"/translations\"><file alias=\"vortia_es.qm\">${CMAKE_BINARY_DIR}/vortia_es.qm</file></qresource></RCC>")
-        target_sources(vortia PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/vortia_lang.qrc")
-    endif()
-endif()
+# Translation generation is REQUIRED for a UI build. Previously an optional
+# find_program silently skipped lrelease and produced an English-only binary.
+find_package(Qt6 REQUIRED COMPONENTS LinguistTools)
 
-# Embed the .qm files as a Qt resource if they exist. Simpler: rely on the
-# filesystem resource path at runtime; fall back to no translations.
+set(VORTIA_TS_FILE "${PROJECT_SOURCE_DIR}/resources/translations/vortia_es.ts")
+set(VORTIA_QM_FILE "${CMAKE_BINARY_DIR}/vortia_es.qm")
+add_custom_command(
+    OUTPUT "${VORTIA_QM_FILE}"
+    COMMAND $<TARGET_FILE:Qt6::lrelease> "${VORTIA_TS_FILE}" -qm "${VORTIA_QM_FILE}"
+    DEPENDS "${VORTIA_TS_FILE}"
+    COMMENT "Compiling Vortia Spanish translations"
+    VERBATIM)
+add_custom_target(vortia_translations ALL DEPENDS "${VORTIA_QM_FILE}")
+add_dependencies(vortia vortia_translations)
+
+set(VORTIA_TRANSLATIONS_QRC "${CMAKE_CURRENT_BINARY_DIR}/vortia_lang.qrc")
+file(WRITE "${VORTIA_TRANSLATIONS_QRC}"
+    "<RCC><qresource prefix=\"/translations\"><file alias=\"vortia_es.qm\">${VORTIA_QM_FILE}</file></qresource></RCC>")
+target_sources(vortia PRIVATE "${VORTIA_TRANSLATIONS_QRC}")
+
 target_compile_definitions(vortia PRIVATE
     VORTIA_VERSION="${PROJECT_VERSION}")
 

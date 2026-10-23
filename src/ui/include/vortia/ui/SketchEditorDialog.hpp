@@ -17,6 +17,7 @@ class SketchCanvas2D;
 /// Interactive dimensioned 2D sketch editor. Exports actual mm coordinates
 /// and explicit line segments as JSON; no CFD-mesh conversion is implied.
 class SketchEditorDialog final : public QDialog {
+    Q_OBJECT
 public:
     explicit SketchEditorDialog(QWidget* parent = nullptr);
 private:

@@ -55,3 +55,10 @@ if(TARGET vortia_visualization)
                           GTest::gtest_main vortia_warnings)
     gtest_discover_tests(test_vtk_input)
 endif()
+
+# CI regression: ensures that lrelease ran and the built app embeds a readable
+# Spanish catalog in the same resource path used at runtime.
+if(TARGET vortia)
+    add_test(NAME vortia_spanish_catalog
+             COMMAND $<TARGET_FILE:vortia> --verify-spanish)
+endif()
