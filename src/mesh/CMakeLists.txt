@@ -1,7 +1,8 @@
 # vortia_mesh — mesh generation parameters and OpenFOAM mesh dictionaries.
 
 add_library(vortia_mesh STATIC
-    src/BlockMeshDict.cpp)
+    src/BlockMeshDict.cpp
+    src/PlanarNozzleBlockMesh.cpp)
 
 add_library(vortia::mesh ALIAS vortia_mesh)
 

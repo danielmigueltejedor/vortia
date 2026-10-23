@@ -246,5 +246,19 @@
     <message><source>Replace sketch?</source><translation>¿Sustituir el croquis?</translation></message>
     <message><source>Replace the current 2D profile with the new parametric shape?</source><translation>¿Sustituir el perfil 2D actual por la nueva geometría paramétrica?</translation></message>
     <message><source>Open the profile before adding points.</source><translation>Abre el perfil antes de añadir puntos.</translation></message>
+    <message><source>Export planar OpenFOAM mesh…</source><translation>Exportar malla plana de OpenFOAM…</translation></message>
+    <message><source>Export a 2D planar blockMeshDict (not an axisymmetric wedge or CFD case).</source><translation>Exporta un blockMeshDict plano 2D (no es una malla axisimétrica ni un caso CFD).</translation></message>
+    <message><source>Nozzle mesh</source><translation>Malla de la tobera</translation></message>
+    <message><source>Planar mesh options</source><translation>Opciones de malla plana</translation></message>
+    <message><source>Axial segments (converging)</source><translation>Segmentos axiales (convergente)</translation></message>
+    <message><source>Axial segments (diverging)</source><translation>Segmentos axiales (divergente)</translation></message>
+    <message><source>Cells per axial segment</source><translation>Celdas por segmento axial</translation></message>
+    <message><source>Radial cells</source><translation>Celdas radiales</translation></message>
+    <message><source>Radial grading</source><translation>Gradación radial</translation></message>
+    <message><source>Thickness (mm)</source><translation>Espesor (mm)</translation></message>
+    <message><source>Export OpenFOAM blockMeshDict</source><translation>Exportar blockMeshDict de OpenFOAM</translation></message>
+    <message><source>Mesh export failed</source><translation>Error al exportar la malla</translation></message>
+    <message><source>Could not write blockMeshDict.</source><translation>No se pudo escribir blockMeshDict.</translation></message>
+    <message><source>Planar mesh exported</source><translation>Malla plana exportada</translation></message>
 </context>
 </TS>
