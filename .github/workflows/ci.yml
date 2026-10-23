@@ -76,6 +76,31 @@ jobs:
           writeControl timeStep;
           writeInterval 1;
           EOF
+          cat > "$case_dir/system/fvSchemes" <<'EOF'
+          FoamFile
+          {
+              version 2.0;
+              format ascii;
+              class dictionary;
+              object fvSchemes;
+          }
+          ddtSchemes { default Euler; }
+          gradSchemes { default Gauss linear; }
+          divSchemes { default none; }
+          laplacianSchemes { default Gauss linear corrected; }
+          interpolationSchemes { default linear; }
+          snGradSchemes { default corrected; }
+          EOF
+          cat > "$case_dir/system/fvSolution" <<'EOF'
+          FoamFile
+          {
+              version 2.0;
+              format ascii;
+              class dictionary;
+              object fvSolution;
+          }
+          solvers {}
+          EOF
           build/bin/nozzle_mesh_export_smoke "$case_dir/system/blockMeshDict"
           # Ubuntu openfoam packaging can install to a prefixed directory.
           if [[ -f /usr/share/openfoam/etc/bashrc ]]; then
