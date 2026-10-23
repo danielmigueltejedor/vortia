@@ -65,3 +65,7 @@ if(TARGET vortia)
     add_test(NAME vortia_spanish_catalog
              COMMAND $<TARGET_FILE:vortia> --verify-spanish)
 endif()
+
+# Small standalone exporter for actual OpenFOAM blockMesh/checkMesh smoke tests.
+add_executable(nozzle_mesh_export_smoke integration/nozzle_mesh_export_smoke.cpp)
+target_link_libraries(nozzle_mesh_export_smoke PRIVATE vortia::mesh vortia_warnings)
