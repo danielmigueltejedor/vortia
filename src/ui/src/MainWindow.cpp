@@ -20,6 +20,11 @@
 #include <QSizePolicy>
 #include <QToolButton>
 #include <QTabWidget>
+#include <QTabBar>
+#include <QSignalBlocker>
+#include <QFileInfo>
+#include <QFile>
+#include <QDir>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFrame>
@@ -27,6 +32,8 @@
 #include <QSize>
 
 #include <QAction>
+#include <QCloseEvent>
+#include <algorithm>
 #include <QApplication>
 #include <QDockWidget>
 #include <QFileDialog>
@@ -114,7 +121,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     explorer_->retranslate();
 
     loadSettings();
-    updateViewport();
+    addProjectTab(tr("Untitled %1").arg(++untitledCount_), setup_);
     setProjectState(tr("New untitled project — default cavity template (Re=100)."));
 }
 
@@ -182,8 +189,8 @@ void MainWindow::buildMenusAndToolbar() {
     auto* sketchEditor = new QAction(toolIcon(QStringLiteral("sketch"), QStyle::SP_FileDialogDetailedView), tr("2D Sketch…"), this);
     sketchEditor->setToolTip(tr("Draw a dimensioned polyline with split segments and exact mm lengths."));
     connect(sketchEditor, &QAction::triggered, this, [this]() {
-        SketchEditorDialog dialog(this);
-        dialog.exec();
+        if (workspaceTabs_ && sketchEditor_)
+            workspaceTabs_->setCurrentWidget(sketchEditor_);
     });
     connect(geometryEditor, &QAction::triggered, this,
             [this]() { properties_->showNode(ProjectExplorerPanel::GeometryNode); });
@@ -304,8 +311,39 @@ void MainWindow::buildMenusAndToolbar() {
 void MainWindow::buildDocks() {
     setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowTabbedDocks
                    | QMainWindow::AllowNestedDocks);
-    viewport_ = new VtkViewport(this);
-    setCentralWidget(viewport_);
+    auto* central = new QWidget(this);
+    auto* centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->setSpacing(0);
+    projectTabs_ = new QTabBar(central);
+    projectTabs_->setObjectName(QStringLiteral("vortia-project-tabs"));
+    projectTabs_->setMovable(false);
+    projectTabs_->setTabsClosable(true);
+    projectTabs_->setDocumentMode(true);
+    projectTabs_->setExpanding(false);
+    projectTabs_->setUsesScrollButtons(true);
+    centralLayout->addWidget(projectTabs_);
+    workspaceTabs_ = new QTabWidget(central);
+    workspaceTabs_->setDocumentMode(true);
+    workspaceTabs_->setObjectName(QStringLiteral("vortia-editor-tabs"));
+    viewport_ = new VtkViewport(workspaceTabs_);
+    workspaceTabs_->addTab(viewport_, tr("3D CFD"));
+    sketchEditor_ = new SketchEditorDialog(workspaceTabs_);
+    sketchEditor_->setWindowFlags(Qt::Widget);
+    workspaceTabs_->addTab(sketchEditor_, tr("2D Sketch"));
+    connect(sketchEditor_, &SketchEditorDialog::closeRequested, this,
+            [this]() { workspaceTabs_->setCurrentWidget(viewport_); });
+    connect(sketchEditor_, &SketchEditorDialog::sketchChanged, this, [this]() {
+        dirty_ = true;
+        storeCurrentTab();
+        refreshProjectTabTitle();
+    });
+    centralLayout->addWidget(workspaceTabs_, 1);
+    setCentralWidget(central);
+    connect(projectTabs_, &QTabBar::currentChanged,
+            this, &MainWindow::activateProjectTab);
+    connect(projectTabs_, &QTabBar::tabCloseRequested,
+            this, &MainWindow::closeProjectTab);
 
     auto* explorerDock = new QDockWidget(tr("Project Explorer"), this);
     explorerDock->setObjectName(QStringLiteral("vortia-dock-project"));
@@ -384,18 +422,128 @@ void MainWindow::updateViewport() {
         ThemeManager::Theme::Dark);
 }
 
-void MainWindow::onNewProject() {
-    if (dirty_) {
-        const auto r = QMessageBox::question(this, tr("Unsaved changes"),
-                                             tr("Discard current project and create a new one?"));
-        if (r != QMessageBox::Yes)
-            return;
+void MainWindow::storeCurrentTab() {
+    if (activeProjectTab_ < 0 ||
+        static_cast<std::size_t>(activeProjectTab_) >= documents_.size())
+        return;
+    auto& tab = documents_[static_cast<std::size_t>(activeProjectTab_)];
+    tab.root = projectRoot_;
+    tab.externalCase = existingCaseDir_;
+    tab.existingCase = useExistingCase_;
+    tab.setup = setup_;
+    if (sketchEditor_) {
+        tab.sketch = sketchEditor_->sketch();
+        tab.nozzleDimensions = sketchEditor_->nozzleDimensions();
     }
-    projectRoot_.clear();
-    setup_ = makeCavity();
+    tab.modified = dirty_;
+    tab.resultVtm = lastVtmPath_;
+}
+
+void MainWindow::refreshProjectTabTitle() {
+    if (activeProjectTab_ < 0 ||
+        static_cast<std::size_t>(activeProjectTab_) >= documents_.size())
+        return;
+    auto& tab = documents_[static_cast<std::size_t>(activeProjectTab_)];
+    const QString name = projectRoot_.empty() ? tab.name :
+        QString::fromStdString(projectRoot_.filename().string());
+    tab.name = name;
+    projectTabs_->setTabText(activeProjectTab_, name + (dirty_ ? QStringLiteral(" *") : QString()));
+    projectTabs_->setTabToolTip(activeProjectTab_,
+        projectRoot_.empty() ? tr("Unsaved project")
+                             : QString::fromStdString(projectRoot_.string()));
+}
+
+void MainWindow::addProjectTab(const QString& name, CaseSetup setup,
+                              const std::filesystem::path& root,
+                              const std::filesystem::path& caseDir) {
+    storeCurrentTab();
+    ProjectDocument doc;
+    doc.name = name;
+    doc.setup = std::move(setup);
+    doc.root = root;
+    doc.externalCase = caseDir;
+    doc.existingCase = !caseDir.empty();
+    const int index = static_cast<int>(documents_.size());
+    documents_.push_back(std::move(doc));
+    {
+        QSignalBlocker block(projectTabs_);
+        projectTabs_->addTab(name);
+    }
+    projectTabs_->setCurrentIndex(index);
+    if (activeProjectTab_ != index)
+        activateProjectTab(index);
+}
+
+void MainWindow::activateProjectTab(int index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= documents_.size()
+        || index == activeProjectTab_)
+        return;
+    if (cancelAction_ && cancelAction_->isEnabled()) {
+        // A solver run always belongs to the active case. Do not allow the
+        // result/console to be attributed to a different document.
+        QSignalBlocker block(projectTabs_);
+        projectTabs_->setCurrentIndex(activeProjectTab_);
+        return;
+    }
+    storeCurrentTab();
+    activeProjectTab_ = index;
+    const auto& tab = documents_[static_cast<std::size_t>(index)];
+    projectRoot_ = tab.root;
+    existingCaseDir_ = tab.externalCase;
+    useExistingCase_ = tab.existingCase;
+    setup_ = tab.setup;
+    dirty_ = tab.modified;
+    lastVtmPath_ = tab.resultVtm;
     properties_->setSetup(setup_);
+    if (sketchEditor_) {
+        sketchEditor_->setNozzleDimensions(tab.nozzleDimensions);
+        sketchEditor_->setSketch(tab.sketch);
+    }
     updateViewport();
-    dirty_ = false;
+    if (!lastVtmPath_.isEmpty() && QFileInfo::exists(lastVtmPath_)) {
+        try {
+            viewport_->loadVtmFile(lastVtmPath_.toStdString(),
+                                   fieldCombo_->currentText().toStdString());
+        } catch (...) {
+            // A stale VTM on disk must never crash project switching.
+            lastVtmPath_.clear();
+        }
+    }
+    refreshProjectTabTitle();
+    setProjectState(tr("Active project: %1").arg(tab.name));
+}
+
+void MainWindow::closeProjectTab(int index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= documents_.size()
+        || (cancelAction_ && cancelAction_->isEnabled()))
+        return;
+    storeCurrentTab();
+    const auto& tab = documents_[static_cast<std::size_t>(index)];
+    if (tab.modified && QMessageBox::question(
+            this, tr("Unsaved project"),
+            tr("Discard unsaved changes in %1?").arg(tab.name),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+        return;
+    {
+        QSignalBlocker block(projectTabs_);
+        documents_.erase(documents_.begin() + index);
+        projectTabs_->removeTab(index);
+    }
+    activeProjectTab_ = -1;
+    if (documents_.empty()) {
+        addProjectTab(tr("Untitled %1").arg(++untitledCount_), makeCavity());
+    } else {
+        const int next = std::min(index, static_cast<int>(documents_.size()) - 1);
+        {
+            QSignalBlocker block(projectTabs_);
+            projectTabs_->setCurrentIndex(next);
+        }
+        activateProjectTab(next);
+    }
+}
+
+void MainWindow::onNewProject() {
+    addProjectTab(tr("Untitled %1").arg(++untitledCount_), makeCavity());
     setProjectState(tr("New untitled project — default cavity template (Re=100)."));
 }
 
@@ -407,8 +555,8 @@ void MainWindow::onOpenProject() {
     if (!project) {
         // Not a Vortia project — maybe it's an OpenFOAM case directory.
         if (std::filesystem::exists(dir.toStdString() + "/system/controlDict")) {
-            existingCaseDir_ = dir.toStdString();
-            useExistingCase_ = true;
+            addProjectTab(QFileInfo(dir).fileName(), makeCavity(),
+                          {}, std::filesystem::path(dir.toStdString()));
             setProjectState(tr("Opened existing OpenFOAM case: %1").arg(dir));
             console_->appendSolverOutput(tr("Opened existing OpenFOAM case: %1\n").arg(dir));
             return;
@@ -416,11 +564,11 @@ void MainWindow::onOpenProject() {
         QMessageBox::warning(this, tr("Open failed"), QString::fromStdString(project.error().describe()));
         return;
     }
-    projectRoot_ = project->rootDir();
+    CaseSetup openedSetup = makeCavity();
     if (!project->setupJson().empty()) {
         auto loaded = caseSetupFromJson(project->setupJson());
         if (loaded)
-            setup_ = loaded.value();
+            openedSetup = loaded.value();
         else
             QMessageBox::warning(this, tr("Open warning"),
                                  tr("Case setup could not be fully restored: %1")
@@ -428,9 +576,14 @@ void MainWindow::onOpenProject() {
     }
     if (!project->backendFingerprint().empty())
         ofInstallation_ = openfoam::Installation{}; // cleared; re-detect on run
-    properties_->setSetup(setup_);
-    updateViewport();
-    dirty_ = false;
+    addProjectTab(QString::fromStdString(project->name()), openedSetup,
+                  project->rootDir());
+    const auto sketchPath = project->rootDir() / "geometry" / "working-sketch.vsketch.json";
+    if (std::filesystem::exists(sketchPath) &&
+        !sketchEditor_->readSketchFile(QString::fromStdString(sketchPath.string())))
+        QMessageBox::warning(this, tr("Sketch load failed"),
+                             tr("This project contains an invalid 2D sketch file."));
+    storeCurrentTab();
     setProjectState(tr("Opened project: %1").arg(QString::fromStdString(project->name())));
 }
 
@@ -467,7 +620,17 @@ void MainWindow::onSaveProject() {
         QMessageBox::warning(this, tr("Save failed"), QString::fromStdString(saved.error().describe()));
         return;
     }
+    const auto sketchPath = projectRoot_ / "geometry" / "working-sketch.vsketch.json";
+    if (!sketchEditor_->writeSketchFile(QString::fromStdString(sketchPath.string()))) {
+        QMessageBox::warning(this, tr("Sketch save failed"),
+                             tr("The project metadata was saved, but its 2D sketch could not be written."));
+        dirty_ = true;
+        refreshProjectTabTitle();
+        return;
+    }
     dirty_ = false;
+    refreshProjectTabTitle();
+    storeCurrentTab();
     setProjectState(tr("Saved project: %1").arg(QString::fromStdString(project->name())));
 }
 
@@ -604,21 +767,25 @@ void MainWindow::onOpenExistingCase() {
                              tr("The selected directory has no system/controlDict."));
         return;
     }
-    existingCaseDir_ = caseDir;
-    useExistingCase_ = true;
-    projectRoot_.clear();
-    dirty_ = false;
+    addProjectTab(QFileInfo(dir).fileName(), makeCavity(), {}, caseDir);
     setProjectState(tr("Opened existing case: %1").arg(dir));
     console_->appendSolverOutput(tr("Opened existing OpenFOAM case: %1\n").arg(dir));
 }
 
 void MainWindow::onNodeActivated(int nodeId) {
     properties_->showNode(nodeId);
+    if (workspaceTabs_) {
+        workspaceTabs_->setCurrentWidget(
+            nodeId == ProjectExplorerPanel::GeometryNode ? static_cast<QWidget*>(sketchEditor_)
+                                                          : static_cast<QWidget*>(viewport_));
+    }
 }
 
 void MainWindow::onApplySetup(const CaseSetup& setup) {
     setup_ = setup;
     dirty_ = true;
+    storeCurrentTab();
+    refreshProjectTabTitle();
     updateViewport();
 }
 
@@ -703,6 +870,7 @@ void MainWindow::onRun() {
 
     runAction_->setEnabled(false);
     cancelAction_->setEnabled(true);
+    projectTabs_->setEnabled(false);
 
     JobController::JobSpec spec;
     spec.caseDir = caseDir;
@@ -727,6 +895,7 @@ void MainWindow::onCancel() {
 void MainWindow::onJobFinished(bool success, const QString& summary) {
     runAction_->setEnabled(true);
     cancelAction_->setEnabled(false);
+    projectTabs_->setEnabled(true);
     setProjectState(success ? tr("Run finished: %1").arg(summary)
                            : tr("Run failed: %1").arg(summary));
     console_->appendSolverOutput((success ? tr("SUCCESS: ") : tr("FAILED: ")) + summary + "\n");
@@ -735,6 +904,7 @@ void MainWindow::onJobFinished(bool success, const QString& summary) {
 void MainWindow::onResultsReady(const QString& vtmPath) {
     try {
         lastVtmPath_ = vtmPath;
+        storeCurrentTab();
         viewport_->loadVtmFile(vtmPath.toStdString(), fieldCombo_->currentText().toStdString());
         console_->appendSolverOutput(tr("Loaded results: %1\n").arg(vtmPath));
         setProjectState(tr("Results loaded."));
@@ -854,6 +1024,16 @@ void MainWindow::setProjectState(const QString& statusText) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    storeCurrentTab();
+    bool pending = false;
+    for (const auto& doc : documents_)
+        pending = pending || doc.modified;
+    if (pending && QMessageBox::question(this, tr("Unsaved projects"),
+         tr("Some projects have unsaved changes. Exit without saving?"),
+         QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+        event->ignore();
+        return;
+    }
     saveSettings();
     QMainWindow::closeEvent(event);
 }

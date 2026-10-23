@@ -12,6 +12,9 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFile>
+#include <QFileInfo>
+#include <QStringList>
+#include <QDir>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -38,7 +41,8 @@ namespace vortia {
 class SketchCanvas2D final : public QWidget {
 public:
     explicit SketchCanvas2D(QWidget* parent = nullptr) : QWidget(parent) {
-        setMinimumSize(440, 360);
+        // Keep the CAD canvas usable in a docked 1280x800 MacBook window.
+        setMinimumSize(320, 260);
         setMouseTracking(true);
         setToolTip(tr("Click a vertex or segment to select it; measurements are in mm."));
     }
@@ -55,13 +59,15 @@ public:
     }
     std::function<void(int)> onPointSelected;
     std::function<void(int)> onSegmentSelected;
+    std::function<void(int, SketchPoint2D)> onPointDragged;
 protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
         p.fillRect(rect(), QColor(25, 31, 41));
         if (!sketch_) return;
-        computeBounds();
+        // Keep the camera transform fixed while a vertex is dragged.
+        if (dragVertex_ < 0) computeBounds();
         p.setPen(QPen(QColor(51, 64, 82), 1));
         const double gridMm = 10.0;
         const double minX = std::floor(x0_ / gridMm) * gridMm;
@@ -123,6 +129,7 @@ protected:
             if (d < bestDistance) { bestDistance = d; bestPoint = static_cast<int>(i); }
         }
         if (bestPoint >= 0) {
+            dragVertex_ = bestPoint;
             if (onPointSelected) onPointSelected(bestPoint);
             event->accept();
             return;
@@ -145,6 +152,37 @@ protected:
         if (bestSegment >= 0 && onSegmentSelected) onSegmentSelected(bestSegment);
         event->accept();
     }
+    void mouseMoveEvent(QMouseEvent* event) override {
+        if (dragVertex_ >= 0 && (event->buttons() & Qt::LeftButton)) {
+            const QPointF p = event->position();
+            SketchPoint2D world{x0_ + p.x() / scale_,
+                                y0_ + (height() - p.y()) / scale_};
+            world.xMm = std::round(world.xMm);
+            world.yMm = std::round(world.yMm);
+            if (onPointDragged) onPointDragged(dragVertex_, world);
+            event->accept();
+            return;
+        }
+        if (!(event->buttons() & Qt::LeftButton) && dragVertex_ >= 0) {
+            dragVertex_ = -1;
+            update();
+        }
+        QWidget::mouseMoveEvent(event);
+    }
+    void leaveEvent(QEvent* event) override {
+        dragVertex_ = -1;
+        update();
+        QWidget::leaveEvent(event);
+    }
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::LeftButton && dragVertex_ >= 0) {
+            dragVertex_ = -1;
+            update();
+            event->accept();
+            return;
+        }
+        QWidget::mouseReleaseEvent(event);
+    }
 private:
     QPointF project(SketchPoint2D pt) const {
         return {(pt.xMm - x0_) * scale_, height() - (pt.yMm - y0_) * scale_};
@@ -166,6 +204,7 @@ private:
     }
     const Sketch2D* sketch_{nullptr};
     bool drawMode_{false};
+    int dragVertex_{-1};
     int selectedPoint_{-1};
     int selectedSegment_{-1};
     double scale_{1.0};
@@ -240,7 +279,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     tools->addLayout(form);
     auto* draw = new QPushButton(tr("Draw with mouse"), sidebar);
     draw->setCheckable(true);
-    draw->setToolTip(tr("Click the canvas to add points on a 1 mm grid."));
+    draw->setToolTip(tr("Click the canvas to add points on a 1 mm grid. Turn off Draw to drag vertices."));
     auto* rectangle = new QPushButton(tr("Rectangle…"), sidebar);
     auto* circle = new QPushButton(tr("Circle…"), sidebar);
     auto* nozzle = new QPushButton(tr("Parametric nozzle…"), sidebar);
@@ -318,9 +357,15 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     connect(splitButton, &QPushButton::clicked, this, [this]() { this->split(); });
     connect(dimension, &QPushButton::clicked, this, [this]() { changeLength(); });
     connect(close, &QPushButton::clicked, this, [this]() {
-        if (sketch_.closed()) sketch_.open();
-        else if (!sketch_.close())
-            QMessageBox::warning(this, tr("Invalid profile"), tr("At least three distinct vertices are needed."));
+        if (sketch_.closed()) {
+            sketch_.open();
+            emit sketchChanged();
+        } else if (!sketch_.close()) {
+            QMessageBox::warning(this, tr("Invalid profile"),
+                                 tr("At least three distinct vertices are needed."));
+        } else {
+            emit sketchChanged();
+        }
         refresh();
     });
     connect(loadButton, &QPushButton::clicked, this, [this]() { load(); });
@@ -329,11 +374,22 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
         sketch_.clear();
         selectedSegment_ = -1;
         selectedPoint_ = -1;
+        emit sketchChanged();
         refresh();
     });
-    connect(done, &QPushButton::clicked, this, &QDialog::accept);
+    connect(done, &QPushButton::clicked, this,
+            [this]() { emit closeRequested(); });
     connect(table_, &QTableWidget::cellClicked, this, [this](int row, int) { setSelectedPoint(row); });
     canvas_->onPointSelected = [this](int index) { setSelectedPoint(index); };
+    canvas_->onPointDragged = [this](int index, SketchPoint2D point) {
+        if (sketch_.movePoint(static_cast<std::size_t>(index), point)) {
+            selectedPoint_ = index;
+            x_->setValue(point.xMm);
+            y_->setValue(point.yMm);
+            emit sketchChanged();
+            refresh();
+        }
+    };
     canvas_->onCanvasClicked = [this](SketchPoint2D point) {
         if (sketch_.closed()) {
             QMessageBox::information(this, tr("Closed profile"),
@@ -343,6 +399,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
         if (sketch_.addPoint(point)) {
             x_->setValue(point.xMm);
             y_->setValue(point.yMm);
+            emit sketchChanged();
             refresh();
         }
     };
@@ -361,6 +418,7 @@ void SketchEditorDialog::setShape(const Sketch2D& shape) {
     sketch_ = shape;
     selectedSegment_ = -1;
     selectedPoint_ = -1;
+    emit sketchChanged();
     refresh();
 }
 
@@ -402,6 +460,7 @@ void SketchEditorDialog::addPoint() {
                              tr("Could not append the point. Open profiles and distinct consecutive points are required."));
         return;
     }
+    emit sketchChanged();
     refresh();
 }
 void SketchEditorDialog::movePoint() {
@@ -410,6 +469,7 @@ void SketchEditorDialog::movePoint() {
         QMessageBox::warning(this, tr("Invalid point"), tr("Select a vertex and enter valid coordinates."));
         return;
     }
+    emit sketchChanged();
     refresh();
 }
 void SketchEditorDialog::split() {
@@ -419,6 +479,7 @@ void SketchEditorDialog::split() {
         return;
     }
     ++selectedSegment_;
+    emit sketchChanged();
     refresh();
 }
 void SketchEditorDialog::changeLength() {
@@ -434,12 +495,18 @@ void SketchEditorDialog::changeLength() {
     if (ok && !sketch_.setSegmentLength(index, value))
         QMessageBox::warning(this, tr("Dimension failed"),
                              tr("Could not set that length without creating a degenerate segment."));
+    else if (ok)
+        emit sketchChanged();
     refresh();
 }
-void SketchEditorDialog::save() {
-    const QString filename = QFileDialog::getSaveFileName(
-        this, tr("Save 2D sketch"), {}, tr("Vortia sketch (*.vsketch.json)"));
-    if (filename.isEmpty()) return;
+void SketchEditorDialog::setSketch(const Sketch2D& shape) {
+    sketch_ = shape;
+    selectedPoint_ = -1;
+    selectedSegment_ = -1;
+    refresh();
+}
+
+bool SketchEditorDialog::writeSketchFile(const QString& path) const {
     QJsonObject root{{QStringLiteral("schemaVersion"), 1},
                      {QStringLiteral("units"), QStringLiteral("mm")},
                      {QStringLiteral("closed"), sketch_.closed()}};
@@ -447,46 +514,84 @@ void SketchEditorDialog::save() {
     for (const auto& p : sketch_.points())
         vertices.append(QJsonArray{p.xMm, p.yMm});
     root.insert(QStringLiteral("vertices"), vertices);
-    QSaveFile file(filename);
-    if (!file.open(QIODevice::WriteOnly) ||
-        file.write(QJsonDocument(root).toJson(QJsonDocument::Indented)) < 0 ||
-        !file.commit())
-        QMessageBox::warning(this, tr("Save error"), tr("Could not save sketch."));
+    root.insert(QStringLiteral("nozzleDimensions"), QJsonObject{
+        {QStringLiteral("inletDiameterMm"), nozzleDims_.inletDiameterMm},
+        {QStringLiteral("throatDiameterMm"), nozzleDims_.throatDiameterMm},
+        {QStringLiteral("outletDiameterMm"), nozzleDims_.outletDiameterMm},
+        {QStringLiteral("convergingLengthMm"), nozzleDims_.convergingLengthMm},
+        {QStringLiteral("divergingLengthMm"), nozzleDims_.divergingLengthMm}
+    });
+    const QFileInfo info(path);
+    if (!QDir().mkpath(info.absolutePath()))
+        return false;
+    QSaveFile file(path);
+    return file.open(QIODevice::WriteOnly)
+        && file.write(QJsonDocument(root).toJson(QJsonDocument::Indented)) >= 0
+        && file.commit();
 }
-void SketchEditorDialog::load() {
-    const QString filename = QFileDialog::getOpenFileName(
-        this, tr("Load 2D sketch"), {}, tr("Vortia sketch (*.vsketch.json)"));
-    if (filename.isEmpty()) return;
-    QFile file(filename);
-    if (!file.open(QIODevice::ReadOnly)) return;
+
+bool SketchEditorDialog::readSketchFile(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return false;
     QJsonParseError parse;
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parse);
     const QJsonObject root = document.object();
     if (parse.error != QJsonParseError::NoError || !document.isObject() ||
         root.value(QStringLiteral("schemaVersion")).toInt() != 1 ||
-        root.value(QStringLiteral("units")).toString() != QStringLiteral("mm")) {
-        QMessageBox::warning(this, tr("Load error"), tr("Invalid or unsupported sketch format."));
-        return;
-    }
+        root.value(QStringLiteral("units")).toString() != QStringLiteral("mm"))
+        return false;
     Sketch2D next;
     const QJsonArray vertices = root.value(QStringLiteral("vertices")).toArray();
-    if (vertices.size() > 10000) return;
+    if (vertices.size() > 10000)
+        return false;
     for (const auto& row : vertices) {
         const QJsonArray coords = row.toArray();
-        if (coords.size() != 2 || !coords[0].isDouble() || !coords[1].isDouble() ||
-            !next.addPoint({coords[0].toDouble(), coords[1].toDouble()})) {
-            QMessageBox::warning(this, tr("Load error"), tr("Invalid sketch vertices."));
-            return;
-        }
+        if (coords.size() != 2 || !coords[0].isDouble() || !coords[1].isDouble()
+            || !next.addPoint({coords[0].toDouble(), coords[1].toDouble()}))
+            return false;
     }
-    if (root.value(QStringLiteral("closed")).toBool() && !next.close()) {
-        QMessageBox::warning(this, tr("Load error"), tr("Cannot close this sketch."));
+    if (root.value(QStringLiteral("closed")).toBool() && !next.close())
+        return false;
+    if (root.contains(QStringLiteral("nozzleDimensions"))) {
+        const auto value = root.value(QStringLiteral("nozzleDimensions"));
+        if (!value.isObject()) return false;
+        const auto n = value.toObject();
+        const QStringList keys{
+            QStringLiteral("inletDiameterMm"), QStringLiteral("throatDiameterMm"),
+            QStringLiteral("outletDiameterMm"), QStringLiteral("convergingLengthMm"),
+            QStringLiteral("divergingLengthMm")
+        };
+        for (const auto& key : keys)
+            if (!n.value(key).isDouble()) return false;
+        const NozzleDimensions loaded{
+            n.value(keys[0]).toDouble(), n.value(keys[1]).toDouble(),
+            n.value(keys[2]).toDouble(), n.value(keys[3]).toDouble(),
+            n.value(keys[4]).toDouble()
+        };
+        if (!makeNozzleProfile(loaded)) return false;
+        nozzleDims_ = loaded;
+    }
+    setSketch(next);
+    return true;
+}
+
+void SketchEditorDialog::save() {
+    const QString filename = QFileDialog::getSaveFileName(
+        this, tr("Save 2D sketch"), {}, tr("Vortia sketch (*.vsketch.json)"));
+    if (!filename.isEmpty() && !writeSketchFile(filename))
+        QMessageBox::warning(this, tr("Save error"), tr("Could not save sketch."));
+}
+
+void SketchEditorDialog::load() {
+    const QString filename = QFileDialog::getOpenFileName(
+        this, tr("Load 2D sketch"), {}, tr("Vortia sketch (*.vsketch.json)"));
+    if (filename.isEmpty())
         return;
-    }
-    sketch_ = std::move(next);
-    selectedPoint_ = -1;
-    selectedSegment_ = -1;
-    refresh();
+    if (!readSketchFile(filename))
+        QMessageBox::warning(this, tr("Load error"), tr("Invalid or unsupported sketch format."));
+    else
+        emit sketchChanged();
 }
 
 } // namespace vortia
