@@ -22,7 +22,8 @@ target_link_libraries(test_geometry PRIVATE vortia::geometry GTest::gtest_main v
 gtest_discover_tests(test_geometry)
 
 add_executable(test_mesh
-    unit/test_block_mesh_dict.cpp)
+    unit/test_block_mesh_dict.cpp
+    unit/test_planar_nozzle_block_mesh.cpp)
 target_link_libraries(test_mesh PRIVATE vortia::mesh GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_mesh)
 

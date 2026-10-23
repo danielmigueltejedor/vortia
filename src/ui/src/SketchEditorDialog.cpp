@@ -1,5 +1,6 @@
 #include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/geometry/SketchTemplates.hpp"
+#include "vortia/mesh/PlanarNozzleBlockMesh.hpp"
 
 #include <QBrush>
 #include <QDialogButtonBox>
@@ -283,12 +284,14 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     auto* rectangle = new QPushButton(tr("Rectangle…"), sidebar);
     auto* circle = new QPushButton(tr("Circle…"), sidebar);
     auto* nozzle = new QPushButton(tr("Parametric nozzle…"), sidebar);
+    auto* exportMeshButton = new QPushButton(tr("Export planar OpenFOAM mesh…"), sidebar);
+    exportMeshButton->setToolTip(tr("Export a 2D planar blockMeshDict (not an axisymmetric wedge or CFD case)."));
     auto* add = new QPushButton(tr("Add vertex"), sidebar);
     auto* move = new QPushButton(tr("Move selected vertex"), sidebar);
     auto* splitButton = new QPushButton(tr("Split selected segment"), sidebar);
     auto* dimension = new QPushButton(tr("Set exact segment length…"), sidebar);
     auto* close = new QPushButton(tr("Close / Open profile"), sidebar);
-    for (auto* b : {draw, rectangle, circle, nozzle, add, move,
+    for (auto* b : {draw, rectangle, circle, nozzle, exportMeshButton, add, move,
                     splitButton, dimension, close}) tools->addWidget(b);
     table_ = new QTableWidget(sidebar);
     table_->setColumnCount(3);
@@ -352,6 +355,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
         nozzleDims_ = proposed;
         setShape(*shape);
     });
+    connect(exportMeshButton, &QPushButton::clicked, this, &SketchEditorDialog::exportNozzleMesh);
     connect(add, &QPushButton::clicked, this, [this]() { addPoint(); });
     connect(move, &QPushButton::clicked, this, [this]() { movePoint(); });
     connect(splitButton, &QPushButton::clicked, this, [this]() { this->split(); });
@@ -574,6 +578,61 @@ bool SketchEditorDialog::readSketchFile(const QString& path) {
     }
     setSketch(next);
     return true;
+}
+
+void SketchEditorDialog::exportNozzleMesh() {
+    const auto reference = makeNozzleProfile(nozzleDims_);
+    if (!reference || !sketch_.closed() ||
+        reference->points().size() != sketch_.points().size()) {
+        QMessageBox::warning(this, tr("Nozzle mesh"),
+            tr("This export currently supports unmodified parametric nozzle profiles only. "
+               "Regenerate the nozzle if you edited individual vertices."));
+        return;
+    }
+    for (std::size_t i = 0; i < sketch_.points().size(); ++i) {
+        const auto& a = sketch_.points()[i];
+        const auto& b = reference->points()[i];
+        if (std::hypot(a.xMm - b.xMm, a.yMm - b.yMm) > 1e-6) {
+            QMessageBox::warning(this, tr("Nozzle mesh"),
+                tr("The edited profile is not identical to the parametric nozzle. "
+                   "Exporting its old dimensions would produce the wrong mesh."));
+            return;
+        }
+    }
+    const auto opts = dimensionDialog(this, tr("Planar mesh options"),
+        {{tr("Axial segments (converging)"), 18.0},
+         {tr("Axial segments (diverging)"), 30.0},
+         {tr("Cells per axial segment"), 3.0},
+         {tr("Radial cells"), 40.0},
+         {tr("Radial grading"), 2.0},
+         {tr("Thickness (mm)"), 1.0}});
+    if (!opts) return;
+    const PlanarNozzleMeshOptions params{
+        static_cast<int>((*opts)[0]),static_cast<int>((*opts)[1]),
+        static_cast<int>((*opts)[2]),static_cast<int>((*opts)[3]),
+        (*opts)[4],(*opts)[5]
+    };
+    const auto mesh = PlanarNozzleBlockMesh::generate(nozzleDims_, params);
+    if (!mesh) {
+        QMessageBox::warning(this, tr("Nozzle mesh"),
+            QString::fromStdString(mesh.error().describe()));
+        return;
+    }
+    const QString filename = QFileDialog::getSaveFileName(
+        this, tr("Export OpenFOAM blockMeshDict"),
+        QStringLiteral("blockMeshDict"), tr("OpenFOAM dictionary (blockMeshDict)"));
+    if (filename.isEmpty()) return;
+    QSaveFile file(filename);
+    if (!file.open(QIODevice::WriteOnly) ||
+        file.write(QByteArray::fromStdString(mesh.value())) < 0 || !file.commit()) {
+        QMessageBox::warning(this, tr("Mesh export failed"),
+                             tr("Could not write blockMeshDict."));
+        return;
+    }
+    QMessageBox::information(this, tr("Planar mesh exported"),
+        tr("Exported a planar 2D mesh dictionary. Validate it with blockMesh "
+           "and checkMesh. This is NOT an axisymmetric wedge or a complete "
+           "compressible nozzle CFD case."));
 }
 
 void SketchEditorDialog::save() {

@@ -27,6 +27,7 @@ public:
     void setNozzleDimensions(NozzleDimensions dimensions) { nozzleDims_ = dimensions; }
     bool writeSketchFile(const QString& path) const;
     bool readSketchFile(const QString& path);
+    void exportNozzleMesh();
 
 signals:
     void sketchChanged();
