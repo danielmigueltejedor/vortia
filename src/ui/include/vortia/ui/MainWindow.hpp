@@ -13,6 +13,8 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QSettings>
+#include <QTabBar>
+#include <vector>
 #include <memory>
 
 namespace vortia {
@@ -50,6 +52,13 @@ private slots:
 private:
     void buildMenusAndToolbar();
     void buildDocks();
+    void addProjectTab(const QString& name, CaseSetup setup,
+                       const std::filesystem::path& root = {},
+                       const std::filesystem::path& caseDir = {});
+    void activateProjectTab(int index);
+    void closeProjectTab(int index);
+    void storeCurrentTab();
+    void refreshProjectTabTitle();
     void loadSettings();
     void saveSettings();
     void updateViewport();
@@ -57,7 +66,20 @@ private:
     void ensureOpenFoamInstallation();
     CaseSetup defaultCavitySetup() const;
 
-    // Project state
+    struct ProjectDocument {
+        QString name;
+        CaseSetup setup;
+        std::filesystem::path root;
+        std::filesystem::path externalCase;
+        bool existingCase{false};
+        bool modified{false};
+        QString resultVtm;
+    };
+    std::vector<ProjectDocument> documents_;
+    int activeProjectTab_{-1};
+    int untitledCount_{0};
+
+    // Active document state, synchronized when changing tabs.
     std::filesystem::path projectRoot_;
     std::filesystem::path existingCaseDir_;
     bool useExistingCase_{false};
@@ -69,6 +91,7 @@ private:
     bool dirty_{false};
 
     // UI
+    QTabBar* projectTabs_{nullptr};
     VtkViewport* viewport_{nullptr};
     ProjectExplorerPanel* explorer_{nullptr};
     PropertiesPanel* properties_{nullptr};
