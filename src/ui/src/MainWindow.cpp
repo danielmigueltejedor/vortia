@@ -12,6 +12,7 @@
 #include "vortia/solver/openfoam/CaseWriter.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
 #include "vortia/ui/ThemeManager.hpp"
+#include "vortia/ui/SketchEditorDialog.hpp"
 
 #include <QMenuBar>
 #include <initializer_list>
@@ -172,6 +173,12 @@ void MainWindow::buildMenusAndToolbar() {
     auto* materialsEditor = new QAction(icon(QStyle::SP_DriveHDIcon), tr("Materials"), this);
     auto* boundaryEditor = new QAction(icon(QStyle::SP_DirLinkIcon), tr("Boundaries"), this);
     auto* solverEditor = new QAction(icon(QStyle::SP_ComputerIcon), tr("Solver"), this);
+    auto* sketchEditor = new QAction(icon(QStyle::SP_FileDialogDetailedView), tr("2D Sketch…"), this);
+    sketchEditor->setToolTip(tr("Draw a dimensioned polyline with split segments and exact mm lengths."));
+    connect(sketchEditor, &QAction::triggered, this, [this]() {
+        SketchEditorDialog dialog(this);
+        dialog.exec();
+    });
     connect(geometryEditor, &QAction::triggered, this,
             [this]() { properties_->showNode(ProjectExplorerPanel::GeometryNode); });
     connect(meshEditor, &QAction::triggered, this,
@@ -250,7 +257,7 @@ void MainWindow::buildMenusAndToolbar() {
     addGroup(homePage, tr("Import"), {openFoam, importStl, importFluent});
 
     auto* modelPage = newPage(tr("Model"));
-    addGroup(modelPage, tr("Geometry & mesh"), {geometryEditor, meshEditor});
+    addGroup(modelPage, tr("Geometry & mesh"), {sketchEditor, geometryEditor, meshEditor});
     addGroup(modelPage, tr("Physics"), {materialsEditor, boundaryEditor});
     addGroup(modelPage, tr("Solver setup"), {solverEditor});
 

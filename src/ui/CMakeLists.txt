@@ -7,12 +7,14 @@ add_library(vortia_ui STATIC
     include/vortia/ui/ProjectExplorerPanel.hpp
     include/vortia/ui/PropertiesPanel.hpp
     include/vortia/ui/ThemeManager.hpp
+    include/vortia/ui/SketchEditorDialog.hpp
     src/ConsolePanel.cpp
     src/JobController.cpp
     src/MainWindow.cpp
     src/ProjectExplorerPanel.cpp
     src/PropertiesPanel.cpp
-    src/ThemeManager.cpp)
+    src/ThemeManager.cpp
+    src/SketchEditorDialog.cpp)
 
 add_library(vortia::ui ALIAS vortia_ui)
 

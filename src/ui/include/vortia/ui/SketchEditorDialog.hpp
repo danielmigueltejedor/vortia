@@ -1,0 +1,43 @@
+#pragma once
+
+#include "vortia/geometry/Sketch2D.hpp"
+
+#include <QDialog>
+#include <functional>
+
+class QDoubleSpinBox;
+class QLabel;
+class QTableWidget;
+class QWidget;
+
+namespace vortia {
+
+class SketchCanvas2D;
+
+/// Interactive dimensioned 2D sketch editor. Exports actual mm coordinates
+/// and explicit line segments as JSON; no CFD-mesh conversion is implied.
+class SketchEditorDialog final : public QDialog {
+public:
+    explicit SketchEditorDialog(QWidget* parent = nullptr);
+private:
+    void refresh();
+    void setSelectedSegment(int index);
+    void setSelectedPoint(int index);
+    void addPoint();
+    void movePoint();
+    void split();
+    void changeLength();
+    void save();
+    void load();
+    Sketch2D sketch_;
+    SketchCanvas2D* canvas_{nullptr};
+    QTableWidget* table_{nullptr};
+    QLabel* status_{nullptr};
+    QLabel* selected_{nullptr};
+    QDoubleSpinBox* x_{nullptr};
+    QDoubleSpinBox* y_{nullptr};
+    int selectedSegment_{-1};
+    int selectedPoint_{-1};
+};
+
+} // namespace vortia
