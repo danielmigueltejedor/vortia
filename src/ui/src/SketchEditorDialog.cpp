@@ -162,7 +162,16 @@ protected:
             event->accept();
             return;
         }
+        if (!(event->buttons() & Qt::LeftButton) && dragVertex_ >= 0) {
+            dragVertex_ = -1;
+            update();
+        }
         QWidget::mouseMoveEvent(event);
+    }
+    void leaveEvent(QEvent* event) override {
+        dragVertex_ = -1;
+        update();
+        QWidget::leaveEvent(event);
     }
     void mouseReleaseEvent(QMouseEvent* event) override {
         if (event->button() == Qt::LeftButton && dragVertex_ >= 0) {
