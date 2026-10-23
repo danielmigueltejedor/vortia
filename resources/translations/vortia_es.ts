@@ -390,6 +390,8 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>OK</source><translation>Aceptar</translation></message>
     <message><source>Cancel</source><translation>Cancelar</translation></message>
     <message><source>Yes</source><translation>Sí</translation></message>
+    <message><source>&amp;Yes</source><translation>&amp;Sí</translation></message>
+    <message><source>&amp;No</source><translation>&amp;No</translation></message>
     <message><source>No</source><translation>No</translation></message>
     <message><source>Save</source><translation>Guardar</translation></message>
     <message><source>Discard</source><translation>Descartar</translation></message>

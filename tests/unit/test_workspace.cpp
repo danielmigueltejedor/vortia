@@ -298,6 +298,8 @@ TEST(WorkspaceResources, RealTranslationContextsAndExplorerIcons) {
     QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     EXPECT_EQ(buttons.button(QDialogButtonBox::Ok)->text(), QStringLiteral("Aceptar"));
     EXPECT_EQ(buttons.button(QDialogButtonBox::Cancel)->text(), QStringLiteral("Cancelar"));
+    QMessageBox confirm(QMessageBox::Question, "Confirm", "Test", QMessageBox::Yes | QMessageBox::No);
+    EXPECT_EQ(confirm.button(QMessageBox::Yes)->text().remove('&'), QStringLiteral("Sí"));
     ProjectExplorerPanel explorer;
     EXPECT_EQ(explorer.topLevelItem(0)->text(0), QStringLiteral("Geometría"));
     const QStringList ids{"geometry", "mesh", "material", "boundary", "solver", "view"};
