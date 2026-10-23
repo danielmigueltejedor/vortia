@@ -41,7 +41,8 @@ namespace vortia {
 class SketchCanvas2D final : public QWidget {
 public:
     explicit SketchCanvas2D(QWidget* parent = nullptr) : QWidget(parent) {
-        setMinimumSize(440, 360);
+        // Keep the CAD canvas usable in a docked 1280x800 MacBook window.
+        setMinimumSize(320, 260);
         setMouseTracking(true);
         setToolTip(tr("Click a vertex or segment to select it; measurements are in mm."));
     }
