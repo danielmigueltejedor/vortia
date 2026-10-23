@@ -58,13 +58,15 @@ public:
     }
     std::function<void(int)> onPointSelected;
     std::function<void(int)> onSegmentSelected;
+    std::function<void(int, SketchPoint2D)> onPointDragged;
 protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
         p.fillRect(rect(), QColor(25, 31, 41));
         if (!sketch_) return;
-        computeBounds();
+        // Keep the camera transform fixed while a vertex is dragged.
+        if (dragVertex_ < 0) computeBounds();
         p.setPen(QPen(QColor(51, 64, 82), 1));
         const double gridMm = 10.0;
         const double minX = std::floor(x0_ / gridMm) * gridMm;
@@ -126,6 +128,7 @@ protected:
             if (d < bestDistance) { bestDistance = d; bestPoint = static_cast<int>(i); }
         }
         if (bestPoint >= 0) {
+            dragVertex_ = bestPoint;
             if (onPointSelected) onPointSelected(bestPoint);
             event->accept();
             return;
@@ -148,6 +151,28 @@ protected:
         if (bestSegment >= 0 && onSegmentSelected) onSegmentSelected(bestSegment);
         event->accept();
     }
+    void mouseMoveEvent(QMouseEvent* event) override {
+        if (dragVertex_ >= 0 && (event->buttons() & Qt::LeftButton)) {
+            const QPointF p = event->position();
+            SketchPoint2D world{x0_ + p.x() / scale_,
+                                y0_ + (height() - p.y()) / scale_};
+            world.xMm = std::round(world.xMm);
+            world.yMm = std::round(world.yMm);
+            if (onPointDragged) onPointDragged(dragVertex_, world);
+            event->accept();
+            return;
+        }
+        QWidget::mouseMoveEvent(event);
+    }
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::LeftButton && dragVertex_ >= 0) {
+            dragVertex_ = -1;
+            update();
+            event->accept();
+            return;
+        }
+        QWidget::mouseReleaseEvent(event);
+    }
 private:
     QPointF project(SketchPoint2D pt) const {
         return {(pt.xMm - x0_) * scale_, height() - (pt.yMm - y0_) * scale_};
@@ -169,6 +194,7 @@ private:
     }
     const Sketch2D* sketch_{nullptr};
     bool drawMode_{false};
+    int dragVertex_{-1};
     int selectedPoint_{-1};
     int selectedSegment_{-1};
     double scale_{1.0};
@@ -243,7 +269,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     tools->addLayout(form);
     auto* draw = new QPushButton(tr("Draw with mouse"), sidebar);
     draw->setCheckable(true);
-    draw->setToolTip(tr("Click the canvas to add points on a 1 mm grid."));
+    draw->setToolTip(tr("Click the canvas to add points on a 1 mm grid. Turn off Draw to drag vertices."));
     auto* rectangle = new QPushButton(tr("Rectangle…"), sidebar);
     auto* circle = new QPushButton(tr("Circle…"), sidebar);
     auto* nozzle = new QPushButton(tr("Parametric nozzle…"), sidebar);
@@ -345,6 +371,15 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
             [this]() { emit closeRequested(); });
     connect(table_, &QTableWidget::cellClicked, this, [this](int row, int) { setSelectedPoint(row); });
     canvas_->onPointSelected = [this](int index) { setSelectedPoint(index); };
+    canvas_->onPointDragged = [this](int index, SketchPoint2D point) {
+        if (sketch_.movePoint(static_cast<std::size_t>(index), point)) {
+            selectedPoint_ = index;
+            x_->setValue(point.xMm);
+            y_->setValue(point.yMm);
+            emit sketchChanged();
+            refresh();
+        }
+    };
     canvas_->onCanvasClicked = [this](SketchPoint2D point) {
         if (sketch_.closed()) {
             QMessageBox::information(this, tr("Closed profile"),
