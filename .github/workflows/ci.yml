@@ -58,8 +58,25 @@ jobs:
         run: |
           set -euo pipefail
           case_dir="$RUNNER_TEMP/vortia-wedge-smoke"
-          mkdir -p "$case_dir/system"
-          build/tests/nozzle_mesh_export_smoke "$case_dir/system/blockMeshDict"
+          mkdir -p "$case_dir/system" "$case_dir/constant"
+          cat > "$case_dir/system/controlDict" <<'EOF'
+          FoamFile
+          {
+              version 2.0;
+              format ascii;
+              class dictionary;
+              object controlDict;
+          }
+          application blockMesh;
+          startFrom startTime;
+          startTime 0;
+          stopAt endTime;
+          endTime 1;
+          deltaT 1;
+          writeControl timeStep;
+          writeInterval 1;
+          EOF
+          build/bin/nozzle_mesh_export_smoke "$case_dir/system/blockMeshDict"
           # Ubuntu openfoam packaging can install to a prefixed directory.
           if [[ -f /usr/share/openfoam/etc/bashrc ]]; then
             set +u
