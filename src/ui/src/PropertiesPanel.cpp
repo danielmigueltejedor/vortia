@@ -6,11 +6,69 @@
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QLabel>
+#include <QLocale>
+#include <QPainter>
+#include <QPaintEvent>
+#include <QSizePolicy>
+#include <cmath>
+#include <algorithm>
+#include <cstdint>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
 namespace vortia {
+
+/// A non-solver preview of the blockMesh X/Y cell distribution. Actual mesh
+/// validation still happens in OpenFOAM's blockMesh/checkMesh.
+class MeshPreview2D final : public QWidget {
+public:
+    explicit MeshPreview2D(QWidget* parent = nullptr) : QWidget(parent) {
+        setMinimumHeight(190);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        setToolTip(QObject::tr("Structured grid preview (XY). Not a computed mesh."));
+    }
+    void setParameters(int x, int y, double gx, double gy) {
+        nx_ = x;
+        ny_ = y;
+        gx_ = gx;
+        gy_ = gy;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const QRectF frame = QRectF(rect()).adjusted(10, 10, -10, -10);
+        painter.fillRect(frame, palette().base());
+        painter.setPen(QPen(palette().mid().color(), 1));
+        painter.drawRect(frame);
+        painter.setPen(QPen(palette().highlight().color(), 0.7));
+        const auto coordinate = [](int i, int n, double ratio) {
+            if (n <= 1 || std::abs(ratio - 1.0) < 1e-9)
+                return static_cast<double>(i) / static_cast<double>(n);
+            // OpenFOAM simpleGrading is a ratio of LAST/FIRST cell widths.
+            const double q = std::log(ratio) / (n - 1);
+            return std::expm1(i * q) / std::expm1(n * q);
+        };
+        for (int i = 1; i < nx_; i += std::max(1, nx_ / 80)) {
+            const double t = coordinate(i, nx_, gx_);
+            painter.drawLine(QPointF(frame.left() + frame.width() * t, frame.top()),
+                             QPointF(frame.left() + frame.width() * t, frame.bottom()));
+        }
+        for (int i = 1; i < ny_; i += std::max(1, ny_ / 80)) {
+            const double t = coordinate(i, ny_, gy_);
+            painter.drawLine(QPointF(frame.left(), frame.top() + frame.height() * t),
+                             QPointF(frame.right(), frame.top() + frame.height() * t));
+        }
+    }
+private:
+    int nx_{20};
+    int ny_{20};
+    double gx_{1.0};
+    double gy_{1.0};
+};
 
 PropertiesPanel::PropertiesPanel(QWidget* parent) : QWidget(parent) {
     auto* layout = new QVBoxLayout(this);
@@ -83,13 +141,60 @@ void PropertiesPanel::buildMeshPage() {
     cellsY_ = new QSpinBox(page);
     cellsZ_ = new QSpinBox(page);
     for (auto* s : {cellsX_, cellsY_, cellsZ_}) {
-        s->setRange(1, 1000);
+        s->setRange(1, 5000);
         s->setValue(20);
+        s->setToolTip(tr("Number of CFD cells in this direction. Increasing it affects solver cost."));
     }
-    form->addRow(tr("cells x"), cellsX_);
-    form->addRow(tr("cells y"), cellsY_);
-    form->addRow(tr("cells z"), cellsZ_);
+    form->addRow(tr("Cells X"), cellsX_);
+    form->addRow(tr("Cells Y"), cellsY_);
+    form->addRow(tr("Cells Z"), cellsZ_);
+    gradingX_ = new QDoubleSpinBox(page);
+    gradingY_ = new QDoubleSpinBox(page);
+    gradingZ_ = new QDoubleSpinBox(page);
+    for (auto* g : {gradingX_, gradingY_, gradingZ_}) {
+        g->setRange(0.05, 20.0);
+        g->setDecimals(3);
+        g->setSingleStep(0.1);
+        g->setValue(1.0);
+        g->setToolTip(tr("OpenFOAM simpleGrading: ratio of final to first cell width."));
+    }
+    form->addRow(tr("Grading X"), gradingX_);
+    form->addRow(tr("Grading Y"), gradingY_);
+    form->addRow(tr("Grading Z"), gradingZ_);
+    meshEstimate_ = new QLabel(page);
+    meshEstimate_->setWordWrap(true);
+    form->addRow(meshEstimate_);
+    meshPreview_ = new MeshPreview2D(page);
+    form->addRow(tr("XY preview"), meshPreview_);
+
+    auto update = [this]() { updateMeshEstimate(); };
+    for (auto* s : {cellsX_, cellsY_, cellsZ_})
+        connect(s, QOverload<int>::of(&QSpinBox::valueChanged), this, update);
+    for (auto* g : {gradingX_, gradingY_, gradingZ_})
+        connect(g, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, update);
+    updateMeshEstimate();
     stack_->addWidget(page);
+}
+
+void PropertiesPanel::updateMeshEstimate() {
+    if (!meshEstimate_ || !meshPreview_)
+        return;
+    const qint64 n = static_cast<qint64>(cellsX_->value()) *
+                     static_cast<qint64>(cellsY_->value()) *
+                     static_cast<qint64>(cellsZ_->value());
+    const Vec3 size = setup_.domain.size();
+    const double dx = size.x / static_cast<double>(cellsX_->value());
+    const double dy = size.y / static_cast<double>(cellsY_->value());
+    const double dz = size.z / static_cast<double>(cellsZ_->value());
+    const QString count = QLocale().toString(n);
+    meshEstimate_->setText(tr("Total cells: %1. Average size X/Y/Z: %2 / %3 / %4 mm%5")
+        .arg(count)
+        .arg(dx * 1000, 0, 'g', 4)
+        .arg(dy * 1000, 0, 'g', 4)
+        .arg(dz * 1000, 0, 'g', 4)
+        .arg(n > 2000000 ? tr(". WARNING: high memory and compute cost.") : QString()));
+    meshPreview_->setParameters(cellsX_->value(), cellsY_->value(),
+                                gradingX_->value(), gradingY_->value());
 }
 
 void PropertiesPanel::buildMaterialPage() {
@@ -178,6 +283,10 @@ void PropertiesPanel::loadEditorsFromSetup() {
     cellsX_->setValue(setup_.mesh.cells[0]);
     cellsY_->setValue(setup_.mesh.cells[1]);
     cellsZ_->setValue(setup_.mesh.cells[2]);
+    gradingX_->setValue(setup_.mesh.grading[0]);
+    gradingY_->setValue(setup_.mesh.grading[1]);
+    gradingZ_->setValue(setup_.mesh.grading[2]);
+    updateMeshEstimate();
 
     nuEdit_->setValue(setup_.material.nu.siValue());
 
@@ -196,10 +305,15 @@ void PropertiesPanel::loadEditorsFromSetup() {
 void PropertiesPanel::applyEditorsToSetup() {
     auto domain = BoxDomain::fromExtents({dx0_->value(), dy0_->value(), dz0_->value()},
                                          {dx1_->value(), dy1_->value(), dz1_->value()});
-    if (domain)
+    if (domain) {
         setup_.domain = domain.value();
+    } else {
+        emit validationReported(tr("ERROR: Domain dimensions must be positive along every axis."));
+        return;
+    }
 
     setup_.mesh.cells = {cellsX_->value(), cellsY_->value(), cellsZ_->value()};
+    setup_.mesh.grading = {gradingX_->value(), gradingY_->value(), gradingZ_->value()};
 
     setup_.material.nu = KinematicViscosity(nuEdit_->value());
 
@@ -218,6 +332,7 @@ void PropertiesPanel::applyEditorsToSetup() {
         setup_.numerics.ddt = TimeScheme::SteadyState;
     else
         setup_.numerics.ddt = TimeScheme::Euler;
+    updateMeshEstimate();
 }
 
 } // namespace vortia

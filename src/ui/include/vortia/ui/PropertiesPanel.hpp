@@ -12,6 +12,8 @@
 
 namespace vortia {
 
+class MeshPreview2D;
+
 /// Contextual editor. One stacked page per workflow node. The panel owns the
 /// case setup being edited (a copy) and emits `setupChanged` on Apply.
 class PropertiesPanel : public QWidget {
@@ -54,6 +56,13 @@ private:
     QSpinBox* cellsX_{nullptr};
     QSpinBox* cellsY_{nullptr};
     QSpinBox* cellsZ_{nullptr};
+    QDoubleSpinBox* gradingX_{nullptr};
+    QDoubleSpinBox* gradingY_{nullptr};
+    QDoubleSpinBox* gradingZ_{nullptr};
+    QLabel* meshEstimate_{nullptr};
+    MeshPreview2D* meshPreview_{nullptr};
+    void updateMeshEstimate();
+
     // Material
     QDoubleSpinBox* nuEdit_{nullptr};
     // Boundary (lid)

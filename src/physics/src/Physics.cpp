@@ -84,6 +84,14 @@ std::vector<Issue> CaseSetup::validate() const {
     if (!domain.isValid())
         error("computational domain is not valid (max must exceed min on every axis)");
 
+    // --- Mesh ---
+    for (int axis = 0; axis < 3; ++axis) {
+        if (mesh.cells[axis] < 1)
+            error("mesh cell count must be >= 1 in all directions");
+        if (!std::isfinite(mesh.grading[axis]) || mesh.grading[axis] <= 0.0)
+            error("mesh grading must be finite and positive");
+    }
+
     // --- Material ---
     if (material.nu.siValue() <= 0.0 || !std::isfinite(material.nu.siValue()))
         error("kinematic viscosity nu must be positive and finite");
