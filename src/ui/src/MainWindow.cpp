@@ -431,7 +431,10 @@ void MainWindow::storeCurrentTab() {
     tab.externalCase = existingCaseDir_;
     tab.existingCase = useExistingCase_;
     tab.setup = setup_;
-    if (sketchEditor_) tab.sketch = sketchEditor_->sketch();
+    if (sketchEditor_) {
+        tab.sketch = sketchEditor_->sketch();
+        tab.nozzleDimensions = sketchEditor_->nozzleDimensions();
+    }
     tab.modified = dirty_;
     tab.resultVtm = lastVtmPath_;
 }
@@ -492,7 +495,10 @@ void MainWindow::activateProjectTab(int index) {
     dirty_ = tab.modified;
     lastVtmPath_ = tab.resultVtm;
     properties_->setSetup(setup_);
-    if (sketchEditor_) sketchEditor_->setSketch(tab.sketch);
+    if (sketchEditor_) {
+        sketchEditor_->setNozzleDimensions(tab.nozzleDimensions);
+        sketchEditor_->setSketch(tab.sketch);
+    }
     updateViewport();
     if (!lastVtmPath_.isEmpty() && QFileInfo::exists(lastVtmPath_)) {
         try {

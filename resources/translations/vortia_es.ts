@@ -117,6 +117,19 @@
     <message><source>Run failed: %1</source><translation>La simulación ha fallado: %1</translation></message>
     <message><source>Cancellation requested…\n</source><translation>Cancelación solicitada…\n</translation></message>
     <message><source>No OpenFOAM installation found.\nSet VORTIA_OPENFOAM_DIR or install OpenFOAM.</source><translation>No se ha encontrado OpenFOAM.\nConfigura VORTIA_OPENFOAM_DIR o instala OpenFOAM.</translation></message>
+
+    <message><source>Untitled %1</source><translation>Sin título %1</translation></message>
+    <message><source>Unsaved project</source><translation>Proyecto sin guardar</translation></message>
+    <message><source>Unsaved projects</source><translation>Proyectos sin guardar</translation></message>
+    <message><source>Discard unsaved changes in %1?</source><translation>¿Descartar los cambios sin guardar en %1?</translation></message>
+    <message><source>Some projects have unsaved changes. Exit without saving?</source><translation>Hay proyectos con cambios sin guardar. ¿Salir sin guardar?</translation></message>
+    <message><source>Active project: %1</source><translation>Proyecto activo: %1</translation></message>
+    <message><source>3D CFD</source><translation>CFD 3D</translation></message>
+    <message><source>2D Sketch</source><translation>Croquis 2D</translation></message>
+    <message><source>Sketch load failed</source><translation>Error al cargar el croquis</translation></message>
+    <message><source>This project contains an invalid 2D sketch file.</source><translation>Este proyecto contiene un archivo de croquis 2D no válido.</translation></message>
+    <message><source>Sketch save failed</source><translation>Error al guardar el croquis</translation></message>
+    <message><source>The project metadata was saved, but its 2D sketch could not be written.</source><translation>Se han guardado los metadatos, pero no se ha podido escribir el croquis 2D.</translation></message>
 </context>
 <context>
     <name>PropertiesPanel</name>
@@ -211,5 +224,27 @@
     <message><source>Invalid sketch vertices.</source><translation>Vértices del croquis no válidos.</translation></message>
     <message><source>Cannot close this sketch.</source><translation>No se puede cerrar este croquis.</translation></message>
     <message><source>Select a vertex and enter valid coordinates.</source><translation>Selecciona un vértice e introduce coordenadas válidas.</translation></message>
+
+    <message><source>Draw with mouse</source><translation>Dibujar con el ratón</translation></message>
+    <message><source>Click the canvas to add points on a 1 mm grid.</source><translation>Haz clic en el lienzo para añadir puntos con ajuste a una cuadrícula de 1 mm.</translation></message>
+    <message><source>Rectangle…</source><translation>Rectángulo…</translation></message>
+    <message><source>Circle…</source><translation>Círculo…</translation></message>
+    <message><source>Parametric nozzle…</source><translation>Tobera paramétrica…</translation></message>
+    <message><source>Rectangle dimensions</source><translation>Cotas del rectángulo</translation></message>
+    <message><source>Circle dimensions</source><translation>Cotas del círculo</translation></message>
+    <message><source>Nozzle dimensions</source><translation>Cotas de la tobera</translation></message>
+    <message><source>Width</source><translation>Anchura</translation></message>
+    <message><source>Height</source><translation>Altura</translation></message>
+    <message><source>Diameter</source><translation>Diámetro</translation></message>
+    <message><source>Inlet diameter</source><translation>Diámetro de entrada</translation></message>
+    <message><source>Throat diameter</source><translation>Diámetro de garganta</translation></message>
+    <message><source>Outlet diameter</source><translation>Diámetro de salida</translation></message>
+    <message><source>Converging length</source><translation>Longitud convergente</translation></message>
+    <message><source>Diverging length</source><translation>Longitud divergente</translation></message>
+    <message><source>Invalid nozzle</source><translation>Tobera no válida</translation></message>
+    <message><source>The throat diameter must be no greater than the inlet and outlet diameters.</source><translation>El diámetro de garganta no puede superar los diámetros de entrada y salida.</translation></message>
+    <message><source>Replace sketch?</source><translation>¿Sustituir el croquis?</translation></message>
+    <message><source>Replace the current 2D profile with the new parametric shape?</source><translation>¿Sustituir el perfil 2D actual por la nueva geometría paramétrica?</translation></message>
+    <message><source>Open the profile before adding points.</source><translation>Abre el perfil antes de añadir puntos.</translation></message>
 </context>
 </TS>

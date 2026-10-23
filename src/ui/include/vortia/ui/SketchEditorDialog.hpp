@@ -23,6 +23,8 @@ public:
     explicit SketchEditorDialog(QWidget* parent = nullptr);
     void setSketch(const Sketch2D& shape);
     [[nodiscard]] const Sketch2D& sketch() const noexcept { return sketch_; }
+    [[nodiscard]] const NozzleDimensions& nozzleDimensions() const noexcept { return nozzleDims_; }
+    void setNozzleDimensions(NozzleDimensions dimensions) { nozzleDims_ = dimensions; }
     bool writeSketchFile(const QString& path) const;
     bool readSketchFile(const QString& path);
 

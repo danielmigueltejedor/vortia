@@ -72,6 +72,7 @@ private:
         QString name;
         CaseSetup setup;
         Sketch2D sketch;
+        NozzleDimensions nozzleDimensions;
         std::filesystem::path root;
         std::filesystem::path externalCase;
         bool existingCase{false};

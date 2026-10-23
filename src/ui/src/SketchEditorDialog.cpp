@@ -13,6 +13,7 @@
 #include <QFileDialog>
 #include <QFile>
 #include <QFileInfo>
+#include <QStringList>
 #include <QDir>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -468,6 +469,13 @@ bool SketchEditorDialog::writeSketchFile(const QString& path) const {
     for (const auto& p : sketch_.points())
         vertices.append(QJsonArray{p.xMm, p.yMm});
     root.insert(QStringLiteral("vertices"), vertices);
+    root.insert(QStringLiteral("nozzleDimensions"), QJsonObject{
+        {QStringLiteral("inletDiameterMm"), nozzleDims_.inletDiameterMm},
+        {QStringLiteral("throatDiameterMm"), nozzleDims_.throatDiameterMm},
+        {QStringLiteral("outletDiameterMm"), nozzleDims_.outletDiameterMm},
+        {QStringLiteral("convergingLengthMm"), nozzleDims_.convergingLengthMm},
+        {QStringLiteral("divergingLengthMm"), nozzleDims_.divergingLengthMm}
+    });
     const QFileInfo info(path);
     if (!QDir().mkpath(info.absolutePath()))
         return false;
@@ -500,6 +508,25 @@ bool SketchEditorDialog::readSketchFile(const QString& path) {
     }
     if (root.value(QStringLiteral("closed")).toBool() && !next.close())
         return false;
+    if (root.contains(QStringLiteral("nozzleDimensions"))) {
+        const auto value = root.value(QStringLiteral("nozzleDimensions"));
+        if (!value.isObject()) return false;
+        const auto n = value.toObject();
+        const QStringList keys{
+            QStringLiteral("inletDiameterMm"), QStringLiteral("throatDiameterMm"),
+            QStringLiteral("outletDiameterMm"), QStringLiteral("convergingLengthMm"),
+            QStringLiteral("divergingLengthMm")
+        };
+        for (const auto& key : keys)
+            if (!n.value(key).isDouble()) return false;
+        const NozzleDimensions loaded{
+            n.value(keys[0]).toDouble(), n.value(keys[1]).toDouble(),
+            n.value(keys[2]).toDouble(), n.value(keys[3]).toDouble(),
+            n.value(keys[4]).toDouble()
+        };
+        if (!makeNozzleProfile(loaded)) return false;
+        nozzleDims_ = loaded;
+    }
     setSketch(next);
     return true;
 }
