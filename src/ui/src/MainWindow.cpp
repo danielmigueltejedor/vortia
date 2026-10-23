@@ -29,6 +29,10 @@
 #include <QApplication>
 #include <QDockWidget>
 #include <QFileDialog>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -135,6 +139,12 @@ void MainWindow::buildMenusAndToolbar() {
     runAction_ = simMenu->addAction(tr("Run Simulation"), this, &MainWindow::onRun, QKeySequence(tr("Ctrl+R")));
     cancelAction_ = simMenu->addAction(tr("Cancel Simulation"), this, &MainWindow::onCancel);
     cancelAction_->setEnabled(false);
+
+    auto* preferences = new QAction(tr("Preferences…"), this);
+    preferences->setMenuRole(QAction::PreferencesRole);
+    connect(preferences, &QAction::triggered, this, &MainWindow::onPreferences);
+    auto* toolsMenu = menuBar()->addMenu(tr("Tools"));
+    toolsMenu->addAction(preferences);
 
     auto* viewMenu = menuBar()->addMenu(tr("View"));
     viewMenu->setObjectName(QStringLiteral("vortia-view-menu"));
@@ -270,7 +280,7 @@ void MainWindow::buildMenusAndToolbar() {
     addGroup(resultsPage, tr("Camera"), {viewXY, viewXZ, viewYZ, viewIso, viewReset});
 
     auto* viewPage = newPage(tr("View"));
-    addGroup(viewPage, tr("Appearance"), {themeAction_, viewReset});
+    addGroup(viewPage, tr("Appearance"), {themeAction_, preferences, viewReset});
 
     toolbar->addWidget(tabs);
     statusLabel_ = new QLabel(this);
@@ -728,6 +738,56 @@ void MainWindow::onFieldChanged(int /*index*/) {
     // Reuse the already loaded VTK dataset: repeated reads previously made
     // each field change much heavier and could leave stale legend artifacts.
     viewport_->setColorField(fieldCombo_->currentText().toStdString());
+}
+
+void MainWindow::onPreferences() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Vortia Preferences"));
+    dialog.setMinimumWidth(410);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* form = new QFormLayout();
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+    auto* language = new QComboBox(&dialog);
+    language->addItem(tr("System language"), QStringLiteral("system"));
+    language->addItem(QStringLiteral("English"), QStringLiteral("en"));
+    language->addItem(QStringLiteral("Español"), QStringLiteral("es"));
+    const QString currentLanguage = settings_->value(
+        QStringLiteral("language"), QStringLiteral("system")).toString();
+    language->setCurrentIndex(std::max(0, language->findData(currentLanguage)));
+    language->setToolTip(tr("Choose the language used by Vortia after restarting."));
+
+    auto* theme = new QComboBox(&dialog);
+    theme->addItem(tr("Dark"), QStringLiteral("dark"));
+    theme->addItem(tr("Light"), QStringLiteral("light"));
+    const QString currentTheme = settings_->value(
+        QStringLiteral("theme"), QStringLiteral("dark")).toString();
+    theme->setCurrentIndex(std::max(0, theme->findData(currentTheme)));
+
+    form->addRow(tr("Application language"), language);
+    form->addRow(tr("Appearance"), theme);
+    layout->addLayout(form);
+    auto* info = new QLabel(tr("Language changes take effect after restarting Vortia. "
+                               "Appearance changes take effect immediately."), &dialog);
+    info->setWordWrap(true);
+    layout->addWidget(info);
+    auto* buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    const QString selectedLanguage = language->currentData().toString();
+    const QString selectedTheme = theme->currentData().toString();
+    settings_->setValue(QStringLiteral("language"), selectedLanguage);
+    settings_->setValue(QStringLiteral("theme"), selectedTheme);
+    settings_->sync();
+    ThemeManager::apply(*qApp, ThemeManager::fromName(selectedTheme));
+    updateViewport();
+    if (selectedLanguage != currentLanguage)
+        QMessageBox::information(this, tr("Language"), tr("Restart Vortia to apply the selected language."));
 }
 
 void MainWindow::onToggleTheme() {

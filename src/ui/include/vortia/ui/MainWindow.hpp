@@ -43,6 +43,7 @@ private slots:
     void onResultsReady(const QString& vtmPath);
     void onFieldChanged(int index);
     void onToggleTheme();
+    void onPreferences();
     void onDetectOpenFoam();
     void onAbout();
 
