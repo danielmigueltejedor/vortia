@@ -2,7 +2,7 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="es_ES">
 <context>
-    <name>MainWindow</name>
+    <name>vortia::MainWindow</name>
     <message>
             <source>Vortia — Engineering the Flow</source>
             <translation>Vortia — Engineering the Flow</translation>
@@ -130,9 +130,120 @@
     <message><source>This project contains an invalid 2D sketch file.</source><translation>Este proyecto contiene un archivo de croquis 2D no válido.</translation></message>
     <message><source>Sketch save failed</source><translation>Error al guardar el croquis</translation></message>
     <message><source>The project metadata was saved, but its 2D sketch could not be written.</source><translation>Se han guardado los metadatos, pero no se ha podido escribir el croquis 2D.</translation></message>
+    <message><source>Geometry</source><translation>Geometría</translation></message>
+    <message><source>Mesh</source><translation>Malla</translation></message>
+    <message><source>Materials</source><translation>Materiales</translation></message>
+    <message><source>Solver</source><translation>Solver</translation></message>
+    <message><source>Results</source><translation>Resultados</translation></message>
+    <message><source>Open Vortia Project</source><translation>Abrir proyecto Vortia</translation></message>
+    <message><source>Opened existing OpenFOAM case: %1</source><translation>Caso OpenFOAM existente abierto: %1</translation></message>
+    <message><source>Opened existing OpenFOAM case: %1
+</source><translation>Caso OpenFOAM existente abierto: %1
+</translation></message>
+    <message><source>Case setup could not be fully restored: %1</source><translation>No se pudo restaurar por completo la configuración del caso: %1</translation></message>
+    <message><source>Import STL</source><translation>Importar STL</translation></message>
+    <message><source>STL files (*.stl *.STL)</source><translation>Archivos STL (*.stl *.STL)</translation></message>
+    <message><source>Imported STL: %1 (%2 triangles)</source><translation>STL importado: %1 (%2 triángulos)</translation></message>
+    <message><source>Fluent files (*.msh *.msh.h5 *.cas *.cas.h5 *.dat *.dat.h5 *.gz);;All files (*)</source><translation>Archivos Fluent (*.msh *.msh.h5 *.cas *.cas.h5 *.dat *.dat.h5 *.gz);;Todos los archivos (*)</translation></message>
+    <message><source>Detected Fluent format: %1
+</source><translation>Formato Fluent detectado: %1
+</translation></message>
+    <message><source>Could not open CFF file.</source><translation>No se pudo abrir el archivo CFF.</translation></message>
+    <message><source>Imported Fluent CFF (visualization only).
+</source><translation>Fluent CFF importado (solo visualización).
+</translation></message>
+    <message><source>warning: %1
+</source><translation>aviso: %1
+</translation></message>
+    <message><source>Fluent import</source><translation>Importación de Fluent</translation></message>
+    <message><source>Imported Fluent CFF (visualization only).</source><translation>Fluent CFF importado (solo visualización).</translation></message>
+    <message><source>Format: %1
+</source><translation>Formato: %1
+</translation></message>
+    <message><source>Nodes: %1
+Faces: %2
+Cells: %3
+Zones: %4
+</source><translation>Nodos: %1
+Caras: %2
+Celdas: %3
+Zonas: %4
+</translation></message>
+    <message><source>Dimension: %1D
+</source><translation>Dimensión: %1D
+</translation></message>
+    <message><source>Compatibility: %1
+</source><translation>Compatibilidad: %1
+</translation></message>
+    <message><source>  note: %1
+</source><translation>  nota: %1
+</translation></message>
+    <message><source>Convert to OpenFOAM?</source><translation>¿Convertir a OpenFOAM?</translation></message>
+    <message><source>Convert this mesh to an OpenFOAM case now?</source><translation>¿Convertir ahora esta malla a un caso OpenFOAM?</translation></message>
+    <message><source>Output case directory</source><translation>Carpeta del caso de salida</translation></message>
+    <message><source>Converted Fluent mesh to OpenFOAM: %1 files written to %2
+</source><translation>Malla Fluent convertida a OpenFOAM: %1 archivos escritos en %2
+</translation></message>
+    <message><source>Conversion failed</source><translation>Error de conversión</translation></message>
+    <message><source>Imported Fluent mesh (%1 nodes, %2 cells).</source><translation>Malla Fluent importada (%1 nodos, %2 celdas).</translation></message>
+    <message><source>CFF .msh.h5 mesh detected. Direct calculation-grade import is planned (P1). Open it via this dialog for visualization using the CFF reader if a .cas.h5 companion is available, or convert with fluentMeshToFoam when installed.</source><translation>Se ha detectado una malla CFF .msh.h5. La importación directa para cálculo está prevista (P1). Ábrela desde este diálogo para visualizarla con el lector CFF si hay un archivo .cas.h5 asociado, o conviértela con fluentMeshToFoam si está instalado.</translation></message>
+    <message><source>Compressed Fluent file detected. Decompress it first, then re-import.</source><translation>Se ha detectado un archivo Fluent comprimido. Descomprímelo y vuelve a importarlo.</translation></message>
+    <message><source>Unrecognised or unsupported Fluent file: %1</source><translation>Archivo Fluent no reconocido o no compatible: %1</translation></message>
+    <message><source>Not an OpenFOAM case</source><translation>No es un caso OpenFOAM</translation></message>
+    <message><source>The selected directory has no system/controlDict.</source><translation>La carpeta seleccionada no contiene system/controlDict.</translation></message>
+    <message><source>Opened existing case: %1</source><translation>Caso existente abierto: %1</translation></message>
+    <message><source>Vortia could not find an OpenFOAM installation.
+Install OpenFOAM (Linux/WSL2) or configure VORTIA_OPENFOAM_DIR, then retry.</source><translation>Vortia no ha encontrado ninguna instalación de OpenFOAM.
+Instala OpenFOAM (Linux/WSL2) o configura VORTIA_OPENFOAM_DIR y vuelve a intentarlo.</translation></message>
+    <message><source>Environment capture failed</source><translation>Error al cargar el entorno</translation></message>
+    <message><source>Backend incomplete</source><translation>Motor de cálculo incompleto</translation></message>
+    <message><source>The detected OpenFOAM installation lacks blockMesh. Aborting.</source><translation>La instalación de OpenFOAM detectada no dispone de blockMesh. Se cancela la ejecución.</translation></message>
+    <message><source>Using existing case: %1
+</source><translation>Usando el caso existente: %1
+</translation></message>
+    <message><source>Wrote %1 case files to %2
+</source><translation>Se han escrito %1 archivos del caso en %2
+</translation></message>
+    <message><source>unknown exception</source><translation>excepción desconocida</translation></message>
+    <message><source>Cancellation requested…
+</source><translation>Cancelación solicitada…
+</translation></message>
+    <message><source>SUCCESS: </source><translation>CORRECTO: </translation></message>
+    <message><source>FAILED: </source><translation>ERROR: </translation></message>
+    <message><source>Loaded results: %1
+</source><translation>Resultados cargados: %1
+</translation></message>
+    <message><source>Failed to load results: %1
+</source><translation>Error al cargar los resultados: %1
+</translation></message>
+    <message><source>Failed to load results: unknown error
+</source><translation>Error al cargar los resultados: error desconocido
+</translation></message>
+    <message><source>OpenFOAM detection</source><translation>Detección de OpenFOAM</translation></message>
+    <message><source>No OpenFOAM installation found.
+Set VORTIA_OPENFOAM_DIR or install OpenFOAM.</source><translation>No se ha encontrado ninguna instalación de OpenFOAM.
+Configura VORTIA_OPENFOAM_DIR o instala OpenFOAM.</translation></message>
+    <message><source>Detected %1 installation(s):
+</source><translation>Instalaciones detectadas: %1
+</translation></message>
+    <message><source>Using: %1
+</source><translation>Usando: %1
+</translation></message>
+    <message><source>Could not create a temporary case directory.</source><translation>No se pudo crear una carpeta temporal para el caso.</translation></message>
+    <message><source>Vortia — Engineering the Flow
+
+Open-source CFD desktop application powered by OpenFOAM.
+Version 0.1.0 (pre-MVP)
+
+Original implementation. Vortia is not affiliated with ANSYS, Inc.</source><translation>Vortia — Engineering the Flow
+
+Aplicación de escritorio CFD de código abierto basada en OpenFOAM.
+Versión 0.1.0 (pre-MVP)
+
+Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></message>
 </context>
 <context>
-    <name>PropertiesPanel</name>
+    <name>vortia::PropertiesPanel</name>
     <message><source>Apply</source><translation>Aplicar</translation></message>
     <message><source>min x</source><translation>mín. x</translation></message>
     <message><source>max x</source><translation>máx. x</translation></message>
@@ -168,7 +279,7 @@
     <message><source>ERROR: Domain dimensions must be positive along every axis.</source><translation>ERROR: las dimensiones del dominio deben ser positivas en los tres ejes.</translation></message>
 </context>
 <context>
-    <name>ProjectExplorerPanel</name>
+    <name>vortia::ProjectExplorerPanel</name>
     <message><source>Geometry</source><translation>Geometría</translation></message>
     <message><source>Mesh</source><translation>Malla</translation></message>
     <message><source>Materials</source><translation>Materiales</translation></message>
@@ -177,14 +288,14 @@
     <message><source>Results</source><translation>Resultados</translation></message>
 </context>
 <context>
-    <name>ConsolePanel</name>
+    <name>vortia::ConsolePanel</name>
     <message>
             <source>Vortia console — application and solver output appears here.</source>
             <translation>Consola Vortia — aquí aparecen la aplicación y la salida del solver.</translation>
         </message>
 </context>
 <context>
-    <name>SketchEditorDialog</name>
+    <name>vortia::SketchEditorDialog</name>
     <message><source>Vortia — Dimensioned 2D Sketch</source><translation>Vortia — Croquis 2D acotado</translation></message>
     <message><source>Click a vertex or segment to select it; measurements are in mm.</source><translation>Haz clic en un vértice o segmento para seleccionarlo; las medidas están en mm.</translation></message>
     <message><source>X coordinate</source><translation>Coordenada X</translation></message>
@@ -260,5 +371,18 @@
     <message><source>Mesh export failed</source><translation>Error al exportar la malla</translation></message>
     <message><source>Could not write blockMeshDict.</source><translation>No se pudo escribir blockMeshDict.</translation></message>
     <message><source>Planar mesh exported</source><translation>Malla plana exportada</translation></message>
+    <message><source>Precise 2D sketch in millimetres. Select a segment to split it or enter an exact length. This sketch is not yet a CFD-ready mesh.</source><translation>Croquis 2D preciso en milímetros. Selecciona un segmento para dividirlo o introducir una longitud exacta. Este croquis todavía no es una malla lista para CFD.</translation></message>
+    <message><source>Click the canvas to add points on a 1 mm grid. Turn off Draw to drag vertices.</source><translation>Haz clic en el lienzo para añadir puntos sobre una cuadrícula de 1 mm. Desactiva Dibujar para arrastrar vértices.</translation></message>
+    <message><source>Could not append the point. Open profiles and distinct consecutive points are required.</source><translation>No se pudo añadir el punto. El perfil debe estar abierto y los puntos consecutivos deben ser distintos.</translation></message>
+    <message><source>Could not set that length without creating a degenerate segment.</source><translation>No se pudo fijar esa longitud sin crear un segmento degenerado.</translation></message>
+    <message><source>This export currently supports unmodified parametric nozzle profiles only. Regenerate the nozzle if you edited individual vertices.</source><translation>Esta exportación solo admite perfiles de tobera paramétricos sin modificar. Regenera la tobera si has editado vértices individuales.</translation></message>
+    <message><source>The edited profile is not identical to the parametric nozzle. Exporting its old dimensions would produce the wrong mesh.</source><translation>El perfil editado no coincide con la tobera paramétrica. Exportar las cotas anteriores produciría una malla incorrecta.</translation></message>
+    <message><source>OpenFOAM dictionary (blockMeshDict)</source><translation>Diccionario OpenFOAM (blockMeshDict)</translation></message>
+    <message><source>Exported a planar 2D mesh dictionary. Validate it with blockMesh and checkMesh. This is NOT an axisymmetric wedge or a complete compressible nozzle CFD case.</source><translation>Se ha exportado un diccionario de malla plana 2D. Valídalo con blockMesh y checkMesh. NO es una cuña axisimétrica ni un caso CFD completo de tobera compresible.</translation></message>
+    <message><source>Vortia sketch (*.vsketch.json)</source><translation>Croquis Vortia (*.vsketch.json)</translation></message>
+</context>
+<context>
+    <name>QObject</name>
+    <message><source>Structured grid preview (XY). Not a computed mesh.</source><translation>Vista previa de la cuadrícula estructurada (XY). No es una malla calculada.</translation></message>
 </context>
 </TS>

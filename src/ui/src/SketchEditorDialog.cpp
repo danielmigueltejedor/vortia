@@ -45,9 +45,9 @@ public:
         // Keep the CAD canvas usable in a docked 1280x800 MacBook window.
         setMinimumSize(320, 260);
         setMouseTracking(true);
-        setToolTip(tr("Click a vertex or segment to select it; measurements are in mm."));
+        setToolTip(SketchEditorDialog::tr("Click a vertex or segment to select it; measurements are in mm."));
     }
-    void setSketch(const Sketch2D* sketch) { sketch_ = sketch; update(); }
+    void setSketch(const Sketch2D* sketch) { dragVertex_ = -1; sketch_ = sketch; update(); }
     void setDrawMode(bool enabled) {
         drawMode_ = enabled;
         setCursor(enabled ? Qt::CrossCursor : Qt::ArrowCursor);
@@ -70,7 +70,7 @@ protected:
         // Keep the camera transform fixed while a vertex is dragged.
         if (dragVertex_ < 0) computeBounds();
         p.setPen(QPen(QColor(51, 64, 82), 1));
-        const double gridMm = 10.0;
+        const double gridMm = std::pow(10.0, std::ceil(std::log10(20.0 / scale_)));
         const double minX = std::floor(x0_ / gridMm) * gridMm;
         const double maxX = x0_ + width() / scale_;
         const double minY = std::floor(y0_ / gridMm) * gridMm;
@@ -199,7 +199,7 @@ private:
         }
         const double dx = std::max(1.0, maxX - minX);
         const double dy = std::max(1.0, maxY - minY);
-        scale_ = std::max(0.1, std::min((width() - 65.0) / dx, (height() - 65.0) / dy));
+        scale_ = std::max(1e-9, std::min((width() - 65.0) / dx, (height() - 65.0) / dy));
         x0_ = (minX + maxX) * 0.5 - width() / (2.0 * scale_);
         y0_ = (minY + maxY) * 0.5 - height() / (2.0 * scale_);
     }
@@ -279,6 +279,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     form->addRow(tr("Y coordinate"), y_);
     tools->addLayout(form);
     auto* draw = new QPushButton(tr("Draw with mouse"), sidebar);
+    drawButton_ = draw;
     draw->setCheckable(true);
     draw->setToolTip(tr("Click the canvas to add points on a 1 mm grid. Turn off Draw to drag vertices."));
     auto* rectangle = new QPushButton(tr("Rectangle…"), sidebar);
@@ -505,6 +506,8 @@ void SketchEditorDialog::changeLength() {
 }
 void SketchEditorDialog::setSketch(const Sketch2D& shape) {
     sketch_ = shape;
+    canvas_->setSketch(&sketch_);
+    drawButton_->setChecked(false);
     selectedPoint_ = -1;
     selectedSegment_ = -1;
     refresh();
@@ -529,21 +532,25 @@ bool SketchEditorDialog::writeSketchFile(const QString& path) const {
     if (!QDir().mkpath(info.absolutePath()))
         return false;
     QSaveFile file(path);
+    const auto contents = QJsonDocument(root).toJson(QJsonDocument::Indented);
     return file.open(QIODevice::WriteOnly)
-        && file.write(QJsonDocument(root).toJson(QJsonDocument::Indented)) >= 0
+        && file.write(contents) == contents.size()
         && file.commit();
 }
 
 bool SketchEditorDialog::readSketchFile(const QString& path) {
     QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 4 * 1024 * 1024)
         return false;
     QJsonParseError parse;
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parse);
     const QJsonObject root = document.object();
     if (parse.error != QJsonParseError::NoError || !document.isObject() ||
-        root.value(QStringLiteral("schemaVersion")).toInt() != 1 ||
-        root.value(QStringLiteral("units")).toString() != QStringLiteral("mm"))
+        !root.value(QStringLiteral("schemaVersion")).isDouble() ||
+        root.value(QStringLiteral("schemaVersion")).toDouble() != 1.0 ||
+        root.value(QStringLiteral("units")).toString() != QStringLiteral("mm") ||
+        !root.value(QStringLiteral("vertices")).isArray() ||
+        !root.value(QStringLiteral("closed")).isBool())
         return false;
     Sketch2D next;
     const QJsonArray vertices = root.value(QStringLiteral("vertices")).toArray();
@@ -552,11 +559,16 @@ bool SketchEditorDialog::readSketchFile(const QString& path) {
     for (const auto& row : vertices) {
         const QJsonArray coords = row.toArray();
         if (coords.size() != 2 || !coords[0].isDouble() || !coords[1].isDouble()
+            // Covers the UI coordinate range and the sum of both maximum
+            // nozzle lengths. Extreme imported doubles cannot fit the canvas.
+            || std::abs(coords[0].toDouble()) > 2000000.0
+            || std::abs(coords[1].toDouble()) > 2000000.0
             || !next.addPoint({coords[0].toDouble(), coords[1].toDouble()}))
             return false;
     }
     if (root.value(QStringLiteral("closed")).toBool() && !next.close())
         return false;
+    NozzleDimensions nextDimensions;
     if (root.contains(QStringLiteral("nozzleDimensions"))) {
         const auto value = root.value(QStringLiteral("nozzleDimensions"));
         if (!value.isObject()) return false;
@@ -574,8 +586,9 @@ bool SketchEditorDialog::readSketchFile(const QString& path) {
             n.value(keys[4]).toDouble()
         };
         if (!makeNozzleProfile(loaded)) return false;
-        nozzleDims_ = loaded;
+        nextDimensions = loaded;
     }
+    nozzleDims_ = nextDimensions;
     setSketch(next);
     return true;
 }
@@ -647,10 +660,18 @@ void SketchEditorDialog::load() {
         this, tr("Load 2D sketch"), {}, tr("Vortia sketch (*.vsketch.json)"));
     if (filename.isEmpty())
         return;
+    if (!confirmReplacement()) return;
     if (!readSketchFile(filename))
         QMessageBox::warning(this, tr("Load error"), tr("Invalid or unsupported sketch format."));
     else
         emit sketchChanged();
+}
+
+void SketchEditorDialog::reject() {
+    if (!isWindow())
+        emit closeRequested();
+    else
+        QDialog::reject();
 }
 
 } // namespace vortia

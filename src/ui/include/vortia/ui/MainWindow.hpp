@@ -19,6 +19,8 @@
 #include <vector>
 #include <memory>
 
+class QTemporaryDir;
+
 namespace vortia {
 
 class MainWindow : public QMainWindow {
@@ -52,6 +54,11 @@ private slots:
     void onAbout();
 
 private:
+    friend struct WorkspaceTestAccess;
+    bool openProjectDirectory(const QString& directory);
+    bool saveProject();
+    bool projectSwitchLocked() const;
+    void setJobUiRunning(bool running);
     void buildMenusAndToolbar();
     void buildDocks();
     void addProjectTab(const QString& name, CaseSetup setup,
@@ -78,6 +85,7 @@ private:
         bool existingCase{false};
         bool modified{false};
         QString resultVtm;
+        std::shared_ptr<QTemporaryDir> temporaryCase;
     };
     std::vector<ProjectDocument> documents_;
     int activeProjectTab_{-1};
@@ -105,6 +113,9 @@ private:
     JobController* jobController_{nullptr};
 
     QAction* runAction_{nullptr};
+    QAction* newProjectAction_{nullptr};
+    QAction* openProjectAction_{nullptr};
+    QAction* openCaseAction_{nullptr};
     QAction* cancelAction_{nullptr};
     QAction* themeAction_{nullptr};
     QComboBox* fieldCombo_{nullptr};

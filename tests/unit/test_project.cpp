@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 using namespace vortia;
 
@@ -77,6 +78,24 @@ TEST_F(ProjectTest, RejectsUnsupportedSchema) {
     auto reopened = Project::open(root_);
     ASSERT_FALSE(reopened.hasValue());
     EXPECT_EQ(reopened.error().code, ErrorCode::UnsupportedVersion);
+}
+
+TEST_F(ProjectTest, RejectsWrongManifestTypesWithoutThrowing) {
+    auto project = Project::create(root_, "cavity");
+    ASSERT_TRUE(project);
+    const std::vector<std::string> contents{
+        "[]", "null", R"({"schemaVersion":"1","name":"test"})",
+        R"({"schemaVersion":1,"name":[]})",
+        R"({"schemaVersion":1,"name":"test","backendFingerprint":42})",
+        R"({"schemaVersion":1,"name":"test","caseState":false})"
+    };
+    for (const auto& content : contents) {
+        SCOPED_TRACE(content);
+        std::ofstream(project->manifestPath()) << content;
+        const auto opened = Project::open(root_);
+        ASSERT_FALSE(opened);
+        EXPECT_EQ(opened.error().code, ErrorCode::InvalidData);
+    }
 }
 
 TEST_F(ProjectTest, OpenFailsOnMissingManifest) {

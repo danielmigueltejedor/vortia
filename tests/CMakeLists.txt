@@ -63,4 +63,14 @@ endif()
 if(TARGET vortia)
     add_test(NAME vortia_spanish_catalog
              COMMAND $<TARGET_FILE:vortia> --verify-spanish)
+    add_executable(test_workspace unit/test_workspace.cpp
+        "${PROJECT_SOURCE_DIR}/resources/vortia.qrc")
+    set_target_properties(test_workspace PROPERTIES AUTORCC ON)
+    target_link_libraries(test_workspace PRIVATE vortia::ui GTest::gtest vortia_warnings)
+    target_compile_definitions(test_workspace PRIVATE VORTIA_TEST_QM="${CMAKE_BINARY_DIR}/vortia_es.qm")
+    add_dependencies(test_workspace vortia_translations)
+    vtk_module_autoinit(TARGETS test_workspace MODULES ${VTK_LIBRARIES})
+    add_test(NAME vortia_workspace COMMAND test_workspace)
+    set_tests_properties(vortia_workspace PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
