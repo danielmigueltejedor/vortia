@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vortia/geometry/Sketch2D.hpp"
+#include "vortia/geometry/SketchTemplates.hpp"
 
 #include <QDialog>
 #include <functional>
@@ -22,6 +23,8 @@ public:
     explicit SketchEditorDialog(QWidget* parent = nullptr);
 private:
     void refresh();
+    bool confirmReplacement() const;
+    void setShape(const Sketch2D& shape);
     void setSelectedSegment(int index);
     void setSelectedPoint(int index);
     void addPoint();
@@ -31,6 +34,7 @@ private:
     void save();
     void load();
     Sketch2D sketch_;
+    NozzleDimensions nozzleDims_;
     SketchCanvas2D* canvas_{nullptr};
     QTableWidget* table_{nullptr};
     QLabel* status_{nullptr};
