@@ -16,7 +16,8 @@ add_executable(test_geometry
     unit/test_triangle_mesh.cpp
     unit/test_stl_reader.cpp
     unit/test_box_domain.cpp
-    unit/test_sketch_2d.cpp)
+    unit/test_sketch_2d.cpp
+    unit/test_sketch_templates.cpp)
 target_link_libraries(test_geometry PRIVATE vortia::geometry GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_geometry)
 
@@ -54,4 +55,11 @@ if(TARGET vortia_visualization)
     target_link_libraries(test_vtk_input PRIVATE vortia::visualization
                           GTest::gtest_main vortia_warnings)
     gtest_discover_tests(test_vtk_input)
+endif()
+
+# CI regression: ensures that lrelease ran and the built app embeds a readable
+# Spanish catalog in the same resource path used at runtime.
+if(TARGET vortia)
+    add_test(NAME vortia_spanish_catalog
+             COMMAND $<TARGET_FILE:vortia> --verify-spanish)
 endif()

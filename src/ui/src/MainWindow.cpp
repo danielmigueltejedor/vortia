@@ -189,8 +189,8 @@ void MainWindow::buildMenusAndToolbar() {
     auto* sketchEditor = new QAction(toolIcon(QStringLiteral("sketch"), QStyle::SP_FileDialogDetailedView), tr("2D Sketch…"), this);
     sketchEditor->setToolTip(tr("Draw a dimensioned polyline with split segments and exact mm lengths."));
     connect(sketchEditor, &QAction::triggered, this, [this]() {
-        SketchEditorDialog dialog(this);
-        dialog.exec();
+        if (workspaceTabs_ && sketchEditor_)
+            workspaceTabs_->setCurrentWidget(sketchEditor_);
     });
     connect(geometryEditor, &QAction::triggered, this,
             [this]() { properties_->showNode(ProjectExplorerPanel::GeometryNode); });
@@ -323,8 +323,22 @@ void MainWindow::buildDocks() {
     projectTabs_->setExpanding(false);
     projectTabs_->setUsesScrollButtons(true);
     centralLayout->addWidget(projectTabs_);
-    viewport_ = new VtkViewport(central);
-    centralLayout->addWidget(viewport_, 1);
+    workspaceTabs_ = new QTabWidget(central);
+    workspaceTabs_->setDocumentMode(true);
+    workspaceTabs_->setObjectName(QStringLiteral("vortia-editor-tabs"));
+    viewport_ = new VtkViewport(workspaceTabs_);
+    workspaceTabs_->addTab(viewport_, tr("3D CFD"));
+    sketchEditor_ = new SketchEditorDialog(workspaceTabs_);
+    sketchEditor_->setWindowFlags(Qt::Widget);
+    workspaceTabs_->addTab(sketchEditor_, tr("2D Sketch"));
+    connect(sketchEditor_, &SketchEditorDialog::closeRequested, this,
+            [this]() { workspaceTabs_->setCurrentWidget(viewport_); });
+    connect(sketchEditor_, &SketchEditorDialog::sketchChanged, this, [this]() {
+        dirty_ = true;
+        storeCurrentTab();
+        refreshProjectTabTitle();
+    });
+    centralLayout->addWidget(workspaceTabs_, 1);
     setCentralWidget(central);
     connect(projectTabs_, &QTabBar::currentChanged,
             this, &MainWindow::activateProjectTab);
@@ -417,6 +431,7 @@ void MainWindow::storeCurrentTab() {
     tab.externalCase = existingCaseDir_;
     tab.existingCase = useExistingCase_;
     tab.setup = setup_;
+    if (sketchEditor_) tab.sketch = sketchEditor_->sketch();
     tab.modified = dirty_;
     tab.resultVtm = lastVtmPath_;
 }
@@ -477,6 +492,7 @@ void MainWindow::activateProjectTab(int index) {
     dirty_ = tab.modified;
     lastVtmPath_ = tab.resultVtm;
     properties_->setSetup(setup_);
+    if (sketchEditor_) sketchEditor_->setSketch(tab.sketch);
     updateViewport();
     if (!lastVtmPath_.isEmpty() && QFileInfo::exists(lastVtmPath_)) {
         try {
@@ -556,6 +572,12 @@ void MainWindow::onOpenProject() {
         ofInstallation_ = openfoam::Installation{}; // cleared; re-detect on run
     addProjectTab(QString::fromStdString(project->name()), openedSetup,
                   project->rootDir());
+    const auto sketchPath = project->rootDir() / "geometry" / "working-sketch.vsketch.json";
+    if (std::filesystem::exists(sketchPath) &&
+        !sketchEditor_->readSketchFile(QString::fromStdString(sketchPath.string())))
+        QMessageBox::warning(this, tr("Sketch load failed"),
+                             tr("This project contains an invalid 2D sketch file."));
+    storeCurrentTab();
     setProjectState(tr("Opened project: %1").arg(QString::fromStdString(project->name())));
 }
 
@@ -590,6 +612,14 @@ void MainWindow::onSaveProject() {
         project->setCaseState(Project::CaseState::Configured);
     if (auto saved = project->save(); !saved) {
         QMessageBox::warning(this, tr("Save failed"), QString::fromStdString(saved.error().describe()));
+        return;
+    }
+    const auto sketchPath = projectRoot_ / "geometry" / "working-sketch.vsketch.json";
+    if (!sketchEditor_->writeSketchFile(QString::fromStdString(sketchPath.string()))) {
+        QMessageBox::warning(this, tr("Sketch save failed"),
+                             tr("The project metadata was saved, but its 2D sketch could not be written."));
+        dirty_ = true;
+        refreshProjectTabTitle();
         return;
     }
     dirty_ = false;
@@ -738,6 +768,11 @@ void MainWindow::onOpenExistingCase() {
 
 void MainWindow::onNodeActivated(int nodeId) {
     properties_->showNode(nodeId);
+    if (workspaceTabs_) {
+        workspaceTabs_->setCurrentWidget(
+            nodeId == ProjectExplorerPanel::GeometryNode ? static_cast<QWidget*>(sketchEditor_)
+                                                          : static_cast<QWidget*>(viewport_));
+    }
 }
 
 void MainWindow::onApplySetup(const CaseSetup& setup) {

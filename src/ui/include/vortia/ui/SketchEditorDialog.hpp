@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vortia/geometry/Sketch2D.hpp"
+#include "vortia/geometry/SketchTemplates.hpp"
 
 #include <QDialog>
 #include <functional>
@@ -17,10 +18,21 @@ class SketchCanvas2D;
 /// Interactive dimensioned 2D sketch editor. Exports actual mm coordinates
 /// and explicit line segments as JSON; no CFD-mesh conversion is implied.
 class SketchEditorDialog final : public QDialog {
+    Q_OBJECT
 public:
     explicit SketchEditorDialog(QWidget* parent = nullptr);
+    void setSketch(const Sketch2D& shape);
+    [[nodiscard]] const Sketch2D& sketch() const noexcept { return sketch_; }
+    bool writeSketchFile(const QString& path) const;
+    bool readSketchFile(const QString& path);
+
+signals:
+    void sketchChanged();
+    void closeRequested();
 private:
     void refresh();
+    bool confirmReplacement() const;
+    void setShape(const Sketch2D& shape);
     void setSelectedSegment(int index);
     void setSelectedPoint(int index);
     void addPoint();
@@ -30,6 +42,7 @@ private:
     void save();
     void load();
     Sketch2D sketch_;
+    NozzleDimensions nozzleDims_;
     SketchCanvas2D* canvas_{nullptr};
     QTableWidget* table_{nullptr};
     QLabel* status_{nullptr};

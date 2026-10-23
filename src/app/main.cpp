@@ -8,8 +8,28 @@
 #include <QLocale>
 #include <QSettings>
 #include <QTranslator>
+#include <QDebug>
+#include <QCoreApplication>
 
 int main(int argc, char* argv[]) {
+    // Deterministic, headless verification for CI. This catches missing .qm
+    // compilation AND incorrect resource paths instead of silently falling
+    // back to English on shipped builds.
+    if (argc > 1 && QString::fromUtf8(argv[1]) == QStringLiteral("--verify-spanish")) {
+        QCoreApplication checkApp(argc, argv);
+        QTranslator catalog;
+        const bool loaded = catalog.load(QStringLiteral(":/translations/vortia_es.qm"));
+        if (!loaded || catalog.translate("MainWindow", "File") != QStringLiteral("Archivo")
+            || catalog.translate("ProjectExplorerPanel", "Geometry")
+                   != QStringLiteral("Geometría")) {
+            qCritical() << "Vortia Spanish catalog missing or invalid;"
+                        << "loaded:" << loaded;
+            return 2;
+        }
+        qInfo() << "Vortia Spanish Qt resources verified";
+        return 0;
+    }
+
     QSurfaceFormat format;
     format.setDepthBufferSize(24);
     format.setStencilBufferSize(8);
@@ -44,8 +64,13 @@ int main(int argc, char* argv[]) {
         const QString bundled = QCoreApplication::applicationDirPath()
             + QStringLiteral("/../Resources/vortia_es.qm");
         if (translator.load(resource) || translator.load(bundled)
-            || translator.load(adjacent))
+            || translator.load(adjacent)) {
             app.installTranslator(&translator);
+            qInfo() << "Vortia locale: es (catalog loaded)";
+        } else {
+            qWarning() << "Vortia Spanish translation could not load from"
+                       << resource << bundled << adjacent;
+        }
     }
 
     vortia::MainWindow window;

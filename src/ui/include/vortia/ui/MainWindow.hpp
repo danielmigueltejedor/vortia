@@ -7,6 +7,7 @@
 #include "vortia/ui/JobController.hpp"
 #include "vortia/ui/ProjectExplorerPanel.hpp"
 #include "vortia/ui/PropertiesPanel.hpp"
+#include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/visualization/VtkViewport.hpp"
 
 #include <QComboBox>
@@ -14,6 +15,7 @@
 #include <QMainWindow>
 #include <QSettings>
 #include <QTabBar>
+#include <QTabWidget>
 #include <vector>
 #include <memory>
 
@@ -69,6 +71,7 @@ private:
     struct ProjectDocument {
         QString name;
         CaseSetup setup;
+        Sketch2D sketch;
         std::filesystem::path root;
         std::filesystem::path externalCase;
         bool existingCase{false};
@@ -92,6 +95,8 @@ private:
 
     // UI
     QTabBar* projectTabs_{nullptr};
+    QTabWidget* workspaceTabs_{nullptr};
+    SketchEditorDialog* sketchEditor_{nullptr};
     VtkViewport* viewport_{nullptr};
     ProjectExplorerPanel* explorer_{nullptr};
     PropertiesPanel* properties_{nullptr};

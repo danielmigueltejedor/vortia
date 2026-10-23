@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QStyle>
+#include <QIcon>
 
 namespace vortia {
 
@@ -32,14 +33,25 @@ void ProjectExplorerPanel::buildTree() {
         return item;
     };
 
-    auto* style = QApplication::style();
-    addNode(tr("Geometry"), GeometryNode)->setIcon(0, style->standardIcon(QStyle::SP_DirIcon));
-    addNode(tr("Mesh"), MeshNode)->setIcon(0, style->standardIcon(QStyle::SP_FileDialogDetailedView));
-    addNode(tr("Materials"), MaterialsNode)->setIcon(0, style->standardIcon(QStyle::SP_DriveHDIcon));
-    addNode(tr("Boundary Conditions"), BoundaryConditionsNode)->setIcon(0, style->standardIcon(QStyle::SP_DirLinkIcon));
-    addNode(tr("Solver"), SolverNode)->setIcon(0, style->standardIcon(QStyle::SP_ComputerIcon));
+    // Match the actual Vortia engineering ribbon, instead of displaying
+    // unrelated OS folder/drive icons in the project tree.
+    const auto toolIcon = [](const QString& id, QStyle::StandardPixmap fallback) {
+        const QIcon bundled(QStringLiteral(":/vortia/icons/") + id + QStringLiteral(".svg"));
+        return bundled.isNull() ? QApplication::style()->standardIcon(fallback) : bundled;
+    };
+    addNode(tr("Geometry"), GeometryNode)->setIcon(
+        0, toolIcon(QStringLiteral("geometry"), QStyle::SP_DirIcon));
+    addNode(tr("Mesh"), MeshNode)->setIcon(
+        0, toolIcon(QStringLiteral("mesh"), QStyle::SP_FileDialogDetailedView));
+    addNode(tr("Materials"), MaterialsNode)->setIcon(
+        0, toolIcon(QStringLiteral("material"), QStyle::SP_DriveHDIcon));
+    addNode(tr("Boundary Conditions"), BoundaryConditionsNode)->setIcon(
+        0, toolIcon(QStringLiteral("boundary"), QStyle::SP_DirLinkIcon));
+    addNode(tr("Solver"), SolverNode)->setIcon(
+        0, toolIcon(QStringLiteral("solver"), QStyle::SP_ComputerIcon));
     resultsItem_ = addNode(tr("Results"), ResultsNode);
-    resultsItem_->setIcon(0, style->standardIcon(QStyle::SP_DialogApplyButton));
+    resultsItem_->setIcon(
+        0, toolIcon(QStringLiteral("view"), QStyle::SP_DialogApplyButton));
 
     expandAll();
     if (topLevelItemCount() > 0)
