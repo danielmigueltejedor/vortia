@@ -83,3 +83,19 @@ TEST(BlockMeshDict, DeterministicOutput) {
     ASSERT_TRUE(a.hasValue() && b.hasValue());
     EXPECT_EQ(a.value(), b.value());
 }
+
+TEST(BlockMeshDict, HonorsNonUniformSimpleGrading) {
+    BlockMeshParams p = cavityParams();
+    p.cells = {48, 96, 1};
+    p.grading = {2.5, 0.4, 1.0};
+    const auto dict = BlockMeshDict::generate(unitBox(), p);
+    ASSERT_TRUE(dict.hasValue());
+    EXPECT_NE(dict->find("(48 96 1) simpleGrading (2.5 0.4 1)"), std::string::npos);
+}
+TEST(BlockMeshDict, RejectsNonFiniteAndNonPositiveGrading) {
+    BlockMeshParams p = cavityParams();
+    p.grading = {1.0, 0.0, 1.0};
+    EXPECT_FALSE(BlockMeshDict::generate(unitBox(), p).hasValue());
+    p.grading = {1.0, -0.2, 1.0};
+    EXPECT_FALSE(BlockMeshDict::generate(unitBox(), p).hasValue());
+}

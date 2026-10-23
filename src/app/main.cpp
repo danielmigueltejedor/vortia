@@ -30,11 +30,22 @@ int main(int argc, char* argv[]) {
     const QString theme = settings.value(QStringLiteral("theme"), QStringLiteral("dark")).toString();
     vortia::ThemeManager::apply(app, vortia::ThemeManager::fromName(theme));
 
-    // i18n: try to load a translation matching the system locale.
+    // Explicit preference takes precedence over the system locale. English
+    // uses the source strings; Spanish comes from a compiled, bundled .qm.
+    const QString preferred = settings.value(QStringLiteral("language"),
+                                            QStringLiteral("system")).toString();
+    const QString locale = preferred == QStringLiteral("system")
+        ? QLocale::system().name().left(2) : preferred;
     QTranslator translator;
-    const QString locale = QLocale::system().name(); // e.g. es_ES
-    if (translator.load(QStringLiteral(":/translations/vortia_") + locale.left(2))) {
-        app.installTranslator(&translator);
+    if (locale == QStringLiteral("es")) {
+        const QString resource = QStringLiteral(":/translations/vortia_es.qm");
+        const QString adjacent = QCoreApplication::applicationDirPath()
+            + QStringLiteral("/../vortia_es.qm");
+        const QString bundled = QCoreApplication::applicationDirPath()
+            + QStringLiteral("/../Resources/vortia_es.qm");
+        if (translator.load(resource) || translator.load(bundled)
+            || translator.load(adjacent))
+            app.installTranslator(&translator);
     }
 
     vortia::MainWindow window;

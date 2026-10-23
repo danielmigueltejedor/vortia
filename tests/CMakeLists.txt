@@ -15,7 +15,8 @@ gtest_discover_tests(test_core)
 add_executable(test_geometry
     unit/test_triangle_mesh.cpp
     unit/test_stl_reader.cpp
-    unit/test_box_domain.cpp)
+    unit/test_box_domain.cpp
+    unit/test_sketch_2d.cpp)
 target_link_libraries(test_geometry PRIVATE vortia::geometry GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_geometry)
 

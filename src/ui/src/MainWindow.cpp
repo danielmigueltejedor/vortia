@@ -12,6 +12,7 @@
 #include "vortia/solver/openfoam/CaseWriter.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
 #include "vortia/ui/ThemeManager.hpp"
+#include "vortia/ui/SketchEditorDialog.hpp"
 
 #include <QMenuBar>
 #include <initializer_list>
@@ -29,6 +30,10 @@
 #include <QApplication>
 #include <QDockWidget>
 #include <QFileDialog>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -136,6 +141,12 @@ void MainWindow::buildMenusAndToolbar() {
     cancelAction_ = simMenu->addAction(tr("Cancel Simulation"), this, &MainWindow::onCancel);
     cancelAction_->setEnabled(false);
 
+    auto* preferences = new QAction(tr("Preferences…"), this);
+    preferences->setMenuRole(QAction::PreferencesRole);
+    connect(preferences, &QAction::triggered, this, &MainWindow::onPreferences);
+    auto* toolsMenu = menuBar()->addMenu(tr("Tools"));
+    toolsMenu->addAction(preferences);
+
     auto* viewMenu = menuBar()->addMenu(tr("View"));
     viewMenu->setObjectName(QStringLiteral("vortia-view-menu"));
     themeAction_ = viewMenu->addAction(tr("Toggle Dark/Light Theme"), this, &MainWindow::onToggleTheme);
@@ -168,6 +179,12 @@ void MainWindow::buildMenusAndToolbar() {
     auto* materialsEditor = new QAction(toolIcon(QStringLiteral("material"), QStyle::SP_DriveHDIcon), tr("Materials"), this);
     auto* boundaryEditor = new QAction(toolIcon(QStringLiteral("boundary"), QStyle::SP_DirLinkIcon), tr("Boundaries"), this);
     auto* solverEditor = new QAction(toolIcon(QStringLiteral("solver"), QStyle::SP_ComputerIcon), tr("Solver"), this);
+    auto* sketchEditor = new QAction(toolIcon(QStringLiteral("sketch"), QStyle::SP_FileDialogDetailedView), tr("2D Sketch…"), this);
+    sketchEditor->setToolTip(tr("Draw a dimensioned polyline with split segments and exact mm lengths."));
+    connect(sketchEditor, &QAction::triggered, this, [this]() {
+        SketchEditorDialog dialog(this);
+        dialog.exec();
+    });
     connect(geometryEditor, &QAction::triggered, this,
             [this]() { properties_->showNode(ProjectExplorerPanel::GeometryNode); });
     connect(meshEditor, &QAction::triggered, this,
@@ -179,10 +196,10 @@ void MainWindow::buildMenusAndToolbar() {
     connect(solverEditor, &QAction::triggered, this,
             [this]() { properties_->showNode(ProjectExplorerPanel::SolverNode); });
 
-    auto* viewXY = new QAction(toolIcon(QStringLiteral("view"), QStyle::SP_ArrowUp), tr("XY"), this);
+    auto* viewXY = new QAction(icon(QStyle::SP_ArrowUp), tr("XY"), this);
     auto* viewXZ = new QAction(icon(QStyle::SP_ArrowRight), tr("XZ"), this);
     auto* viewYZ = new QAction(icon(QStyle::SP_ArrowLeft), tr("YZ"), this);
-    auto* viewIso = new QAction(toolIcon(QStringLiteral("geometry"), QStyle::SP_FileDialogDetailedView), tr("3D"), this);
+    auto* viewIso = new QAction(icon(QStyle::SP_FileDialogDetailedView), tr("3D"), this);
     auto* viewReset = new QAction(icon(QStyle::SP_BrowserReload), tr("Fit View"), this);
     connect(viewXY, &QAction::triggered, this, [this]() { viewport_->setViewXY(); });
     connect(viewXZ, &QAction::triggered, this, [this]() { viewport_->setViewXZ(); });
@@ -246,7 +263,7 @@ void MainWindow::buildMenusAndToolbar() {
     addGroup(homePage, tr("Import"), {openFoam, importStl, importFluent});
 
     auto* modelPage = newPage(tr("Model"));
-    addGroup(modelPage, tr("Geometry & mesh"), {geometryEditor, meshEditor});
+    addGroup(modelPage, tr("Geometry & mesh"), {sketchEditor, geometryEditor, meshEditor});
     addGroup(modelPage, tr("Physics"), {materialsEditor, boundaryEditor});
     addGroup(modelPage, tr("Solver setup"), {solverEditor});
 
@@ -276,7 +293,7 @@ void MainWindow::buildMenusAndToolbar() {
     addGroup(resultsPage, tr("Camera"), {viewXY, viewXZ, viewYZ, viewIso, viewReset});
 
     auto* viewPage = newPage(tr("View"));
-    addGroup(viewPage, tr("Appearance"), {themeAction_, viewReset});
+    addGroup(viewPage, tr("Appearance"), {themeAction_, preferences, viewReset});
 
     toolbar->addWidget(tabs);
     statusLabel_ = new QLabel(this);
@@ -734,6 +751,56 @@ void MainWindow::onFieldChanged(int /*index*/) {
     // Reuse the already loaded VTK dataset: repeated reads previously made
     // each field change much heavier and could leave stale legend artifacts.
     viewport_->setColorField(fieldCombo_->currentText().toStdString());
+}
+
+void MainWindow::onPreferences() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Vortia Preferences"));
+    dialog.setMinimumWidth(410);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* form = new QFormLayout();
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+    auto* language = new QComboBox(&dialog);
+    language->addItem(tr("System language"), QStringLiteral("system"));
+    language->addItem(QStringLiteral("English"), QStringLiteral("en"));
+    language->addItem(QStringLiteral("Español"), QStringLiteral("es"));
+    const QString currentLanguage = settings_->value(
+        QStringLiteral("language"), QStringLiteral("system")).toString();
+    language->setCurrentIndex(std::max(0, language->findData(currentLanguage)));
+    language->setToolTip(tr("Choose the language used by Vortia after restarting."));
+
+    auto* theme = new QComboBox(&dialog);
+    theme->addItem(tr("Dark"), QStringLiteral("dark"));
+    theme->addItem(tr("Light"), QStringLiteral("light"));
+    const QString currentTheme = settings_->value(
+        QStringLiteral("theme"), QStringLiteral("dark")).toString();
+    theme->setCurrentIndex(std::max(0, theme->findData(currentTheme)));
+
+    form->addRow(tr("Application language"), language);
+    form->addRow(tr("Appearance"), theme);
+    layout->addLayout(form);
+    auto* info = new QLabel(tr("Language changes take effect after restarting Vortia. "
+                               "Appearance changes take effect immediately."), &dialog);
+    info->setWordWrap(true);
+    layout->addWidget(info);
+    auto* buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    const QString selectedLanguage = language->currentData().toString();
+    const QString selectedTheme = theme->currentData().toString();
+    settings_->setValue(QStringLiteral("language"), selectedLanguage);
+    settings_->setValue(QStringLiteral("theme"), selectedTheme);
+    settings_->sync();
+    ThemeManager::apply(*qApp, ThemeManager::fromName(selectedTheme));
+    updateViewport();
+    if (selectedLanguage != currentLanguage)
+        QMessageBox::information(this, tr("Language"), tr("Restart Vortia to apply the selected language."));
 }
 
 void MainWindow::onToggleTheme() {
