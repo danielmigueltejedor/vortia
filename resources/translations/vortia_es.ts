@@ -102,4 +102,137 @@
     <message><source>Language</source><translation>Idioma</translation></message>
     <message><source>Restart Vortia to apply the selected language.</source><translation>Reinicia Vortia para aplicar el idioma seleccionado.</translation></message>
   </context>
+<context>
+    <name>MainWindow</name>
+    <message><source>Open OpenFOAM Case…</source><translation>Abrir caso OpenFOAM…</translation></message>
+    <message><source>Import ANSYS Fluent…</source><translation>Importar ANSYS Fluent…</translation></message>
+    <message><source>Detect OpenFOAM</source><translation>Detectar OpenFOAM</translation></message>
+    <message><source>Boundaries</source><translation>Contornos</translation></message>
+    <message><source>2D Sketch…</source><translation>Croquis 2D…</translation></message>
+    <message><source>Draw a dimensioned polyline with split segments and exact mm lengths.</source><translation>Dibuja una polilínea acotada, divide segmentos y fija longitudes exactas en mm.</translation></message>
+    <message><source>Fit View</source><translation>Ajustar vista</translation></message>
+    <message><source>Engineering tools</source><translation>Herramientas de ingeniería</translation></message>
+    <message><source>Home</source><translation>Inicio</translation></message>
+    <message><source>Project</source><translation>Proyecto</translation></message>
+    <message><source>Import</source><translation>Importar</translation></message>
+    <message><source>Model</source><translation>Modelo</translation></message>
+    <message><source>Geometry &amp; mesh</source><translation>Geometría y malla</translation></message>
+    <message><source>Physics</source><translation>Física</translation></message>
+    <message><source>Solver setup</source><translation>Configuración del solver</translation></message>
+    <message><source>Backend</source><translation>Motor de cálculo</translation></message>
+    <message><source>Execution</source><translation>Ejecución</translation></message>
+    <message><source>DISPLAY FIELD</source><translation>CAMPO REPRESENTADO</translation></message>
+    <message><source>Choose a field from the current CFD result</source><translation>Selecciona un campo del resultado CFD</translation></message>
+    <message><source>Camera</source><translation>Cámara</translation></message>
+    <message><source>Project Explorer</source><translation>Explorador del proyecto</translation></message>
+    <message><source>Properties</source><translation>Propiedades</translation></message>
+    <message><source>Simulation Console</source><translation>Consola de simulación</translation></message>
+    <message><source>Reset Workspace Layout</source><translation>Restablecer disposición de paneles</translation></message>
+    <message><source>Open failed</source><translation>Error al abrir</translation></message>
+    <message><source>Open warning</source><translation>Aviso al abrir</translation></message>
+    <message><source>Save failed</source><translation>Error al guardar</translation></message>
+    <message><source>Import failed</source><translation>Error de importación</translation></message>
+    <message><source>Import ANSYS Fluent</source><translation>Importar ANSYS Fluent</translation></message>
+    <message><source>Open OpenFOAM Case</source><translation>Abrir caso OpenFOAM</translation></message>
+    <message><source>No OpenFOAM installation</source><translation>No se encontró OpenFOAM</translation></message>
+    <message><source>Invalid setup</source><translation>Configuración no válida</translation></message>
+    <message><source>Case generation failed</source><translation>Error al generar el caso</translation></message>
+    <message><source>Run failed</source><translation>Error en la simulación</translation></message>
+    <message><source>Results loaded.</source><translation>Resultados cargados.</translation></message>
+    <message><source>New untitled project — default cavity template (Re=100).</source><translation>Proyecto sin título — plantilla de cavidad (Re=100).</translation></message>
+    <message><source>Choose project location</source><translation>Elegir ubicación del proyecto</translation></message>
+    <message><source>Project name</source><translation>Nombre del proyecto</translation></message>
+    <message><source>Name:</source><translation>Nombre:</translation></message>
+    <message><source>Opened project: %1</source><translation>Proyecto abierto: %1</translation></message>
+    <message><source>Saved project: %1</source><translation>Proyecto guardado: %1</translation></message>
+    <message><source>Loaded results: %1\n</source><translation>Resultados cargados: %1\n</translation></message>
+    <message><source>Run finished: %1</source><translation>Simulación terminada: %1</translation></message>
+    <message><source>Run failed: %1</source><translation>La simulación ha fallado: %1</translation></message>
+    <message><source>Cancellation requested…\n</source><translation>Cancelación solicitada…\n</translation></message>
+    <message><source>No OpenFOAM installation found.\nSet VORTIA_OPENFOAM_DIR or install OpenFOAM.</source><translation>No se ha encontrado OpenFOAM.\nConfigura VORTIA_OPENFOAM_DIR o instala OpenFOAM.</translation></message>
+</context>
+<context>
+    <name>PropertiesPanel</name>
+    <message><source>Apply</source><translation>Aplicar</translation></message>
+    <message><source>min x</source><translation>mín. x</translation></message>
+    <message><source>max x</source><translation>máx. x</translation></message>
+    <message><source>min y</source><translation>mín. y</translation></message>
+    <message><source>max y</source><translation>máx. y</translation></message>
+    <message><source>min z</source><translation>mín. z</translation></message>
+    <message><source>max z</source><translation>máx. z</translation></message>
+    <message><source>Domain extents (m).</source><translation>Dimensiones del dominio (m).</translation></message>
+    <message><source>Cells X</source><translation>Celdas X</translation></message>
+    <message><source>Cells Y</source><translation>Celdas Y</translation></message>
+    <message><source>Cells Z</source><translation>Celdas Z</translation></message>
+    <message><source>Grading X</source><translation>Gradación X</translation></message>
+    <message><source>Grading Y</source><translation>Gradación Y</translation></message>
+    <message><source>Grading Z</source><translation>Gradación Z</translation></message>
+    <message><source>XY preview</source><translation>Vista previa XY</translation></message>
+    <message><source>Total cells: %1. Average size X/Y/Z: %2 / %3 / %4 mm%5</source><translation>Celdas totales: %1. Tamaño medio X/Y/Z: %2 / %3 / %4 mm%5</translation></message>
+    <message><source>. WARNING: high memory and compute cost.</source><translation>. ATENCIÓN: consumo elevado de memoria y cálculo.</translation></message>
+    <message><source>Structured grid preview (XY). Not a computed mesh.</source><translation>Vista previa de malla estructurada (XY). No es una malla calculada.</translation></message>
+    <message><source>OpenFOAM simpleGrading: ratio of final to first cell width.</source><translation>OpenFOAM simpleGrading: cociente entre el ancho de la última celda y el de la primera.</translation></message>
+    <message><source>Validate and apply the current simulation settings.</source><translation>Validar y aplicar la configuración actual.</translation></message>
+    <message><source>Number of CFD cells in this direction. Increasing it affects solver cost.</source><translation>Número de celdas CFD en esta dirección. Aumentarlo incrementa el coste del cálculo.</translation></message>
+    <message><source>Transient laminar (icoFoam)</source><translation>Laminar transitorio (icoFoam)</translation></message>
+    <message><source>Steady laminar (simpleFoam)</source><translation>Laminar estacionario (simpleFoam)</translation></message>
+    <message><source>Solver</source><translation>Solucionador</translation></message>
+    <message><source>End time (s)</source><translation>Tiempo final (s)</translation></message>
+    <message><source>Delta T (s)</source><translation>Paso temporal (s)</translation></message>
+    <message><source>Write interval (steps)</source><translation>Intervalo de escritura (pasos)</translation></message>
+    <message><source>Run a simulation to see results here.</source><translation>Ejecuta una simulación para ver los resultados.</translation></message>
+    <message><source>Cavity template: the upper lid drives the flow.</source><translation>Plantilla de cavidad: la pared superior impulsa el flujo.</translation></message>
+    <message><source>ERROR: Domain dimensions must be positive along every axis.</source><translation>ERROR: las dimensiones del dominio deben ser positivas en los tres ejes.</translation></message>
+</context>
+<context>
+    <name>SketchEditorDialog</name>
+    <message><source>Vortia — Dimensioned 2D Sketch</source><translation>Vortia — Croquis 2D acotado</translation></message>
+    <message><source>Click a vertex or segment to select it; measurements are in mm.</source><translation>Haz clic en un vértice o segmento para seleccionarlo; las medidas están en mm.</translation></message>
+    <message><source>X coordinate</source><translation>Coordenada X</translation></message>
+    <message><source>Y coordinate</source><translation>Coordenada Y</translation></message>
+    <message><source>Add vertex</source><translation>Añadir vértice</translation></message>
+    <message><source>Move selected vertex</source><translation>Mover vértice seleccionado</translation></message>
+    <message><source>Split selected segment</source><translation>Dividir segmento seleccionado</translation></message>
+    <message><source>Set exact segment length…</source><translation>Fijar longitud exacta del segmento…</translation></message>
+    <message><source>Close / Open profile</source><translation>Cerrar / Abrir perfil</translation></message>
+    <message><source>Vertex</source><translation>Vértice</translation></message>
+    <message><source>X (mm)</source><translation>X (mm)</translation></message>
+    <message><source>Y (mm)</source><translation>Y (mm)</translation></message>
+    <message><source>Load sketch…</source><translation>Abrir croquis…</translation></message>
+    <message><source>Save sketch…</source><translation>Guardar croquis…</translation></message>
+    <message><source>Clear sketch</source><translation>Borrar croquis</translation></message>
+    <message><source>Close</source><translation>Cerrar</translation></message>
+    <message><source>Invalid profile</source><translation>Perfil no válido</translation></message>
+    <message><source>At least three distinct vertices are needed.</source><translation>Se necesitan al menos tres vértices distintos.</translation></message>
+    <message><source>Segment %1: %2 mm</source><translation>Segmento %1: %2 mm</translation></message>
+    <message><source>Select a segment or vertex in the drawing.</source><translation>Selecciona un segmento o vértice en el dibujo.</translation></message>
+    <message><source>%1 vertices · %2 segments · Perimeter: %3 mm · %4</source><translation>%1 vértices · %2 segmentos · Perímetro: %3 mm · %4</translation></message>
+    <message><source>Closed profile</source><translation>Perfil cerrado</translation></message>
+    <message><source>Open profile</source><translation>Perfil abierto</translation></message>
+    <message><source>Invalid point</source><translation>Punto no válido</translation></message>
+    <message><source>Select segment</source><translation>Seleccionar segmento</translation></message>
+    <message><source>Select a segment to split into two equal parts.</source><translation>Selecciona un segmento para dividirlo en dos partes iguales.</translation></message>
+    <message><source>Select a segment first.</source><translation>Selecciona primero un segmento.</translation></message>
+    <message><source>Exact dimension</source><translation>Cota exacta</translation></message>
+    <message><source>Length (mm)</source><translation>Longitud (mm)</translation></message>
+    <message><source>Dimension failed</source><translation>Error al acotar</translation></message>
+    <message><source>Save 2D sketch</source><translation>Guardar croquis 2D</translation></message>
+    <message><source>Save error</source><translation>Error al guardar</translation></message>
+    <message><source>Could not save sketch.</source><translation>No se pudo guardar el croquis.</translation></message>
+    <message><source>Load 2D sketch</source><translation>Abrir croquis 2D</translation></message>
+    <message><source>Load error</source><translation>Error al abrir</translation></message>
+    <message><source>Invalid or unsupported sketch format.</source><translation>Formato de croquis no válido o no compatible.</translation></message>
+    <message><source>Invalid sketch vertices.</source><translation>Vértices del croquis no válidos.</translation></message>
+    <message><source>Cannot close this sketch.</source><translation>No se puede cerrar este croquis.</translation></message>
+    <message><source>Select a vertex and enter valid coordinates.</source><translation>Selecciona un vértice e introduce coordenadas válidas.</translation></message>
+</context>
+<context>
+    <name>ProjectExplorerPanel</name>
+    <message><source>Geometry</source><translation>Geometría</translation></message>
+    <message><source>Mesh</source><translation>Malla</translation></message>
+    <message><source>Materials</source><translation>Materiales</translation></message>
+    <message><source>Boundary Conditions</source><translation>Condiciones de contorno</translation></message>
+    <message><source>Solver</source><translation>Solucionador</translation></message>
+    <message><source>Results</source><translation>Resultados</translation></message>
+</context>
 </TS>
