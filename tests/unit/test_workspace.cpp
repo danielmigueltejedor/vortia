@@ -19,6 +19,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QTranslator>
+#include <QTableWidget>
 
 namespace vortia {
 // Exercise document operations directly without native file-picker automation.
@@ -38,6 +39,7 @@ struct WorkspaceTestAccess {
     static bool dirty(const MainWindow& w) { return w.dirty_; }
     static void select(MainWindow& w, int index) { w.projectTabs_->setCurrentIndex(index); }
     static int active(const MainWindow& w) { return w.activeProjectTab_; }
+    static QString title(const MainWindow& w, int i) { return w.projectTabs_->tabText(i); }
     static std::size_t count(const MainWindow& w) { return w.documents_.size(); }
     static bool newEnabled(MainWindow& w) { return w.newProjectAction_->isEnabled(); }
     static double endTime(MainWindow& w) { return w.setup_.time.endTime; }
@@ -69,6 +71,71 @@ void expectShape(const Sketch2D& actual, const Sketch2D& expected) {
         EXPECT_DOUBLE_EQ(actual.points()[i].xMm, expected.points()[i].xMm);
         EXPECT_DOUBLE_EQ(actual.points()[i].yMm, expected.points()[i].yMm);
     }
+    for (std::size_t i = 0; i < expected.segmentCount(); ++i)
+        EXPECT_DOUBLE_EQ(actual.segmentBulge(i), expected.segmentBulge(i));
+}
+
+TEST(SketchPersistence, CircularArcsRoundTripAndMalformedArcsAreAtomic) {
+    QTemporaryDir dir;
+    auto shape = makeRectangleSketch(100, 50).value();
+    ASSERT_TRUE(shape.filletVertex(1, 10));
+    ASSERT_TRUE(shape.splitSegment(1));
+    SketchEditorDialog editor;
+    editor.setSketch(shape);
+    const auto path = dir.filePath("arcs.json");
+    ASSERT_TRUE(editor.writeSketchFile(path));
+    const QByteArray saved = readFile(path);
+    EXPECT_TRUE(saved.contains("segmentBulges"));
+    SketchEditorDialog loaded;
+    ASSERT_TRUE(loaded.readSketchFile(path));
+    expectShape(loaded.sketch(), shape);
+    EXPECT_NEAR(loaded.sketch().signedArea(), shape.signedArea(), 1e-9);
+    for (const auto& contents : std::vector<QByteArray>{
+        R"({"schemaVersion":2,"units":"mm","closed":false,"vertices":[[0,0],[10,10]]})",
+        R"({"schemaVersion":2,"units":"mm","closed":false,"vertices":[[0,0],[10,10]],"segmentBulges":[]})",
+        R"({"schemaVersion":2,"units":"mm","closed":false,"vertices":[[0,0],[10,10]],"segmentBulges":[2]})",
+        R"({"schemaVersion":2,"units":"mm","closed":false,"vertices":[[0,0],[10,10]],"segmentBulges":["0.2"]})",
+        R"({"schemaVersion":1,"units":"mm","closed":false,"vertices":[[0,0],[10,10]],"segmentBulges":[0.2]})"
+    }) {
+        writeFile(path, contents);
+        EXPECT_FALSE(loaded.readSketchFile(path));
+        expectShape(loaded.sketch(), shape);
+    }
+}
+
+TEST(SketchPersistence, RoundingAndRadiusButtonsEditAndPersistActualArcs) {
+    SketchEditorDialog editor;
+    editor.setSketch(makeRectangleSketch(100, 50).value());
+    auto* table = editor.findChild<QTableWidget*>();
+    auto* rounding = editor.findChild<QPushButton*>("vortia-sketch-fillet");
+    auto* radius = editor.findChild<QPushButton*>("vortia-sketch-radius");
+    ASSERT_NE(table, nullptr);
+    ASSERT_NE(rounding, nullptr);
+    ASSERT_NE(radius, nullptr);
+    table->cellClicked(1, 0);
+    const auto enterRadius = [](QPushButton* button, double value) {
+        QTimer::singleShot(0, [value] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            ASSERT_NE(dialog, nullptr);
+            auto* spin = dialog->findChild<QDoubleSpinBox*>();
+            ASSERT_NE(spin, nullptr);
+            spin->setValue(value);
+            dialog->accept();
+        });
+        button->click();
+    };
+    int changes = 0;
+    QObject::connect(&editor, &SketchEditorDialog::sketchChanged, [&] { ++changes; });
+    enterRadius(rounding, 10);
+    ASSERT_TRUE(editor.sketch().arc(1));
+    enterRadius(radius, 20);
+    EXPECT_NEAR(editor.sketch().arc(1)->radiusMm, 20, 1e-9);
+    EXPECT_EQ(changes, 2);
+    QTemporaryDir dir;
+    ASSERT_TRUE(editor.writeSketchFile(dir.filePath("rounding.json")));
+    SketchEditorDialog restored;
+    ASSERT_TRUE(restored.readSketchFile(dir.filePath("rounding.json")));
+    expectShape(restored.sketch(), editor.sketch());
 }
 
 TEST(SketchPersistence, RoundTripDimensionsAndExactSegmentEdits) {
@@ -174,14 +241,17 @@ TEST(Workspace, IndependentTabsSaveReopenAndDeduplicate) {
     MainWindow window;
     project->setSetupJson(WorkspaceTestAccess::setupJson(window));
     ASSERT_TRUE(project->save());
-    ASSERT_TRUE(WorkspaceTestAccess::open(window, QString::fromStdString(root.string())));
+    ASSERT_TRUE(WorkspaceTestAccess::open(window, QString::fromStdString(root.string()) + "/"));
+    EXPECT_EQ(WorkspaceTestAccess::title(window, 1), QStringLiteral("project"));
     const NozzleDimensions dims{90, 40, 140, 160, 460};
-    const auto nozzle = makeNozzleProfile(dims).value();
+    auto nozzle = makeNozzleProfile(dims).value();
+    ASSERT_TRUE(nozzle.filletVertex(0, 2));
     WorkspaceTestAccess::edit(window, nozzle, dims);
     WorkspaceTestAccess::setEndTime(window, 2.5);
     EXPECT_TRUE(WorkspaceTestAccess::dirty(window));
     WorkspaceTestAccess::add(window, "other");
-    const auto rectangle = makeRectangleSketch(55, 25).value();
+    auto rectangle = makeRectangleSketch(55, 25).value();
+    ASSERT_TRUE(rectangle.filletVertex(1, 5));
     WorkspaceTestAccess::edit(window, rectangle, {});
     WorkspaceTestAccess::select(window, 1);
     expectShape(WorkspaceTestAccess::editor(window).sketch(), nozzle);
