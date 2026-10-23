@@ -94,19 +94,49 @@ protected:
             p.setPen(QPen(picked ? QColor(255, 184, 74) : QColor(87, 199, 239),
                           picked ? 3.2 : 2.0));
             p.drawLine(project(a), project(b));
-            const QPointF m = (project(a) + project(b)) * 0.5;
-            p.setPen(QColor(220, 230, 245));
-            p.drawText(m + QPointF(5, -7),
-                       QString::number(sketch_->segmentLength(i), 'f', 2) + " mm");
         }
+        // Dense nozzle profiles have many short wall segments. Keep the
+        // profile readable; selection always exposes its exact dimension.
+        std::vector<QRectF> labels;
+        const double outside = sketch_->closed() && sketch_->signedArea() < 0.0 ? -1.0 : 1.0;
+        const auto labelSegment = [&](std::size_t i, bool selected) {
+            const QPointF a = project(sketch_->points()[i]);
+            const QPointF b = project(sketch_->points()[(i + 1) % sketch_->points().size()]);
+            const QString text = QString::number(sketch_->segmentLength(i), 'f', 2) + QStringLiteral(" mm");
+            const auto bounds = p.fontMetrics().boundingRect(text);
+            if (!selected && QLineF(a, b).length() < bounds.width() + 16.0) return;
+            const QPointF midpoint = (a + b) * 0.5;
+            const QPointF delta = b - a;
+            const double length = std::max(1.0, QLineF(a, b).length());
+            const QPointF center = midpoint + outside * QPointF(-delta.y(), delta.x())
+                / length * (bounds.height() * 0.5 + 12.0);
+            QRectF label(0, 0, bounds.width() + 8.0, bounds.height() + 4.0);
+            label.moveCenter(center);
+            label.moveLeft(std::clamp(label.left(), 2.0, std::max(2.0, width() - label.width() - 2.0)));
+            label.moveTop(std::clamp(label.top(), 2.0, std::max(2.0, height() - label.height() - 2.0)));
+            if (!selected && std::any_of(labels.begin(), labels.end(),
+                    [&](const QRectF& other) { return other.intersects(label.adjusted(-4, -4, 4, 4)); })) return;
+            labels.push_back(label);
+            p.fillRect(label, QColor(25, 31, 41, 230));
+            p.setPen(selected ? QColor(255, 184, 74) : QColor(220, 230, 245));
+            p.drawText(label, Qt::AlignCenter, text);
+        };
+        if (selectedSegment_ >= 0 && static_cast<std::size_t>(selectedSegment_) < sketch_->segmentCount())
+            labelSegment(static_cast<std::size_t>(selectedSegment_), true);
+        for (std::size_t i = 0; i < sketch_->segmentCount(); ++i)
+            if (static_cast<int>(i) != selectedSegment_) labelSegment(i, false);
         for (std::size_t i = 0; i < sketch_->points().size(); ++i) {
             const QPointF at = project(sketch_->points()[i]);
+            const bool picked = static_cast<int>(i) == selectedPoint_;
             p.setPen(Qt::NoPen);
-            p.setBrush(static_cast<int>(i) == selectedPoint_
+            p.setBrush(picked
                            ? QColor(255, 184, 74) : QColor(242, 248, 254));
-            p.drawEllipse(at, 4.5, 4.5);
-            p.setPen(QColor(170, 195, 218));
-            p.drawText(at + QPointF(6, 16), QString::number(i));
+            const double radius = picked || sketch_->points().size() <= 12 ? 4.5 : 2.5;
+            p.drawEllipse(at, radius, radius);
+            if (picked || sketch_->points().size() <= 12) {
+                p.setPen(QColor(170, 195, 218));
+                p.drawText(at + QPointF(6, 16), QString::number(i));
+            }
         }
     }
     void mousePressEvent(QMouseEvent* event) override {

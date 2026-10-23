@@ -29,6 +29,10 @@ not configure the solver used by the 3D CFD workspace.
 Spanish catalogs use the actual namespaced Qt class contexts. The resource test
 calls the same class `tr()` functions as the application; the workspace test also
 checks translated tree labels and renders the bundled vector icons.
+Standard confirmation buttons also use the Spanish catalog. Dense profiles
+show dimensions only where labels fit, with the selected segment's measurement
+always visible; short wall segments and vertex numbers no longer obscure the
+nozzle contour. Their exact values remain available by selecting them.
 
 ## Automated regression checks
 The macOS UI build runs `vortia_workspace` with the Qt offscreen platform. It

@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QDir>
 #include <QDialog>
+#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QKeyEvent>
 #include <QMessageBox>
@@ -294,6 +295,9 @@ TEST(WorkspaceResources, RealTranslationContextsAndExplorerIcons) {
     qApp->installTranslator(&translator);
     EXPECT_EQ(MainWindow::tr("File"), QStringLiteral("Archivo"));
     EXPECT_EQ(SketchEditorDialog::tr("Nozzle dimensions"), QStringLiteral("Cotas de la tobera"));
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    EXPECT_EQ(buttons.button(QDialogButtonBox::Ok)->text(), QStringLiteral("Aceptar"));
+    EXPECT_EQ(buttons.button(QDialogButtonBox::Cancel)->text(), QStringLiteral("Cancelar"));
     ProjectExplorerPanel explorer;
     EXPECT_EQ(explorer.topLevelItem(0)->text(0), QStringLiteral("Geometría"));
     const QStringList ids{"geometry", "mesh", "material", "boundary", "solver", "view"};

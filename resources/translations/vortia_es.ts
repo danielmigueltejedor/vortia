@@ -385,4 +385,16 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <name>QObject</name>
     <message><source>Structured grid preview (XY). Not a computed mesh.</source><translation>Vista previa de la cuadrícula estructurada (XY). No es una malla calculada.</translation></message>
 </context>
+<context>
+    <name>QPlatformTheme</name>
+    <message><source>OK</source><translation>Aceptar</translation></message>
+    <message><source>Cancel</source><translation>Cancelar</translation></message>
+    <message><source>Yes</source><translation>Sí</translation></message>
+    <message><source>No</source><translation>No</translation></message>
+    <message><source>Save</source><translation>Guardar</translation></message>
+    <message><source>Discard</source><translation>Descartar</translation></message>
+    <message><source>Close</source><translation>Cerrar</translation></message>
+    <message><source>Open</source><translation>Abrir</translation></message>
+    <message><source>Apply</source><translation>Aplicar</translation></message>
+</context>
 </TS>
