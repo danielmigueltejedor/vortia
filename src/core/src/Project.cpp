@@ -100,32 +100,36 @@ Expected<Project> Project::open(const std::filesystem::path& rootDir) {
     if (!doc)
         return doc.error();
 
-    const auto& j = doc.value();
-    const int schema = j.value("schemaVersion", -1);
-    if (schema != kSchemaVersion)
-        return Error::make(ErrorCode::UnsupportedVersion,
-                           "unsupported project schemaVersion " + std::to_string(schema),
-                           manifest.string());
+    try {
+        const auto& j = doc.value();
+        const int schema = j.value("schemaVersion", -1);
+        if (schema != kSchemaVersion)
+            return Error::make(ErrorCode::UnsupportedVersion,
+                               "unsupported project schemaVersion " + std::to_string(schema),
+                               manifest.string());
 
-    Project project;
-    std::error_code ec;
-    project.rootDir_ = std::filesystem::absolute(rootDir, ec);
-    if (ec)
-        return Error::make(ErrorCode::IoError, "cannot resolve project path", ec.message());
-    project.name_ = j.value("name", std::string{});
-    if (project.name_.empty())
-        return Error::make(ErrorCode::InvalidData, "project manifest has no name",
-                           manifest.string());
-    project.createdUtc_ = j.value("created", std::string{});
-    project.modifiedUtc_ = j.value("modified", std::string{});
-    project.backendFingerprint_ = j.value("backendFingerprint", std::string{});
-    if (j.contains("setup"))
-        project.setupJson_ = j["setup"].dump();
-    const auto state = caseStateFromString(j.value("caseState", std::string{"notCreated"}));
-    if (!state)
-        return state.error();
-    project.caseState_ = state.value();
-    return project;
+        Project project;
+        std::error_code ec;
+        project.rootDir_ = std::filesystem::absolute(rootDir, ec);
+        if (ec)
+            return Error::make(ErrorCode::IoError, "cannot resolve project path", ec.message());
+        project.name_ = j.value("name", std::string{});
+        if (project.name_.empty())
+            return Error::make(ErrorCode::InvalidData, "project manifest has no name",
+                               manifest.string());
+        project.createdUtc_ = j.value("created", std::string{});
+        project.modifiedUtc_ = j.value("modified", std::string{});
+        project.backendFingerprint_ = j.value("backendFingerprint", std::string{});
+        if (j.contains("setup"))
+            project.setupJson_ = j["setup"].dump();
+        const auto state = caseStateFromString(j.value("caseState", std::string{"notCreated"}));
+        if (!state)
+            return state.error();
+        project.caseState_ = state.value();
+        return project;
+    } catch (const nlohmann::json::exception& e) {
+        return Error::make(ErrorCode::InvalidData, e.what(), manifest.string());
+    }
 }
 
 Expected<void> Project::save() {

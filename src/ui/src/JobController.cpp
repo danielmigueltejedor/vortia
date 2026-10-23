@@ -20,6 +20,9 @@ JobController::~JobController() {
 bool JobController::start(const JobSpec& spec) {
     if (running_.load())
         return false;
+    // A completed std::thread remains joinable. Reassigning it on the next
+    // project/run would call std::terminate.
+    if (worker_.joinable()) worker_.join();
     cancelToken_ = std::make_unique<CancellationToken>();
     cancelRequested_.store(false);
     running_.store(true);
@@ -148,8 +151,9 @@ void JobController::runJob(JobSpec spec) {
     }, Qt::QueuedConnection);
     } catch (const std::exception& e) {
         running_.store(false);
-        QMetaObject::invokeMethod(this, [this, e]() {
-            emit jobFinished(false, QString::fromStdString(std::string("exception: ") + e.what()));
+        const QString message = QString::fromStdString(std::string("exception: ") + e.what());
+        QMetaObject::invokeMethod(this, [this, message]() {
+            emit jobFinished(false, message);
         }, Qt::QueuedConnection);
     } catch (...) {
         running_.store(false);
