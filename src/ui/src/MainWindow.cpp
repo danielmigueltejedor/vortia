@@ -976,7 +976,7 @@ QString MainWindow::flowFingerprint(bool includeRunControls) const {
     auto cfg=flowConfig_;cfg.remove("activeCase");cfg.remove("preparedHash");
     if(!includeRunControls) {
         auto solver=cfg.value("solver").toObject();
-        for(const auto* key:{"iterations","writeInterval","maxCo"})solver.remove(key);
+        for(const auto* key:{"iterations","writeInterval","maxCo","processes"})solver.remove(key);
         if(solver.isEmpty())cfg.remove("solver");else cfg.insert("solver",solver);
     }
     QFile sketch(QString::fromStdString((projectRoot_/"geometry/working-sketch.vsketch.json").string()));
@@ -1070,6 +1070,8 @@ void MainWindow::onRun() {
     if (!useExistingCase_ && !flowConfig_.isEmpty()) {
         if (!ensureFlowCase()) return;
         caseDir=flowConfig_.value("activeCase").toString().toStdString();
+        const auto backendError=stageFlowBackend(QString::fromStdString(caseDir.string()));
+        if(!backendError.isEmpty()) {QMessageBox::warning(this,tr("Run failed"),backendError);return;}
         detectedSolver="vortiaCentralFoam";
     } else if (useExistingCase_ && !existingCaseDir_.empty()) {
         caseDir = existingCaseDir_;
@@ -1131,6 +1133,8 @@ void MainWindow::onRun() {
     spec.caps = ofCaps_;
     spec.environment = ofEnvironment_;
     spec.solverOverride = detectedSolver;
+    if(!useExistingCase_ && detectedSolver=="vortiaCentralFoam")
+        spec.processes=flowConfig_.value("solver").toObject().value("processes").toInt(1);
     if (!jobController_->start(spec)) setJobUiRunning(false);
     } catch (const std::exception& e) {
         setJobUiRunning(jobController_->isRunning());

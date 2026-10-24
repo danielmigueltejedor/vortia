@@ -4,6 +4,8 @@
 
 #include <chrono>
 #include <thread>
+#include <fstream>
+#include <filesystem>
 
 using namespace vortia;
 using namespace std::chrono_literals;
@@ -72,6 +74,19 @@ TEST(Process, MissingExecutableReportsNotStarted) {
     auto result = runner.run(req);
     ASSERT_TRUE(result.hasValue());
     EXPECT_FALSE(result->started);
+}
+
+TEST(Process, CancellationStopsDescendantsInTheOwnedProcessGroup) {
+    const auto marker=std::filesystem::temp_directory_path()/"vortia-cancel-descendant-marker";
+    std::filesystem::remove(marker);
+    PosixProcessRunner runner;CancellationToken token;ProcessRequest req;
+    req.executable="/bin/sh";
+    req.arguments={"-c","(/bin/sleep 1; echo leaked > \"$1\") & wait","vortia-group-test",marker.string()};
+    std::thread canceller([&token]{std::this_thread::sleep_for(200ms);token.cancel();});
+    const auto result=runner.run(req,&token);canceller.join();
+    ASSERT_TRUE(result);EXPECT_TRUE(result->cancelled);
+    std::this_thread::sleep_for(1100ms);
+    EXPECT_FALSE(std::filesystem::exists(marker));std::filesystem::remove(marker);
 }
 
 TEST(Process, EnvironmentOverlay) {

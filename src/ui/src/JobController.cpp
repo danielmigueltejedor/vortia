@@ -106,7 +106,7 @@ void JobController::runJob(JobSpec spec) {
             };
 
             auto solverStep = runner.runSolver(spec.caseDir, spec.setup, spec.caps, callbacks,
-                                              cancelToken_.get(), spec.solverOverride);
+                                              cancelToken_.get(), spec.solverOverride,spec.processes);
             if (!solverStep) {
                 success = false;
                 summary = QString::fromStdString(solverStep.error().describe());
@@ -114,6 +114,9 @@ void JobController::runJob(JobSpec spec) {
                 success = false;
                 summary = QStringLiteral("Solver diverged: %1")
                               .arg(QString::fromStdString(solverStep->divergenceReason));
+            } else if (solverStep->process.cancelled) {
+                success = false;
+                summary = tr("Calculation cancelled. Resume from the latest saved checkpoint.");
             } else if (!solverStep->process.succeeded()) {
                 success = false;
                 summary = QStringLiteral("Solver failed (exit %1)").arg(solverStep->process.exitCode);

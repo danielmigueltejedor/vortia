@@ -25,6 +25,8 @@
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QSaveFile>
+#include <QCryptographicHash>
+#include <QThread>
 #include "vortia/solver/openfoam/Detector.hpp"
 #include <QUuid>
 #include <cmath>
@@ -116,6 +118,9 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     number(calculation,"solver","iterations","Maximum pseudo-iterations",1000,1,200000,0);
     number(calculation,"solver","writeInterval","Save every N iterations",100,1,200000,0);
     number(calculation,"solver","maxCo","Acoustic Courant limit",0.1,0.001,0.5,3);
+    number(calculation,"solver","processes","CPU processes (1 = serial)",std::clamp(QThread::idealThreadCount(),1,8),1,8,0);
+    auto* cpuInfo=new QLabel(tr("Parallel runs use an isolated working folder and retain recovery files. The latest complete checkpoint is reconstructed into this case. Small meshes may run faster with fewer processes."),&dialog);
+    cpuInfo->setWordWrap(true);calculation->addRow(cpuInfo);
     auto* method = new QLabel(tr("Experimental compressible OpenFOAM v2606 backend. Kurganov/Minmod local time stepping seeks a steady flow. The iteration limit does not establish convergence; mass balance, field evolution and mesh dependence must be checked."),&dialog);
     method->setWordWrap(true); calculation->addRow(method);
     tabs->setCurrentIndex(std::clamp(page,0,tabs->count()-1));
@@ -134,6 +139,42 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
         boundaries.append(bc);
     }
     result.insert("boundaries",boundaries);return result;
+}
+
+QString stageFlowBackend(const QString& caseDir) {
+    QFile marker(caseDir+"/.vortia-flow-case");
+    if(!marker.open(QIODevice::ReadOnly)||marker.readAll().trimmed()!="vortia-axisymmetric-flow-v1")
+        return tr("Only a generated flow case can receive the bundled backend.");
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    std::vector<std::pair<QString,QByteArray>> files;
+    for(const auto& name:QStringList{"vortiaCentralFoam.C","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}) {
+        QFile f(QString(":/vortia/openfoam/solver/")+name);
+        if(!f.open(QIODevice::ReadOnly))return f.errorString();
+        auto bytes=f.readAll();hash.addData(name.toUtf8());hash.addData(QByteArray(1,'\0'));hash.addData(bytes);
+        files.emplace_back(name,std::move(bytes));
+    }
+    const auto revision=QString::fromLatin1(hash.result().toHex());
+    const auto parent=caseDir+"/solver-backends",destination=parent+"/"+revision;
+    if(!QDir().mkpath(parent))return tr("Cannot stage the bundled flow backend.");
+    if(!QFileInfo::exists(destination)) {
+        QTemporaryDir stage(parent+"/.stage-XXXXXX");
+        if(!stage.isValid()||!QDir().mkpath(stage.filePath("Make")))return tr("Cannot stage the bundled flow backend.");
+        for(const auto& [name,bytes]:files) {
+            QFile f(stage.filePath(name));
+            if(!f.open(QIODevice::WriteOnly)||f.write(bytes)!=bytes.size())return f.errorString();
+        }
+        if(!QDir().rename(stage.path(),destination))return tr("Cannot stage the bundled flow backend.");
+        stage.setAutoRemove(false);
+    } else {
+        // Refuse a modified cache instead of silently trusting its name.
+        for(const auto& [name,bytes]:files) {
+            QFile f(destination+"/"+name);
+            if(!f.open(QIODevice::ReadOnly)||f.readAll()!=bytes)return tr("The staged flow backend was modified; use a new mesh revision.");
+        }
+    }
+    QSaveFile selected(caseDir+"/.vortia-solver-revision");
+    if(!selected.open(QIODevice::WriteOnly)||selected.write(revision.toUtf8()+"\n")!=65||!selected.commit())return selected.errorString();
+    return {};
 }
 
 QString updateFlowRunControls(const QString& caseDir,const QJsonObject& solver,

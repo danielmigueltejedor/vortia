@@ -5,6 +5,8 @@
 
 #include <fstream>
 #include <cmath>
+#include <chrono>
+#include <algorithm>
 
 namespace vortia::openfoam {
 
@@ -142,7 +144,10 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
                                             const Capabilities& caps,
                                             const RunCallbacks& callbacks,
                                             CancellationToken* token,
-                                            const std::string& solverOverride) {
+                                            const std::string& solverOverride,
+                                            unsigned processes) {
+    if (processes<1 || processes>8 || (processes>1 && solverOverride!="vortiaCentralFoam"))
+        return Error::make(ErrorCode::InvalidArgument,"Select 1 to 8 processes for the generated compressible backend");
     std::string exe;
     std::vector<std::string> args;
     if (!solverOverride.empty()) {
@@ -179,9 +184,21 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
             if (version!="v2606" && version!="2606")
                 return Error::make(ErrorCode::BackendUnavailable,
                     "the experimental nozzle backend requires OpenFOAM v2606");
-            const auto bin=std::filesystem::absolute(caseDir/"bin");
+            std::filesystem::path source="solver", binRelative="bin";
+            std::ifstream revisionFile(caseDir/".vortia-solver-revision");
+            std::string revision;
+            if (std::getline(revisionFile,revision)) {
+                if (revision.size()!=64 || !std::all_of(revision.begin(),revision.end(),[](char c) {
+                    return (c>='0'&&c<='9') || (c>='a'&&c<='f');
+                })) return Error::make(ErrorCode::InvalidData,"Invalid bundled solver revision");
+                source=std::filesystem::path("solver-backends")/revision;
+                binRelative/=revision;
+            } else if (processes>1) {
+                return Error::make(ErrorCode::InvalidData,"Parallel flow requires the current bundled solver revision");
+            }
+            const auto bin=std::filesystem::absolute(caseDir/binRelative);
             if (!std::filesystem::is_regular_file(bin/exe)) {
-                if (!std::filesystem::is_regular_file(caseDir/"solver"/"vortiaCentralFoam.C"))
+                if (!std::filesystem::is_regular_file(caseDir/source/"vortiaCentralFoam.C"))
                     return Error::make(ErrorCode::InvalidData,"nozzle solver sources are missing");
                 std::filesystem::create_directories(bin);
                 auto buildEnvironment=environment_;
@@ -190,7 +207,7 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
                     if (key=="VORTIA_NOZZLE_OUTPUT") { value=(bin/exe).string(); outputSet=true; }
                 if (!outputSet) buildEnvironment.emplace_back("VORTIA_NOZZLE_OUTPUT",(bin/exe).string());
                 CaseRunner builder(processes_,std::move(buildEnvironment));
-                auto built=builder.execute("build nozzle backend","wmake",{"solver"},caseDir,callbacks,token);
+                auto built=builder.execute("build nozzle backend","wmake",{source.string()},caseDir,callbacks,token);
                 if (!built || !built->process.succeeded()) return built;
             }
             // Scope the case binary to this dedicated solver invocation. The
@@ -199,10 +216,104 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
             for (auto& [key,value] : environment)
                 if (key=="PATH") value=bin.string()+":"+value;
             CaseRunner solver(processes_,std::move(environment));
+            if (processes>1) return solver.runParallelFlow(caseDir,processes,callbacks,token);
             return solver.execute(exe,exe,args,caseDir,callbacks,token);
         }
     }
     return execute(exe, exe, args, caseDir, callbacks, token);
+}
+
+Expected<StepOutcome> CaseRunner::runParallelFlow(const std::filesystem::path& caseDir,
+    unsigned processes,const RunCallbacks& callbacks,CancellationToken* token) {
+    namespace fs=std::filesystem;
+    try {
+        for(const auto* tool:{"mpirun","decomposePar","reconstructPar"})
+            if(!Detector::resolveExecutable(tool,environment_))
+                return Error::make(ErrorCode::BackendUnavailable,std::string("Parallel flow requires ")+tool+"; select one process to run serially");
+        auto latestTime=[](const fs::path& root) {
+            std::pair<double,fs::path> latest{-1,{}};
+            for(const auto& entry:fs::directory_iterator(root)) {
+                if(!entry.is_directory())continue;
+                const auto name=entry.path().filename().string();
+                try {
+                    std::size_t used=0;const auto t=std::stod(name,&used);
+                    if(used==name.size()&&std::isfinite(t)&&t>=0&&t>latest.first)
+                        latest={t,entry.path()};
+                } catch(...) {}
+            }
+            return latest;
+        };
+        const auto initial=latestTime(caseDir);
+        if(initial.first<0) return Error::make(ErrorCode::InvalidData,"No saved flow fields to decompose");
+        const auto runs=caseDir/"parallel-runs";
+        fs::create_directories(runs);
+        fs::path stage;
+        for(unsigned attempt=0;attempt<100;++attempt) {
+            const auto id=std::chrono::steady_clock::now().time_since_epoch().count();
+            stage=runs/("run_"+std::to_string(id)+"_"+std::to_string(attempt));
+            if(fs::create_directory(stage))break;
+            stage.clear();
+        }
+        if(stage.empty())return Error::make(ErrorCode::IoError,"Cannot create an isolated parallel run");
+        // Original mesh, solver, previous results and processor directories are
+        // never overwritten. Retain this run for recovery, even after failure.
+        for(const auto* name:{"constant","system"})
+            fs::copy(caseDir/name,stage/name,fs::copy_options::recursive);
+        fs::copy(initial.second,stage/initial.second.filename(),fs::copy_options::recursive);
+        if(fs::is_directory(caseDir/"dynamicCode"))
+            fs::copy(caseDir/"dynamicCode",stage/"dynamicCode",fs::copy_options::recursive);
+        {
+            std::ofstream dict(stage/"system/decomposeParDict",std::ios::trunc);
+            dict<<"FoamFile { version 2.0; format ascii; class dictionary; object decomposeParDict; }\n"
+                <<"numberOfSubdomains "<<processes<<"; method scotch;\n";
+            if(!dict)return Error::make(ErrorCode::IoError,"Cannot write parallel decomposition settings");
+        }
+        const auto notice="Parallel flow: "+std::to_string(processes)+" processes; recovery folder: "+stage.string()+"\n";
+        if(callbacks.onOutput)callbacks.onOutput(OutputStream::StdOut,notice);
+        LogFileSink rootLog(caseDir/"log.vortia");rootLog.write(notice);
+        auto finishLog=[&]() {
+            std::ifstream raw(stage/"log.vortia",std::ios::binary);
+            std::string chunk(65536,'\0');
+            while(raw.read(chunk.data(),chunk.size())||raw.gcount())
+                rootLog.write(std::string_view(chunk.data(),static_cast<std::size_t>(raw.gcount())));
+        };
+        const auto decomposed=execute("decompose flow","decomposePar",{"-latestTime"},stage,callbacks,token);
+        if(!decomposed||!decomposed->process.succeeded()) {finishLog();return decomposed;}
+        // A first parallel run may compile boundary libraries while reading
+        // fields. Preserve that cache for subsequent resumes of this case.
+        if(!fs::exists(caseDir/"dynamicCode")&&fs::is_directory(stage/"dynamicCode")) {
+            const auto pending=caseDir/(".dynamicCode_"+stage.filename().string());
+            fs::copy(stage/"dynamicCode",pending,fs::copy_options::recursive);
+            fs::rename(pending,caseDir/"dynamicCode");
+        }
+        auto solved=execute("parallel flow","mpirun",{"-np",std::to_string(processes),"vortiaCentralFoam","-parallel"},stage,callbacks,token);
+        if(!solved||(!solved->process.succeeded()&&!solved->process.cancelled)) {finishLog();return solved;}
+        // A cancelled solver may have completed a checkpoint. Reconstruction
+        // gets its own uncancelled invocation; failed/partial writes never
+        // replace the last usable root result.
+        const auto reconstructed=execute("reconstruct saved flow","reconstructPar",{"-latestTime"},stage,callbacks,nullptr);
+        finishLog();
+        if(!reconstructed||!reconstructed->process.succeeded())return reconstructed;
+        const auto latest=latestTime(stage);
+        if(latest.first>initial.first) {
+            for(const auto* field:{"p","T","U","rho"})
+                if(!fs::is_regular_file(latest.second/field)||fs::file_size(latest.second/field)==0)
+                    return Error::make(ErrorCode::InvalidData,"Incomplete reconstructed flow checkpoint; recovery files retained",stage.string());
+            const auto destination=caseDir/latest.second.filename();
+            if(fs::exists(destination))return Error::make(ErrorCode::InvalidData,"A result with this iteration already exists; recovery files retained",stage.string());
+            // Publish a complete directory with a single rename on this volume.
+            const auto pending=caseDir/(".checkpoint_"+stage.filename().string());
+            fs::copy(latest.second,pending,fs::copy_options::recursive);
+            fs::rename(pending,destination);
+        }
+        if(fs::is_directory(stage/"postProcessing")) {
+            fs::create_directories(caseDir/"postProcessing");
+            fs::copy(stage/"postProcessing",caseDir/"postProcessing"/("parallel_"+stage.filename().string()),fs::copy_options::recursive);
+        }
+        return solved;
+    } catch(const std::exception& e) {
+        return Error::make(ErrorCode::Internal,std::string("Parallel flow: ")+e.what());
+    }
 }
 
 } // namespace vortia::openfoam
