@@ -32,6 +32,17 @@ TEST(LogParser, ParsesCourantNumber) {
     EXPECT_DOUBLE_EQ(parser.progress().courantMax, 0.585431);
 }
 
+TEST(LogParser, ExecutionAndClockTimesCannotOverwriteSolverTime) {
+    LogParser parser;
+    parser.feed("Time = 19564\nExecutionTime = 693.57 s  ClockTime = 731 s\n");
+    EXPECT_DOUBLE_EQ(parser.progress().time,19564);
+    parser.feed("Courant Numbers: min = 0.001, average = 0.08, max = 0.2\n");
+    EXPECT_DOUBLE_EQ(parser.progress().courantMean,0.08);
+    EXPECT_DOUBLE_EQ(parser.progress().courantMax,0.2);
+    parser.feed("Courant Numbers: min = 0.001, average = 0.08, max = nan\n");
+    EXPECT_TRUE(parser.progress().diverged);
+}
+
 TEST(LogParser, HandlesSplitLinesAcrossChunks) {
     LogParser parser;
     parser.feed("Time = 0.0");

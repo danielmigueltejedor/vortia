@@ -154,6 +154,56 @@ TEST_F(FakeBackendTest, MissingToolYieldsBackendUnavailable) {
     EXPECT_EQ(mesh.error().code, ErrorCode::BackendUnavailable);
 }
 
+TEST_F(FakeBackendTest, NozzleInitializationFailureIsReportedAndResumeKeepsFields) {
+    makeFakeTool("blockMesh", "exit 0\n");
+    makeFakeTool("checkMesh", "exit 0\n");
+    makeFakeTool("setFields", "echo 'initialization failed'\nexit 3\n");
+    const auto caseDir = dir_ / "case";
+    ASSERT_TRUE(CaseWriter::write(caseDir, minimalSetup(), caps_).hasValue());
+    { std::ofstream marker(caseDir / ".vortia-nozzle-case"); marker << "vortia-nozzle-video-2026-v1\n"; }
+    PosixProcessRunner processes;
+    CaseRunner runner(processes, environment_);
+    auto first = runner.runMeshing(caseDir, caps_, {}, nullptr);
+    ASSERT_TRUE(first.hasValue());
+    EXPECT_EQ(first->name, "initialize nozzle");
+    EXPECT_EQ(first->process.exitCode, 3);
+    std::filesystem::create_directory(caseDir / "1e-06");
+    auto resumed = runner.runMeshing(caseDir, caps_, {}, nullptr);
+    ASSERT_TRUE(resumed.hasValue());
+    EXPECT_TRUE(resumed->process.succeeded());
+    EXPECT_NE(resumed->name, "initialize nozzle");
+}
+
+TEST_F(FakeBackendTest, DedicatedNozzleBackendBuildsOnceAndRequiresItsVersionAndMarker) {
+    const auto caseDir=dir_/"case";
+    ASSERT_TRUE(CaseWriter::write(caseDir,minimalSetup(),caps_).hasValue());
+    std::filesystem::create_directory(caseDir/"solver");
+    { std::ofstream source(caseDir/"solver"/"vortiaCentralFoam.C"); source << "fake backend source\n"; }
+    { std::ofstream marker(caseDir/".vortia-nozzle-case"); marker << "vortia-nozzle-video-2026-v2\n"; }
+    makeFakeTool("wmake",R"(
+printf '#!/bin/sh\necho "Time = 50000"\necho "ExecutionTime = 2.6 s ClockTime = 3 s"\n' > "$VORTIA_NOZZLE_OUTPUT"
+/bin/chmod +x "$VORTIA_NOZZLE_OUTPUT"
+)");
+    PosixProcessRunner processes;
+    CaseRunner unsupported(processes,environment_);
+    auto missingVersion=unsupported.runSolver(caseDir,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
+    ASSERT_FALSE(missingVersion.hasValue());
+    EXPECT_EQ(missingVersion.error().code,ErrorCode::BackendUnavailable);
+    environment_.emplace_back("WM_PROJECT_VERSION","v2606");
+    CaseRunner runner(processes,environment_);
+    auto first=runner.runSolver(caseDir,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
+    ASSERT_TRUE(first.hasValue());
+    EXPECT_TRUE(first->process.succeeded());
+    EXPECT_DOUBLE_EQ(first->finalTime,50000);
+    makeFakeTool("wmake","exit 3\n");
+    auto cached=runner.runSolver(caseDir,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
+    ASSERT_TRUE(cached.hasValue());
+    EXPECT_TRUE(cached->process.succeeded());
+    { std::ofstream marker(caseDir/".vortia-nozzle-case"); marker << "vortia-nozzle-video-2026-v1\n"; }
+    auto ordinary=runner.runSolver(caseDir,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
+    EXPECT_FALSE(ordinary.hasValue());
+}
+
 TEST_F(FakeBackendTest, DivergenceIsDetected) {
     makeFakeTool("blockMesh", "exit 0\n");
     makeFakeTool("checkMesh", "exit 0\n");

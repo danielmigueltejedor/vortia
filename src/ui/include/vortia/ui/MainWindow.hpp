@@ -40,6 +40,8 @@ private slots:
     void onOpenExistingCase();
     void onImportStl();
     void onImportFluent();
+    void onPrepareNozzlePractice();
+    void onOpenResults();
     void onNodeActivated(int nodeId);
     void onApplySetup(const CaseSetup& setup);
     void onValidationReport(const QString& text);

@@ -241,6 +241,14 @@ Aplicación de escritorio CFD de código abierto basada en OpenFOAM.
 Versión 0.1.0 (pre-MVP)
 
 Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></message>
+<message><source>Open CFD results…</source><translation>Abrir resultados CFD…</translation></message>
+<message><source>Nozzle practice…</source><translation>Práctica de tobera…</translation></message>
+<message><source>Tutorial</source><translation>Práctica</translation></message>
+<message><source>Existing OpenFOAM case</source><translation>Caso existente de OpenFOAM</translation></message>
+<message><source>This case stores its geometry and physics in its own folder. It is not saved as a cavity project. The nozzle preparation creates a new case whenever its dimensions are changed.</source><translation>Este caso guarda su geometría y física en su propia carpeta. La preparación de tobera crea un caso nuevo cada vez que se cambian sus cotas.</translation></message>
+<message><source>Nozzle case prepared. Review the geometry, then run the simulation. Convergence is not yet established.</source><translation>Caso de tobera preparado. Revisa la geometría y ejecuta la simulación. La convergencia aún no se ha comprobado.</translation></message>
+<message><source>Open CFD results</source><translation>Abrir resultados CFD</translation></message>
+<message><source>VTK multiblock (*.vtm)</source><translation>Multibloque VTK (*.vtm)</translation></message>
 </context>
 <context>
     <name>vortia::PropertiesPanel</name>
@@ -296,6 +304,16 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
     <name>vortia::SketchEditorDialog</name>
+    <message><source>Case geometry: select to inspect; drag empty space to pan.</source><translation>Geometría del caso: selecciona para consultar; arrastra el fondo para desplazar.</translation></message>
+    <message><source>OpenFOAM case geometry: pinch to zoom, pan and inspect dimensions. To change the mesh, prepare a new nozzle case with the desired dimensions.</source><translation>Geometría del caso OpenFOAM: amplía con dos dedos, desplaza y consulta cotas. Para cambiar la malla, prepara un nuevo caso de tobera con las dimensiones que quieras.</translation></message>
+    <message><source>Pinch to zoom; swipe with two fingers to pan. Drag empty space, or hold Space to pan. Esc selects; L draws; F fits the sketch.</source><translation>Pellizca para ampliar; desliza dos dedos para desplazar. Arrastra el fondo o mantén Espacio para mover la vista. Esc selecciona; L dibuja; F encuadra el croquis.</translation></message>
+    <message><source>Select (Esc / V)</source><translation>Seleccionar (Esc / V)</translation></message>
+    <message><source>Draw polyline (L)</source><translation>Dibujar polilínea (L)</translation></message>
+    <message><source>Pan (H / hold Space)</source><translation>Desplazar (H / mantener Espacio)</translation></message>
+    <message><source>Fit sketch (F)</source><translation>Encuadrar croquis (F)</translation></message>
+    <message><source>Select: drag vertices or empty space.</source><translation>Seleccionar: arrastra vértices o el fondo para mover la vista.</translation></message>
+    <message><source>Draw: click to add vertices. Esc returns to selection.</source><translation>Dibujar: haz clic para añadir vértices. Esc vuelve a seleccionar.</translation></message>
+    <message><source>Pan: drag the view. Pinch to zoom.</source><translation>Desplazar: arrastra la vista. Pellizca para ampliar o reducir.</translation></message>
     <message><source>Vortia — Dimensioned 2D Sketch</source><translation>Vortia — Croquis 2D acotado</translation></message>
     <message><source>Click a vertex or segment to select it; measurements are in mm.</source><translation>Haz clic en un vértice o segmento para seleccionarlo; las medidas están en mm.</translation></message>
     <message><source>X coordinate</source><translation>Coordenada X</translation></message>
@@ -411,5 +429,44 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>Close</source><translation>Cerrar</translation></message>
     <message><source>Open</source><translation>Abrir</translation></message>
     <message><source>Apply</source><translation>Aplicar</translation></message>
+</context>
+<context>
+<name>vortia::NozzlePractice</name>
+    <message><source>Choose a parent folder and case name without spaces. OpenFOAM's build tools require this.</source><translation>Elige una carpeta y un nombre de caso sin espacios. Las herramientas de compilación de OpenFOAM lo necesitan.</translation></message>
+<message><source>Nozzle tutorial — geometry and compressible flow</source><translation>Práctica de tobera — geometría y flujo compresible</translation></message>
+<message><source>Prepare the tutorial nozzle, exterior domain and an axisymmetric OpenFOAM case. The displayed fillet radii are retained while solving the final dimensions. The original CAD was not provided. A new case is created for every preparation.</source><translation>Prepara la tobera del tutorial, su dominio exterior y un caso axisimétrico de OpenFOAM. Se conservan los radios visibles al resolver las cotas finales. No se dispone del CAD original. Cada preparación crea un caso nuevo.</translation></message>
+<message><source>Geometry</source><translation>Geometría</translation></message>
+<message><source>Physics and calculation</source><translation>Física y cálculo</translation></message>
+<message><source>Inlet height (mm)</source><translation>Altura de entrada (mm)</translation></message>
+<message><source>Throat height after rounding (mm)</source><translation>Altura de garganta tras redondear (mm)</translation></message>
+<message><source>Nozzle exit height (mm)</source><translation>Altura de salida de la tobera (mm)</translation></message>
+<message><source>Final inlet plateau (mm)</source><translation>Meseta recta final de entrada (mm)</translation></message>
+<message><source>Shoulder fillet radius (mm)</source><translation>Radio de redondeo superior (mm)</translation></message>
+<message><source>Throat fillet radius (mm)</source><translation>Radio de redondeo de garganta (mm)</translation></message>
+<message><source>Straight divergent horizontal length (mm)</source><translation>Longitud horizontal divergente recta (mm)</translation></message>
+<message><source>Nozzle exit X (mm)</source><translation>Posición X de la salida de la tobera (mm)</translation></message>
+<message><source>Exterior length from nozzle exit (mm)</source><translation>Longitud exterior desde la salida (mm)</translation></message>
+<message><source>Exterior height above nozzle exit (mm)</source><translation>Altura exterior sobre la salida (mm)</translation></message>
+<message><source>Operating pressure (Pa)</source><translation>Presión de operación (Pa)</translation></message>
+<message><source>Inlet total gauge pressure (Pa)</source><translation>Presión total manométrica de entrada (Pa)</translation></message>
+<message><source>Exterior gauge pressure (Pa)</source><translation>Presión manométrica exterior (Pa)</translation></message>
+<message><source>Inlet total temperature (K)</source><translation>Temperatura total de entrada (K)</translation></message>
+<message><source>Exterior total temperature (K)</source><translation>Temperatura total exterior (K)</translation></message>
+<message><source>Specific heat Cp (J/kg/K)</source><translation>Calor específico Cp (J/kg/K)</translation></message>
+<message><source>Molecular weight (kg/kmol)</source><translation>Masa molecular (kg/kmol)</translation></message>
+<message><source>Dynamic viscosity (Pa s)</source><translation>Viscosidad dinámica (Pa s)</translation></message>
+<message><source>Thermal conductivity (W/m/K)</source><translation>Conductividad térmica (W/m/K)</translation></message>
+<message><source>Turbulent viscosity ratio</source><translation>Relación de viscosidad turbulenta</translation></message>
+<message><source>Mesh refinement (1 / 2 / 3)</source><translation>Refinamiento de malla (1 / 2 / 3)</translation></message>
+<message><source>Maximum pseudo-iterations</source><translation>Máximo de pseudoiteraciones</translation></message>
+<message><source>Gas: ideal · energy: enabled · turbulence: Spalart–Allmaras. Density-based local time stepping seeks a steady solution. A wedge mesh replaces the tutorial's triangular mesh. Convergence must be checked after calculation.</source><translation>Gas ideal · energía activada · turbulencia Spalart–Allmaras. Los pasos locales de un solver basado en densidad buscan una solución estacionaria. Una malla en cuña sustituye a los triángulos del tutorial. Hay que comprobar la convergencia tras calcular.</translation></message>
+<message><source>Choose a parent folder for the new case</source><translation>Elige la carpeta donde crear el caso nuevo</translation></message>
+<message><source>New nozzle case</source><translation>Nuevo caso de tobera</translation></message>
+<message><source>Case name:</source><translation>Nombre del caso:</translation></message>
+<message><source>Preparation failed</source><translation>No se pudo preparar el caso</translation></message>
+<message><source>Use a case name without path separators.</source><translation>Usa un nombre de caso sin separadores de carpetas.</translation></message>
+<message><source>That case already exists. Choose a new name to preserve it.</source><translation>Ese caso ya existe. Elige otro nombre para conservarlo.</translation></message>
+<message><source>Python 3 is required to prepare this case.</source><translation>Se necesita Python 3 para preparar este caso.</translation></message>
+<message><source>The prepared case could not be moved into its destination.</source><translation>No se pudo trasladar el caso preparado a su destino.</translation></message>
 </context>
 </TS>
