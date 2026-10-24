@@ -13,6 +13,8 @@
 #include "vortia/solver/openfoam/Detector.hpp"
 #include "vortia/ui/ThemeManager.hpp"
 #include "vortia/ui/SketchEditorDialog.hpp"
+#include "vortia/ui/NozzlePractice.hpp"
+#include "vortia/ui/ResultFiles.hpp"
 
 #include <QMenuBar>
 #include <initializer_list>
@@ -55,6 +57,7 @@
 #include <fstream>
 #include <memory>
 #include <sstream>
+#include "vortia/solver/openfoam/MassBalance.hpp"
 
 namespace vortia {
 
@@ -146,6 +149,10 @@ void MainWindow::buildMenusAndToolbar() {
     fileMenu->addSeparator();
     auto* importStl = fileMenu->addAction(tr("Import STL…"), this, &MainWindow::onImportStl);
     auto* importFluent = fileMenu->addAction(tr("Import ANSYS Fluent…"), this, &MainWindow::onImportFluent);
+    auto* openResults = fileMenu->addAction(tr("Open CFD results…"), this, &MainWindow::onOpenResults);
+    auto* nozzlePractice = fileMenu->addAction(tr("Nozzle practice…"), this, &MainWindow::onPrepareNozzlePractice);
+    nozzlePractice->setIcon(QIcon(QStringLiteral(":/vortia/icons/sketch.svg")));
+    openResults->setIcon(QIcon(QStringLiteral(":/vortia/icons/view.svg")));
     fileMenu->addSeparator();
     fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
 
@@ -277,6 +284,7 @@ void MainWindow::buildMenusAndToolbar() {
     addGroup(homePage, tr("Import"), {openFoam, importStl, importFluent});
 
     auto* modelPage = newPage(tr("Model"));
+    addGroup(modelPage, tr("Tutorial"), {nozzlePractice});
     addGroup(modelPage, tr("Geometry & mesh"), {sketchEditor, geometryEditor, meshEditor});
     addGroup(modelPage, tr("Physics"), {materialsEditor, boundaryEditor});
     addGroup(modelPage, tr("Solver setup"), {solverEditor});
@@ -298,12 +306,13 @@ void MainWindow::buildMenusAndToolbar() {
     fieldCombo_->setMinimumWidth(125);
     fieldCombo_->addItems({QStringLiteral("p"), QStringLiteral("U"), QStringLiteral("|U|"),
                            QStringLiteral("Ux"), QStringLiteral("Uy"), QStringLiteral("Uz"),
-                           QStringLiteral("T")});
+                           QStringLiteral("T"), QStringLiteral("Mach"), QStringLiteral("nut")});
     fieldCombo_->setToolTip(tr("Choose a field from the current CFD result"));
     fv->addWidget(fieldCombo_);
     connect(fieldCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onFieldChanged);
     resultsPage->addWidget(fields);
+    addGroup(resultsPage, tr("Results"), {openResults});
     addGroup(resultsPage, tr("Camera"), {viewXY, viewXZ, viewYZ, viewIso, viewReset});
 
     auto* viewPage = newPage(tr("View"));
@@ -330,6 +339,13 @@ void MainWindow::buildDocks() {
     projectTabs_->setExpanding(false);
     projectTabs_->setUsesScrollButtons(true);
     centralLayout->addWidget(projectTabs_);
+    nozzleNotice_ = new QLabel(central);
+    nozzleNotice_->setObjectName(QStringLiteral("vortia-nozzle-validation-notice"));
+    nozzleNotice_->setWordWrap(true);
+    nozzleNotice_->setMargin(8);
+    nozzleNotice_->setStyleSheet(QStringLiteral("QLabel { background: #584719; color: #fff0bd; }"));
+    nozzleNotice_->hide();
+    centralLayout->addWidget(nozzleNotice_);
     workspaceTabs_ = new QTabWidget(central);
     workspaceTabs_->setDocumentMode(true);
     workspaceTabs_->setObjectName(QStringLiteral("vortia-editor-tabs"));
@@ -423,7 +439,7 @@ void MainWindow::saveSettings() {
 }
 
 void MainWindow::updateViewport() {
-    viewport_->showBoxDomain(&setup_.domain);
+    viewport_->showBoxDomain(useExistingCase_ ? nullptr : &setup_.domain);
     viewport_->setDarkTheme(ThemeManager::fromName(
         settings_->value(QStringLiteral("theme"), QStringLiteral("dark")).toString()) ==
         ThemeManager::Theme::Dark);
@@ -455,9 +471,9 @@ void MainWindow::refreshProjectTabTitle() {
         QString::fromStdString(projectRoot_.filename().string());
     tab.name = name;
     projectTabs_->setTabText(activeProjectTab_, name + (dirty_ ? QStringLiteral(" *") : QString()));
-    projectTabs_->setTabToolTip(activeProjectTab_,
-        projectRoot_.empty() ? tr("Unsaved project")
-                             : QString::fromStdString(projectRoot_.string()));
+    const auto& storedPath = useExistingCase_ ? existingCaseDir_ : projectRoot_;
+    projectTabs_->setTabToolTip(activeProjectTab_, storedPath.empty() ? tr("Unsaved project")
+                             : QString::fromStdString(storedPath.string()));
 }
 
 void MainWindow::addProjectTab(const QString& name, CaseSetup setup,
@@ -502,7 +518,12 @@ void MainWindow::activateProjectTab(int index) {
     setup_ = tab.setup;
     dirty_ = tab.modified;
     lastVtmPath_ = tab.resultVtm;
+    updateNozzleNotice();
     properties_->setSetup(setup_);
+    // An external case owns its physics dictionaries. Never show the cavity
+    // editor as though it configured that case, or edit an uncoupled sketch.
+    properties_->setEnabled(!useExistingCase_);
+    sketchEditor_->setReadOnly(useExistingCase_);
     if (sketchEditor_) {
         sketchEditor_->setNozzleDimensions(tab.nozzleDimensions);
         sketchEditor_->setSketch(tab.sketch);
@@ -581,13 +602,26 @@ bool MainWindow::openProjectDirectory(const QString& dir) {
             return true;
         }
     }
-    auto project = Project::open(dir.toStdString());
+    // Native folder pickers may append a slash; filesystem::path::filename()
+    // would then be empty and erase the project tab label on activation.
+    const QString normalizedDir = canonical.isEmpty() ? dir : canonical;
+    auto project = Project::open(normalizedDir.toStdString());
     if (!project) {
         // Not a Vortia project — maybe it's an OpenFOAM case directory.
         if (!std::filesystem::exists(std::filesystem::path(dir.toStdString()) / std::string(Project::kManifestFileName))
             && std::filesystem::exists(dir.toStdString() + "/system/controlDict")) {
-            addProjectTab(QFileInfo(dir).fileName(), makeCavity(),
-                          {}, std::filesystem::path(dir.toStdString()));
+            SketchEditorDialog staged;
+            const QString sketchPath=QDir(normalizedDir).filePath(QStringLiteral("geometry/working-sketch.vsketch.json"));
+            if (QFileInfo::exists(sketchPath) && !staged.readSketchFile(sketchPath)) {
+                QMessageBox::warning(this,tr("Sketch load failed"),tr("This project contains an invalid 2D sketch file."));
+                return false;
+            }
+            addProjectTab(QFileInfo(normalizedDir).fileName(), makeCavity(),
+                          {}, std::filesystem::path(normalizedDir.toStdString()));
+            sketchEditor_->setSketch(staged.sketch());
+            storeCurrentTab();
+            const auto result=latestVtmFile(QDir(normalizedDir).filePath(QStringLiteral("VTK")));
+            if (!result.isEmpty()) onResultsReady(result);
             setProjectState(tr("Opened existing OpenFOAM case: %1").arg(dir));
             console_->appendSolverOutput(tr("Opened existing OpenFOAM case: %1\n").arg(dir));
             return true;
@@ -631,6 +665,12 @@ void MainWindow::onSaveProject() {
 }
 
 bool MainWindow::saveProject() {
+    if (useExistingCase_) {
+        QMessageBox::information(this,tr("Existing OpenFOAM case"),
+            tr("This case stores its geometry and physics in its own folder. It is not saved as a cavity project. "
+               "The nozzle preparation creates a new case whenever its dimensions are changed."));
+        return false;
+    }
     if (projectRoot_.empty()) {
         const QString dir = QFileDialog::getExistingDirectory(this, tr("Choose project location"));
         if (dir.isEmpty())
@@ -818,7 +858,7 @@ void MainWindow::onOpenExistingCase() {
 }
 
 void MainWindow::onNodeActivated(int nodeId) {
-    properties_->showNode(nodeId);
+    if (!useExistingCase_) properties_->showNode(nodeId);
     if (workspaceTabs_) {
         workspaceTabs_->setCurrentWidget(
             nodeId == ProjectExplorerPanel::GeometryNode ? static_cast<QWidget*>(sketchEditor_)
@@ -827,6 +867,7 @@ void MainWindow::onNodeActivated(int nodeId) {
 }
 
 void MainWindow::onApplySetup(const CaseSetup& setup) {
+    if (useExistingCase_) return;
     setup_ = setup;
     dirty_ = true;
     storeCurrentTab();
@@ -948,8 +989,30 @@ void MainWindow::onCancel() {
     console_->appendSolverOutput(tr("Cancellation requested…\n"));
 }
 
+void MainWindow::updateNozzleNotice() {
+    const auto caseDir = useExistingCase_ ? existingCaseDir_ :
+        (projectRoot_.empty() ? std::filesystem::path{} : projectRoot_ / "case");
+    const bool nozzle = !caseDir.empty() && openfoam::isNozzlePracticeCase(caseDir);
+    nozzleNotice_->setVisible(nozzle);
+    if (!nozzle) return;
+    QString notice = tr("Experimental nozzle: results remain provisional. Convergence and mesh dependence have not been established.");
+    const auto balance = openfoam::nozzleMassBalance(caseDir);
+    if (balance.available) {
+        notice += tr(" Mass imbalance, iterations %1-%2: mean %3%, maximum %4% of the principal inlet flow (%5 samples).")
+            .arg(balance.firstIteration, 0, 'g', 9)
+            .arg(balance.lastIteration, 0, 'g', 9)
+            .arg(balance.meanAbsolutePercent, 0, 'g', 4)
+            .arg(balance.maximumAbsolutePercent, 0, 'g', 4)
+            .arg(balance.samples);
+    } else {
+        notice += tr(" No complete aligned mass-balance window is available yet.");
+    }
+    nozzleNotice_->setText(notice);
+}
+
 void MainWindow::onJobFinished(bool success, const QString& summary) {
     setJobUiRunning(false);
+    updateNozzleNotice();
     setProjectState(success ? tr("Run finished: %1").arg(summary)
                            : tr("Run failed: %1").arg(summary));
     console_->appendSolverOutput((success ? tr("SUCCESS: ") : tr("FAILED: ")) + summary + "\n");
@@ -975,13 +1038,30 @@ void MainWindow::onResultsReady(const QString& vtmPath) {
         lastVtmPath_ = vtmPath;
         storeCurrentTab();
         viewport_->loadVtmFile(vtmPath.toStdString(), fieldCombo_->currentText().toStdString());
+        workspaceTabs_->setCurrentWidget(viewport_);
         console_->appendSolverOutput(tr("Loaded results: %1\n").arg(vtmPath));
         setProjectState(tr("Results loaded."));
+        updateNozzleNotice();
     } catch (const std::exception& e) {
         console_->appendSolverOutput(tr("Failed to load results: %1\n").arg(QString::fromStdString(e.what())));
     } catch (...) {
         console_->appendSolverOutput(tr("Failed to load results: unknown error\n"));
     }
+}
+
+void MainWindow::onPrepareNozzlePractice() {
+    if (projectSwitchLocked()) return;
+    const QString path=createNozzlePractice(this);
+    if (!path.isEmpty() && openProjectDirectory(path)) {
+        workspaceTabs_->setCurrentWidget(sketchEditor_);
+        setProjectState(tr("Nozzle case prepared. Review the geometry, then run the simulation. Convergence is not yet established."));
+    }
+}
+
+void MainWindow::onOpenResults() {
+    if (projectSwitchLocked()) return;
+    const QString path=QFileDialog::getOpenFileName(this,tr("Open CFD results"),QString(),tr("VTK multiblock (*.vtm)"));
+    if (!path.isEmpty()) onResultsReady(path);
 }
 
 void MainWindow::onFieldChanged(int /*index*/) {

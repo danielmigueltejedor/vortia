@@ -2,6 +2,22 @@
   <qresource prefix="/vortia">
     <file alias="app-icon.png">icons/vortia.png</file>
   </qresource>
+  <qresource prefix="/vortia/nozzle-video">
+    <file alias="prepare.py">../examples/nozzle-video-2026/prepare.py</file>
+    <file alias="reference.json">../examples/nozzle-video-2026/reference.json</file>
+    <file alias="solver/vortiaCentralFoam.C">../examples/nozzle-video-2026/solver/vortiaCentralFoam.C</file>
+    <file alias="solver/centralCourantNo.H">../examples/nozzle-video-2026/solver/centralCourantNo.H</file>
+    <file alias="solver/createFieldRefs.H">../examples/nozzle-video-2026/solver/createFieldRefs.H</file>
+    <file alias="solver/createFields.H">../examples/nozzle-video-2026/solver/createFields.H</file>
+    <file alias="solver/directionInterpolate.H">../examples/nozzle-video-2026/solver/directionInterpolate.H</file>
+    <file alias="solver/readFluxScheme.H">../examples/nozzle-video-2026/solver/readFluxScheme.H</file>
+    <file alias="solver/setRDeltaT.H">../examples/nozzle-video-2026/solver/setRDeltaT.H</file>
+    <file alias="solver/fixedRhoFvPatchScalarField.H">../examples/nozzle-video-2026/solver/fixedRhoFvPatchScalarField.H</file>
+    <file alias="solver/Make/files">../examples/nozzle-video-2026/solver/Make/files</file>
+    <file alias="solver/Make/options">../examples/nozzle-video-2026/solver/Make/options</file>
+    <file alias="solver/README.md">../examples/nozzle-video-2026/solver/README.md</file>
+    <file alias="solver/LICENSE.md">../examples/nozzle-video-2026/solver/LICENSE.md</file>
+  </qresource>
   <qresource prefix="/vortia/icons">
     <file alias="new.svg">icons/ui/new.svg</file>
     <file alias="open.svg">icons/ui/open.svg</file>

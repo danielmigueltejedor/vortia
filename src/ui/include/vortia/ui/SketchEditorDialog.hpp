@@ -10,7 +10,6 @@ class QDoubleSpinBox;
 class QLabel;
 class QTableWidget;
 class QWidget;
-class QPushButton;
 
 namespace vortia {
 
@@ -23,6 +22,8 @@ class SketchEditorDialog final : public QDialog {
 public:
     explicit SketchEditorDialog(QWidget* parent = nullptr);
     void setSketch(const Sketch2D& shape);
+    void setReadOnly(bool readOnly);
+    [[nodiscard]] bool isReadOnly() const noexcept { return readOnly_; }
     [[nodiscard]] const Sketch2D& sketch() const noexcept { return sketch_; }
     [[nodiscard]] const NozzleDimensions& nozzleDimensions() const noexcept { return nozzleDims_; }
     void setNozzleDimensions(NozzleDimensions dimensions) { nozzleDims_ = dimensions; }
@@ -44,12 +45,13 @@ private:
     void movePoint();
     void split();
     void changeLength();
+    void fillet();
+    void changeRadius();
     void save();
     void load();
     Sketch2D sketch_;
     NozzleDimensions nozzleDims_;
     SketchCanvas2D* canvas_{nullptr};
-    QPushButton* drawButton_{nullptr};
     QTableWidget* table_{nullptr};
     QLabel* status_{nullptr};
     QLabel* selected_{nullptr};
@@ -57,6 +59,7 @@ private:
     QDoubleSpinBox* y_{nullptr};
     int selectedSegment_{-1};
     int selectedPoint_{-1};
+    bool readOnly_{false};
 };
 
 } // namespace vortia

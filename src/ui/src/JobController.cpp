@@ -2,6 +2,7 @@
 
 #include "vortia/core/Logger.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
+#include "vortia/ui/ResultFiles.hpp"
 
 #include <filesystem>
 
@@ -48,14 +49,19 @@ void JobController::runJob(JobSpec spec) {
     bool success = true;
     QString summary;
 
-    auto meshStep = runner.runMeshing(spec.caseDir, spec.caps, {}, cancelToken_.get());
+    openfoam::RunCallbacks meshCallbacks;
+    meshCallbacks.onOutput = [this](OutputStream, std::string_view chunk) {
+        const QString text=QString::fromUtf8(chunk.data(),static_cast<qsizetype>(chunk.size()));
+        QMetaObject::invokeMethod(this,[this,text]() { emit outputReceived(text); },Qt::QueuedConnection);
+    };
+    auto meshStep = runner.runMeshing(spec.caseDir, spec.caps, meshCallbacks, cancelToken_.get());
     if (!meshStep) {
         success = false;
         summary = QString::fromStdString(meshStep.error().describe());
     } else {
         if (!meshStep->process.succeeded()) {
             success = false;
-            summary = QStringLiteral("blockMesh failed (exit %1)").arg(meshStep->process.exitCode);
+            summary = QStringLiteral("%1 failed (exit %2)").arg(QString::fromStdString(meshStep->name)).arg(meshStep->process.exitCode);
         } else {
             openfoam::SolverProgress last;
             openfoam::RunCallbacks callbacks;
@@ -104,29 +110,11 @@ void JobController::runJob(JobSpec spec) {
                     auto vtkResult = processes.run(vtkReq, nullptr, nullptr);
                     if (vtkResult && vtkResult->succeeded()) {
                         // Select the ROOT .vtm (directly in VTK/), not nested
-                        // boundary patches. Pick the one with the highest
-                        // trailing time token.
-                        std::filesystem::path latest;
-                        std::filesystem::path vtkDir = spec.caseDir / "VTK";
-                        std::error_code ec;
-                        if (std::filesystem::is_directory(vtkDir, ec)) {
-                            std::filesystem::directory_iterator it(vtkDir, ec);
-                            std::filesystem::directory_iterator end;
-                            while (it != end) {
-                                std::error_code ec2;
-                                auto entry = *it;
-                                ++it;
-                                if (!entry.is_regular_file(ec2))
-                                    continue;
-                                if (entry.path().extension() != ".vtm")
-                                    continue;
-                                if (latest.empty() || entry.path().filename() > latest.filename())
-                                    latest = entry.path();
-                            }
-                        }
-                        if (!latest.empty()) {
+                        // boundary patches. Read actual times from the series metadata.
+                        const auto latest = latestVtmFile(QString::fromStdString((spec.caseDir/"VTK").string()));
+                        if (!latest.isEmpty()) {
                             QMetaObject::invokeMethod(this, [this, latest]() {
-                                emit resultsReady(QString::fromStdString(latest.string()));
+                                emit resultsReady(latest);
                             }, Qt::QueuedConnection);
                         } else {
                             QMetaObject::invokeMethod(this, [this]() {

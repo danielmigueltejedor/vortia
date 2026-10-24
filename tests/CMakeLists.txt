@@ -17,6 +17,7 @@ add_executable(test_geometry
     unit/test_stl_reader.cpp
     unit/test_box_domain.cpp
     unit/test_sketch_2d.cpp
+    unit/test_sketch_arcs.cpp
     unit/test_sketch_templates.cpp)
 target_link_libraries(test_geometry PRIVATE vortia::geometry GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_geometry)
@@ -38,6 +39,7 @@ add_executable(test_solver
     unit/test_detector.cpp
     unit/test_case_writer.cpp
     unit/test_log_parser.cpp)
+target_sources(test_solver PRIVATE unit/test_mass_balance.cpp)
 target_link_libraries(test_solver PRIVATE vortia::solver GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_solver)
 
@@ -73,4 +75,11 @@ if(TARGET vortia)
     add_test(NAME vortia_workspace COMMAND test_workspace)
     set_tests_properties(vortia_workspace PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+endif()
+
+# The tutorial preparer uses only the Python standard library.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME nozzle_video_reference
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/nozzle-video-2026/test_prepare.py)
 endif()
