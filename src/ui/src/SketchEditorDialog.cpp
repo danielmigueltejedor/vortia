@@ -1,6 +1,7 @@
 #include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/geometry/SketchTemplates.hpp"
 #include "vortia/mesh/PlanarNozzleBlockMesh.hpp"
+#include "vortia/mesh/AxisymmetricNozzleBlockMesh.hpp"
 
 #include <QBrush>
 #include <QDialogButtonBox>
@@ -349,13 +350,16 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     auto* circle = new QPushButton(tr("Circle…"), sidebar);
     auto* nozzle = new QPushButton(tr("Parametric nozzle…"), sidebar);
     auto* exportMeshButton = new QPushButton(tr("Export planar OpenFOAM mesh…"), sidebar);
+    auto* exportWedgeButton = new QPushButton(tr("Export axisymmetric wedge mesh…"), sidebar);
+    exportWedgeButton->setToolTip(tr("Export a collapsed-axis 5-degree wedge blockMeshDict (mesh only)."));
     exportMeshButton->setToolTip(tr("Export a 2D planar blockMeshDict (not an axisymmetric wedge or CFD case)."));
     auto* add = new QPushButton(tr("Add vertex"), sidebar);
     auto* move = new QPushButton(tr("Move selected vertex"), sidebar);
     auto* splitButton = new QPushButton(tr("Split selected segment"), sidebar);
     auto* dimension = new QPushButton(tr("Set exact segment length…"), sidebar);
     auto* close = new QPushButton(tr("Close / Open profile"), sidebar);
-    for (auto* b : {draw, rectangle, circle, nozzle, exportMeshButton, add, move,
+    for (auto* b : {draw, rectangle, circle, nozzle, exportMeshButton,
+                    exportWedgeButton, add, move,
                     splitButton, dimension, close}) tools->addWidget(b);
     auto* arcActions = new QHBoxLayout;
     auto* round = new QPushButton(tr("Round vertex…"), sidebar);
@@ -428,6 +432,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
         setShape(*shape);
     });
     connect(exportMeshButton, &QPushButton::clicked, this, &SketchEditorDialog::exportNozzleMesh);
+    connect(exportWedgeButton, &QPushButton::clicked, this, &SketchEditorDialog::exportWedgeMesh);
     connect(add, &QPushButton::clicked, this, [this]() { addPoint(); });
     connect(move, &QPushButton::clicked, this, [this]() { movePoint(); });
     connect(splitButton, &QPushButton::clicked, this, [this]() { this->split(); });
@@ -732,6 +737,59 @@ bool SketchEditorDialog::readSketchFile(const QString& path) {
     nozzleDims_ = nextDimensions;
     setSketch(next);
     return true;
+}
+
+void SketchEditorDialog::exportWedgeMesh() {
+    // Never export from stale dimensions after users hand-edit the sketch.
+    const auto reference = makeNozzleProfile(nozzleDims_);
+    if (!reference || !sketch_.closed() || sketch_.hasArcs() ||
+        reference->points().size() != sketch_.points().size()) {
+        QMessageBox::warning(this, tr("Wedge mesh"),
+            tr("A wedge mesh currently requires an unmodified parametric nozzle."));
+        return;
+    }
+    for(std::size_t i=0;i<reference->points().size();++i) {
+        const auto& a=reference->points()[i];
+        const auto& b=sketch_.points()[i];
+        if(std::hypot(a.xMm-b.xMm,a.yMm-b.yMm)>1e-6) {
+            QMessageBox::warning(this, tr("Wedge mesh"),
+                tr("Recreate the parametric nozzle before exporting its wedge mesh."));
+            return;
+        }
+    }
+    const auto values=dimensionDialog(this,tr("Axisymmetric mesh options"),
+        {{tr("Converging segments"),18.0},
+         {tr("Diverging segments"),30.0},
+         {tr("Cells per segment"),3.0},
+         {tr("Radial cells"),40.0},
+         {tr("Radial grading"),2.0},
+         {tr("Wedge angle (degrees)"),5.0}});
+    if(!values) return;
+    const AxisymmetricNozzleMeshOptions opts{
+        static_cast<int>((*values)[0]),static_cast<int>((*values)[1]),
+        static_cast<int>((*values)[2]),static_cast<int>((*values)[3]),
+        (*values)[4],(*values)[5]};
+    const auto dict=AxisymmetricNozzleBlockMesh::generate(nozzleDims_,opts);
+    if(!dict) {
+        QMessageBox::warning(this,tr("Wedge mesh"),
+                             QString::fromStdString(dict.error().describe()));
+        return;
+    }
+    const QString path=QFileDialog::getSaveFileName(
+        this,tr("Export wedge blockMeshDict"),QStringLiteral("blockMeshDict"),
+        tr("OpenFOAM dictionary (blockMeshDict)"));
+    if(path.isEmpty()) return;
+    QSaveFile file(path);
+    if(!file.open(QIODevice::WriteOnly) ||
+       file.write(QByteArray::fromStdString(dict.value()))<0 ||
+       !file.commit()) {
+        QMessageBox::warning(this,tr("Mesh export failed"),tr("Could not write blockMeshDict."));
+        return;
+    }
+    QMessageBox::information(this,tr("Wedge mesh exported"),
+        tr("The axisymmetric mesh dictionary is exported. Run blockMesh and checkMesh "
+           "in an appropriate OpenFOAM case before using it. This is NOT a "
+           "complete compressible nozzle simulation."));
 }
 
 void SketchEditorDialog::exportNozzleMesh() {

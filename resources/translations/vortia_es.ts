@@ -371,6 +371,18 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>Mesh export failed</source><translation>Error al exportar la malla</translation></message>
     <message><source>Could not write blockMeshDict.</source><translation>No se pudo escribir blockMeshDict.</translation></message>
     <message><source>Planar mesh exported</source><translation>Malla plana exportada</translation></message>
+    <message><source>Export axisymmetric wedge mesh…</source><translation>Exportar malla axisimétrica de sector…</translation></message>
+    <message><source>Export a collapsed-axis 5-degree wedge blockMeshDict (mesh only).</source><translation>Exporta una malla blockMeshDict de sector de 5 grados con eje colapsado (solo malla).</translation></message>
+    <message><source>Wedge mesh</source><translation>Malla axisimétrica</translation></message>
+    <message><source>A wedge mesh currently requires an unmodified parametric nozzle.</source><translation>La malla de sector requiere una tobera paramétrica sin modificaciones.</translation></message>
+    <message><source>Recreate the parametric nozzle before exporting its wedge mesh.</source><translation>Vuelve a crear la tobera paramétrica antes de exportar la malla axisimétrica.</translation></message>
+    <message><source>Axisymmetric mesh options</source><translation>Opciones de malla axisimétrica</translation></message>
+    <message><source>Converging segments</source><translation>Segmentos convergentes</translation></message>
+    <message><source>Diverging segments</source><translation>Segmentos divergentes</translation></message>
+    <message><source>Cells per segment</source><translation>Celdas por segmento</translation></message>
+    <message><source>Wedge angle (degrees)</source><translation>Ángulo del sector (grados)</translation></message>
+    <message><source>Export wedge blockMeshDict</source><translation>Exportar blockMeshDict axisimétrico</translation></message>
+    <message><source>Wedge mesh exported</source><translation>Malla axisimétrica exportada</translation></message>
     <message><source>Precise 2D sketch in millimetres. Select a segment to split it or enter an exact length. This sketch is not yet a CFD-ready mesh.</source><translation>Croquis 2D preciso en milímetros. Selecciona un segmento para dividirlo o introducir una longitud exacta. Este croquis todavía no es una malla lista para CFD.</translation></message>
     <message><source>Click the canvas to add points on a 1 mm grid. Turn off Draw to drag vertices.</source><translation>Haz clic en el lienzo para añadir puntos sobre una cuadrícula de 1 mm. Desactiva Dibujar para arrastrar vértices.</translation></message>
     <message><source>Could not append the point. Open profiles and distinct consecutive points are required.</source><translation>No se pudo añadir el punto. El perfil debe estar abierto y los puntos consecutivos deben ser distintos.</translation></message>

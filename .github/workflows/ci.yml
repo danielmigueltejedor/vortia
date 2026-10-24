@@ -39,6 +39,85 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  openfoam-nozzle-mesh:
+    # Geometry validation in a real OpenFOAM runtime, beyond string unit tests.
+    # Ubuntu's distribution package is used for compatibility smoke testing.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies and OpenFOAM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ libgtest-dev nlohmann-json3-dev libhdf5-dev openfoam
+      - name: Build mesh generator smoke tool
+        run: |
+          cmake -S . -B build -G Ninja -DVORTIA_BUILD_UI=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target nozzle_mesh_export_smoke
+      - name: Generate and validate real OpenFOAM wedge mesh
+        shell: bash
+        run: |
+          set -euo pipefail
+          case_dir="$RUNNER_TEMP/vortia-wedge-smoke"
+          mkdir -p "$case_dir/system" "$case_dir/constant"
+          cat > "$case_dir/system/controlDict" <<'EOF'
+          FoamFile
+          {
+              version 2.0;
+              format ascii;
+              class dictionary;
+              object controlDict;
+          }
+          application blockMesh;
+          startFrom startTime;
+          startTime 0;
+          stopAt endTime;
+          endTime 1;
+          deltaT 1;
+          writeControl timeStep;
+          writeInterval 1;
+          EOF
+          cat > "$case_dir/system/fvSchemes" <<'EOF'
+          FoamFile
+          {
+              version 2.0;
+              format ascii;
+              class dictionary;
+              object fvSchemes;
+          }
+          ddtSchemes { default Euler; }
+          gradSchemes { default Gauss linear; }
+          divSchemes { default none; }
+          laplacianSchemes { default Gauss linear corrected; }
+          interpolationSchemes { default linear; }
+          snGradSchemes { default corrected; }
+          EOF
+          cat > "$case_dir/system/fvSolution" <<'EOF'
+          FoamFile
+          {
+              version 2.0;
+              format ascii;
+              class dictionary;
+              object fvSolution;
+          }
+          solvers {}
+          EOF
+          build/bin/nozzle_mesh_export_smoke "$case_dir/system/blockMeshDict"
+          # Ubuntu openfoam packaging can install to a prefixed directory.
+          if [[ -f /usr/share/openfoam/etc/bashrc ]]; then
+            set +u
+            source /usr/share/openfoam/etc/bashrc
+            set -u
+          elif [[ -f /usr/lib/openfoam/openfoam1912/etc/bashrc ]]; then
+            set +u
+            source /usr/lib/openfoam/openfoam1912/etc/bashrc
+            set -u
+          fi
+          command -v blockMesh || find /usr/lib/openfoam /opt -name blockMesh -type f 2>/dev/null || true
+          command -v blockMesh
+          blockMesh -case "$case_dir" | tee "$RUNNER_TEMP/blockMesh-nozzle.log"
+          checkMesh -case "$case_dir" -allTopology -allGeometry | tee "$RUNNER_TEMP/checkMesh-nozzle.log"
+          grep -q "Mesh OK" "$RUNNER_TEMP/checkMesh-nozzle.log"
+
   macos:
     runs-on: macos-15
     steps:

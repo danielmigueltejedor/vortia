@@ -2,7 +2,8 @@
 
 add_library(vortia_mesh STATIC
     src/BlockMeshDict.cpp
-    src/PlanarNozzleBlockMesh.cpp)
+    src/PlanarNozzleBlockMesh.cpp
+    src/AxisymmetricNozzleBlockMesh.cpp)
 
 add_library(vortia::mesh ALIAS vortia_mesh)
 
