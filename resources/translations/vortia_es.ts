@@ -113,7 +113,7 @@
     <message><source>Opened project: %1</source><translation>Proyecto abierto: %1</translation></message>
     <message><source>Saved project: %1</source><translation>Proyecto guardado: %1</translation></message>
     <message><source>Loaded results: %1\n</source><translation>Resultados cargados: %1\n</translation></message>
-    <message><source>Run finished: %1</source><translation>Simulación terminada: %1</translation></message>
+    <message><source>Run finished: %1</source><translation>Ejecución terminada: %1</translation></message>
     <message><source>Run failed: %1</source><translation>La simulación ha fallado: %1</translation></message>
     <message><source>Cancellation requested…\n</source><translation>Cancelación solicitada…\n</translation></message>
     <message><source>No OpenFOAM installation found.\nSet VORTIA_OPENFOAM_DIR or install OpenFOAM.</source><translation>No se ha encontrado OpenFOAM.\nConfigura VORTIA_OPENFOAM_DIR o instala OpenFOAM.</translation></message>
@@ -249,7 +249,112 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 <message><source>Nozzle case prepared. Review the geometry, then run the simulation. Convergence is not yet established.</source><translation>Caso de tobera preparado. Revisa la geometría y ejecuta la simulación. La convergencia aún no se ha comprobado.</translation></message>
 <message><source>Open CFD results</source><translation>Abrir resultados CFD</translation></message>
 <message><source>VTK multiblock (*.vtm)</source><translation>Multibloque VTK (*.vtm)</translation></message>
-</context>
+<message>
+            <source>Flow configuration…</source>
+            <translation>Configuración del flujo…</translation>
+        </message>
+
+<message>
+            <source>Generate mesh from sketch</source>
+            <translation>Generar malla desde croquis</translation>
+        </message>
+
+<message>
+            <source>Flow</source>
+            <translation>Flujo</translation>
+        </message>
+
+<message>
+            <source>New project: draw a closed fluid domain, then configure its mesh and flow.</source>
+            <translation>Proyecto nuevo: dibuja un dominio fluido cerrado y configura su malla y flujo.</translation>
+        </message>
+
+<message>
+            <source>Imported case</source>
+            <translation>Caso importado</translation>
+        </message>
+
+<message>
+            <source>Open the editable source project to change geometry and flow settings. Existing imported case files are preserved.</source>
+            <translation>Abre el proyecto editable de origen para modificar la geometría y el flujo. Se conservan los archivos del caso importado.</translation>
+        </message>
+
+<message>
+            <source>Backend unavailable</source>
+            <translation>Motor no disponible</translation>
+        </message>
+
+<message>
+            <source>OpenFOAM v2606 is required for compressible flow.</source>
+            <translation>El flujo compresible requiere OpenFOAM v2606.</translation>
+        </message>
+
+<message>
+            <source>Invalid fluid domain</source>
+            <translation>Dominio fluido no válido</translation>
+        </message>
+
+<message>
+            <source>Close the fluid contour before generating its mesh.</source>
+            <translation>Cierra el contorno fluido antes de generar la malla.</translation>
+        </message>
+
+<message>
+            <source>New mesh revision: %1
+</source>
+            <translation>Nueva revisión de malla: %1
+</translation>
+        </message>
+
+<message>
+            <source>Fluid domain required</source>
+            <translation>Falta el dominio fluido</translation>
+        </message>
+
+<message>
+            <source>Draw a closed fluid contour or open an existing configured project before calculating.</source>
+            <translation>Dibuja un contorno fluido cerrado o abre un proyecto configurado antes de calcular.</translation>
+        </message>
+
+<message>
+            <source>The saved flow configuration is invalid.</source>
+            <translation>La configuración de flujo guardada no es válida.</translation>
+        </message>
+
+<message>
+            <source>The flow configuration could not be saved.</source>
+            <translation>No se ha podido guardar la configuración del flujo.</translation>
+        </message>
+
+<message>
+            <source>Experimental compressible flow: convergence, mass balance and mesh dependence must be checked. Geometry and settings remain editable in this project; regenerating the mesh creates a new calculation revision.</source>
+            <translation>Flujo compresible experimental: comprueba la convergencia, el balance de masa y la dependencia de malla. La geometría y los ajustes siguen siendo editables en este proyecto; regenerar la malla crea una nueva revisión de cálculo.</translation>
+        </message>
+
+<message>
+            <source>Line profile…</source>
+            <translation>Perfil sobre una línea…</translation>
+        </message>
+
+<message>
+            <source>Show cell edges</source>
+            <translation>Mostrar aristas de celdas</translation>
+        </message>
+
+<message>
+            <source>Inspect</source>
+            <translation>Inspeccionar</translation>
+        </message>
+
+<message>
+            <source>This case stores its geometry and physics in its own folder. It is not saved as a cavity project. Open its editable source project to change geometry and generate a new mesh revision.</source>
+            <translation>Este caso conserva la geometría y la física en su carpeta. No se guarda como proyecto de cavidad. Abre su proyecto editable de origen para cambiar la geometría y generar una nueva revisión de malla.</translation>
+        </message>
+
+    <message><source> Mass imbalance, iterations %1-%2: mean %3%, maximum %4% of the principal inlet flow (%5 samples).</source><translation> Desequilibrio de masa, iteraciones %1–%2: media %3 %, máximo %4 % del caudal principal de entrada (%5 muestras).</translation></message>
+<message><source> Mesh inputs have changed. Generate a new mesh revision before calculating; any loaded results belong to the earlier revision.</source><translation> Han cambiado los datos de la malla. Genera una nueva revisión antes de calcular; los resultados cargados pertenecen a la revisión anterior.</translation></message>
+    <message><source> Generate a mesh from the sketch before calculating.</source><translation> Genera la malla desde el croquis antes de calcular.</translation></message>
+  </context>
 <context>
     <name>vortia::PropertiesPanel</name>
     <message><source>Apply</source><translation>Aplicar</translation></message>
@@ -423,6 +528,7 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>Arc radius</source><translation>Radio del arco</translation></message>
     <message><source>Select a tangent rounding arc first.</source><translation>Selecciona primero un arco de redondeo tangente.</translation></message>
     <message><source>This radius does not fit the tangent lines, or the selected arc has been split. The sketch was not changed.</source><translation>El radio no cabe en las rectas tangentes o el arco seleccionado se ha dividido. El croquis no ha cambiado.</translation></message>
+<message><source>OpenFOAM case geometry: pinch to zoom, pan and inspect dimensions. Open the editable source project to change geometry and generate a new mesh revision.</source><translation>Geometría de un caso OpenFOAM: amplía, desplaza y consulta cotas. Abre el proyecto editable de origen para modificar la geometría y generar una nueva revisión de malla.</translation></message>
 </context>
 <context>
     <name>QObject</name>
@@ -481,4 +587,299 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 <message><source>Python 3 is required to prepare this case.</source><translation>Se necesita Python 3 para preparar este caso.</translation></message>
 <message><source>The prepared case could not be moved into its destination.</source><translation>No se pudo trasladar el caso preparado a su destino.</translation></message>
 </context>
+<context>
+        <name>vortia::FlowSetup</name>
+        <message>
+            <source>Flow configuration</source>
+            <translation>Configuración del flujo</translation>
+        </message>
+        <message>
+            <source>Configure the fluid domain drawn in the sketch. The horizontal X axis is the rotation axis; Y is the radius. Boundary conditions belong to the numbered sketch segments.</source>
+            <translation>Configura el dominio fluido dibujado en el croquis. X es el eje de revolución e Y es el radio. Los contornos corresponden a los segmentos numerados del croquis.</translation>
+        </message>
+        <message>
+            <source>Mesh</source>
+            <translation>Malla</translation>
+        </message>
+        <message>
+            <source>Global cell size (mm)</source>
+            <translation>Tamaño global de celda (mm)</translation>
+        </message>
+        <message>
+            <source>Cell size near walls (mm)</source>
+            <translation>Tamaño de celda cerca de paredes (mm)</translation>
+        </message>
+        <message>
+            <source>Axisymmetric wedge angle (degrees)</source>
+            <translation>Ángulo de cuña axisimétrica (grados)</translation>
+        </message>
+        <message>
+            <source>Generate a new mesh from the actual lines and circular arcs of the sketch. One closed fluid region above Y=0 is supported. Existing mesh and result revisions are retained.</source>
+            <translation>Genera la malla a partir de las líneas y arcos reales del croquis. Se admite una región fluida cerrada sobre Y=0. Se conservan las revisiones anteriores de malla y resultados.</translation>
+        </message>
+        <message>
+            <source>Models and material</source>
+            <translation>Modelos y material</translation>
+        </message>
+        <message>
+            <source>Ideal gas · energy enabled · axisymmetric without swirl · adiabatic no-slip walls</source>
+            <translation>Gas ideal · energía activada · axisimétrico sin giro · paredes adiabáticas sin deslizamiento</translation>
+        </message>
+        <message>
+            <source>Spalart–Allmaras</source>
+            <translation>Spalart–Allmaras</translation>
+        </message>
+        <message>
+            <source>Laminar</source>
+            <translation>Laminar</translation>
+        </message>
+        <message>
+            <source>Turbulence model</source>
+            <translation>Modelo de turbulencia</translation>
+        </message>
+        <message>
+            <source>Molecular weight (kg/kmol)</source>
+            <translation>Masa molecular (kg/kmol)</translation>
+        </message>
+        <message>
+            <source>Specific heat Cp (J/kg/K)</source>
+            <translation>Calor específico Cp (J/kg/K)</translation>
+        </message>
+        <message>
+            <source>Dynamic viscosity (Pa s)</source>
+            <translation>Viscosidad dinámica (Pa s)</translation>
+        </message>
+        <message>
+            <source>Thermal conductivity (W/m/K)</source>
+            <translation>Conductividad térmica (W/m/K)</translation>
+        </message>
+        <message>
+            <source>Pressures are absolute Pa. Inlet pressure and temperature are total values. Outlet pressure is static; its temperature applies to backflow. Axis segments must lie on Y=0. Reuse a region name only when all its settings match.</source>
+            <translation>Las presiones son absolutas (Pa). En la entrada, presión y temperatura son totales. En la salida, la presión es estática y la temperatura se aplica al flujo de retorno. Los segmentos de eje deben estar en Y=0. Reutiliza un nombre de región solo si sus ajustes coinciden.</translation>
+        </message>
+        <message>
+            <source>Segment</source>
+            <translation>Segmento</translation>
+        </message>
+        <message>
+            <source>Region name</source>
+            <translation>Nombre de región</translation>
+        </message>
+        <message>
+            <source>Type</source>
+            <translation>Tipo</translation>
+        </message>
+        <message>
+            <source>Pressure (Pa)</source>
+            <translation>Presión (Pa)</translation>
+        </message>
+        <message>
+            <source>Temperature (K)</source>
+            <translation>Temperatura (K)</translation>
+        </message>
+        <message>
+            <source>Viscosity ratio</source>
+            <translation>Relación de viscosidad</translation>
+        </message>
+        <message>
+            <source>Wall</source>
+            <translation>Pared</translation>
+        </message>
+        <message>
+            <source>Axis</source>
+            <translation>Eje</translation>
+        </message>
+        <message>
+            <source>Total-pressure inlet</source>
+            <translation>Entrada de presión total</translation>
+        </message>
+        <message>
+            <source>Pressure outlet</source>
+            <translation>Salida de presión</translation>
+        </message>
+        <message>
+            <source>Open reservoir</source>
+            <translation>Exterior abierto</translation>
+        </message>
+        <message>
+            <source>Boundary conditions</source>
+            <translation>Condiciones de contorno</translation>
+        </message>
+        <message>
+            <source>Initialization and calculation</source>
+            <translation>Inicialización y cálculo</translation>
+        </message>
+        <message>
+            <source>Initial absolute pressure (Pa)</source>
+            <translation>Presión absoluta inicial (Pa)</translation>
+        </message>
+        <message>
+            <source>Initial temperature (K)</source>
+            <translation>Temperatura inicial (K)</translation>
+        </message>
+        <message>
+            <source>Maximum pseudo-iterations</source>
+            <translation>Máximo de pseudoiteraciones</translation>
+        </message>
+        <message>
+            <source>Save every N iterations</source>
+            <translation>Guardar cada N iteraciones</translation>
+        </message>
+        <message>
+            <source>Acoustic Courant limit</source>
+            <translation>Límite de Courant acústico</translation>
+        </message>
+        <message>
+            <source>Experimental compressible OpenFOAM v2606 backend. Kurganov/Minmod local time stepping seeks a steady flow. The iteration limit does not establish convergence; mass balance, field evolution and mesh dependence must be checked.</source>
+            <translation>Motor compresible experimental OpenFOAM v2606. Kurganov/Minmod con paso local busca un flujo estacionario. El límite de iteraciones no demuestra convergencia: deben comprobarse el balance de masa, la evolución de los campos y la dependencia de malla.</translation>
+        </message>
+        <message>
+            <source>Mesher unavailable</source>
+            <translation>Mallador no disponible</translation>
+        </message>
+        <message>
+            <source>This installation is missing Python 3 or the bundled Gmsh runtime.</source>
+            <translation>Falta Python 3 o el motor Gmsh incluido en esta instalación.</translation>
+        </message>
+        <message>
+            <source>Generating the mesh from the sketch…</source>
+            <translation>Generando la malla desde el croquis…</translation>
+        </message>
+        <message>
+            <source>Cancel</source>
+            <translation>Cancelar</translation>
+        </message>
+        <message>
+            <source>Mesh generation failed</source>
+            <translation>Error al generar la malla</translation>
+        </message>
+    <message><source>Check the contour, boundary assignments and mesh sizes. Details are saved in the project&#x27;s logs folder.</source><translation>Revisa el contorno, las asignaciones de contorno y los tamaños de malla. Los detalles se guardan en la carpeta de registros del proyecto.</translation></message>
+</context>
+
+<context>
+        <name>vortia::JobController</name>
+        <message>
+            <source>Mesh checked and exported; no CFD calculation was run.</source>
+            <translation>Malla comprobada y exportada; todavía no se ha calculado el flujo.</translation>
+        </message>
+        <message>
+            <source>Mesh export failed.</source>
+            <translation>Error al exportar la malla.</translation>
+        </message>
+        <message><source>Finished at iteration %1; check convergence.</source><translation>Cálculo finalizado en la iteración %1; comprueba la convergencia.</translation></message>
+        <message><source>Finished at t=%1</source><translation>Cálculo finalizado en t=%1</translation></message>
+    </context>
+
+<context>
+        <name>vortia::LineProfile</name>
+        <message>
+            <source>Sample a line</source>
+            <translation>Muestrear una línea</translation>
+        </message>
+        <message>
+            <source>Enter two points in metres. Values outside the fluid mesh remain invalid and are not drawn as zero.</source>
+            <translation>Introduce dos puntos en metros. Los puntos fuera de la malla se marcan como no válidos y no se dibujan como ceros.</translation>
+        </message>
+        <message>
+            <source>Start X (m)</source>
+            <translation>X inicial (m)</translation>
+        </message>
+        <message>
+            <source>Start Y (m)</source>
+            <translation>Y inicial (m)</translation>
+        </message>
+        <message>
+            <source>Start Z (m)</source>
+            <translation>Z inicial (m)</translation>
+        </message>
+        <message>
+            <source>End X (m)</source>
+            <translation>X final (m)</translation>
+        </message>
+        <message>
+            <source>End Y (m)</source>
+            <translation>Y final (m)</translation>
+        </message>
+        <message>
+            <source>End Z (m)</source>
+            <translation>Z final (m)</translation>
+        </message>
+        <message>
+            <source>Field</source>
+            <translation>Campo</translation>
+        </message>
+        <message>
+            <source>Sampling points</source>
+            <translation>Puntos de muestreo</translation>
+        </message>
+        <message>
+            <source>Coordinate</source>
+            <translation>Coordenada</translation>
+        </message>
+        <message>
+            <source>Distance</source>
+            <translation>Distancia</translation>
+        </message>
+        <message>
+            <source>Distance (m)</source>
+            <translation>Distancia (m)</translation>
+        </message>
+        <message>
+            <source>Place the coordinate on the vertical axis</source>
+            <translation>Colocar la coordenada en el eje vertical</translation>
+        </message>
+        <message>
+            <source>Line profile</source>
+            <translation>Perfil sobre una línea</translation>
+        </message>
+        <message>
+            <source>%1 of %2 points are valid. This interpolated profile does not establish CFD convergence.</source>
+            <translation>%1 de %2 puntos son válidos. Este perfil interpolado no demuestra la convergencia CFD.</translation>
+        </message>
+        <message>
+            <source>Export CSV…</source>
+            <translation>Exportar CSV…</translation>
+        </message>
+        <message>
+            <source>Save graph…</source>
+            <translation>Guardar gráfica…</translation>
+        </message>
+        <message>
+            <source>Close</source>
+            <translation>Cerrar</translation>
+        </message>
+        <message>
+            <source>Export profile</source>
+            <translation>Exportar perfil</translation>
+        </message>
+        <message>
+            <source>Export failed</source>
+            <translation>Error al exportar</translation>
+        </message>
+        <message>
+            <source>Save graph</source>
+            <translation>Guardar gráfica</translation>
+        </message>
+        <message>
+            <source>Profile unavailable</source>
+            <translation>Perfil no disponible</translation>
+        </message>
+        <message>
+            <source>No sampling points lie inside the loaded mesh.</source>
+            <translation>Ningún punto de muestreo está dentro de la malla cargada.</translation>
+        </message>
+        <message>
+            <source>No field data is loaded</source>
+            <translation>No hay datos de campo cargados</translation>
+        </message>
+        <message>
+            <source>Invalid sampling line</source>
+            <translation>La línea de muestreo no es válida</translation>
+        </message>
+        <message>
+            <source>The loaded result does not contain this field</source>
+            <translation>El resultado cargado no contiene este campo</translation>
+        </message>
+    </context>
+
 </TS>

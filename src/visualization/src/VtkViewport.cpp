@@ -363,6 +363,7 @@ void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
         mapper->ScalarVisibilityOff();
         geometryActor_ = vtkSmartPointer<vtkActor>::New();
         geometryActor_->SetMapper(mapper);
+    geometryActor_->GetProperty()->SetEdgeVisibility(edgesVisible_);
         geometryActor_->GetProperty()->SetColor(0.62, 0.78, 0.9);
         renderer_->AddActor(geometryActor_);
     }
@@ -567,6 +568,7 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
     }
     geometryActor_ = vtkSmartPointer<vtkActor>::New();
     geometryActor_->SetMapper(mapper);
+    geometryActor_->GetProperty()->SetEdgeVisibility(edgesVisible_);
     renderer_->AddActor(geometryActor_);
     if (resetViewOnNextData_) {
         // Thin extruded 2D cases are best presented face-on, not at an
@@ -607,6 +609,15 @@ void VtkViewport::loadVtmFile(const std::string& path, const std::string& scalar
         }
     } catch (...) {
         // Swallow; the caller logs the failure.
+    }
+}
+
+void VtkViewport::showCellEdges(bool enabled) {
+    edgesVisible_=enabled;
+    if(geometryActor_) {
+        geometryActor_->GetProperty()->SetEdgeVisibility(enabled);
+        geometryActor_->GetProperty()->SetEdgeColor(0.18,0.25,0.32);
+        if(auto* window=renderWindow())window->Render();
     }
 }
 

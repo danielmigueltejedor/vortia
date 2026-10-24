@@ -874,7 +874,7 @@ void SketchEditorDialog::setReadOnly(bool readOnly) {
             ? tr("Case geometry: select to inspect; drag empty space to pan.")
             : tr("Select: drag vertices or empty space."));
     findChild<QLabel*>(QStringLiteral("vortia-sketch-intro"))->setText(readOnly
-        ? tr("OpenFOAM case geometry: pinch to zoom, pan and inspect dimensions. To change the mesh, prepare a new nozzle case with the desired dimensions.")
+        ? tr("OpenFOAM case geometry: pinch to zoom, pan and inspect dimensions. Open the editable source project to change geometry and generate a new mesh revision.")
         : tr("Precise 2D sketch in millimetres. Select a segment to split it or enter an exact length. "
              "This sketch is not yet a CFD-ready mesh."));
 }

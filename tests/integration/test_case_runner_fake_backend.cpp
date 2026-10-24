@@ -207,6 +207,21 @@ printf '#!/bin/sh\necho "Time = 50000"\necho "ExecutionTime = 2.6 s ClockTime = 
     }
 }
 
+TEST_F(FakeBackendTest, GeneralCadMeshIsCheckedWithoutReplacingOrInitializingIt) {
+    const auto caseDir=dir_/"cad";
+    std::filesystem::create_directories(caseDir/"constant/polyMesh");
+    std::ofstream(caseDir/".vortia-flow-case")<<"vortia-axisymmetric-flow-v1\n";
+    std::ofstream(caseDir/"constant/polyMesh/boundary")<<"saved mesh\n";
+    makeFakeTool("checkMesh","echo 'CAD mesh checked'\nexit 0\n");
+    makeFakeTool("blockMesh","exit 91\n");
+    makeFakeTool("setFields","exit 92\n");
+    PosixProcessRunner processes;CaseRunner runner(processes,environment_);
+    const auto mesh=runner.runMeshing(caseDir,caps_,{},nullptr);
+    ASSERT_TRUE(mesh);EXPECT_TRUE(mesh->process.succeeded());EXPECT_EQ(mesh->name,"check CAD mesh");
+    std::filesystem::remove(caseDir/"constant/polyMesh/boundary");
+    EXPECT_FALSE(runner.runMeshing(caseDir,caps_,{},nullptr));
+}
+
 TEST_F(FakeBackendTest, DivergenceIsDetected) {
     makeFakeTool("blockMesh", "exit 0\n");
     makeFakeTool("checkMesh", "exit 0\n");

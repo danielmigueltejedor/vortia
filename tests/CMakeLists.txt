@@ -81,6 +81,8 @@ endif()
 # The tutorial preparer uses only the Python standard library.
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+    add_test(NAME general_sketch_flow_reference
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/resources/flow/test_prepare.py)
     add_test(NAME nozzle_video_reference
         COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/nozzle-video-2026/test_prepare.py)
 endif()

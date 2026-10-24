@@ -87,6 +87,14 @@ Expected<StepOutcome> CaseRunner::runMeshing(const std::filesystem::path& caseDi
                                              const Capabilities& caps,
                                              const RunCallbacks& callbacks,
                                              CancellationToken* token) {
+    std::ifstream flowMarker(caseDir/".vortia-flow-case");
+    std::string flowKind;
+    std::getline(flowMarker,flowKind);
+    if (flowKind=="vortia-axisymmetric-flow-v1") {
+        if (!std::filesystem::is_regular_file(caseDir/"constant/polyMesh/boundary"))
+            return Error::make(ErrorCode::InvalidData,"The CAD mesh is missing; generate a new mesh revision");
+        return execute("check CAD mesh","checkMesh",{},caseDir,callbacks,token);
+    }
     if (!caps.hasBlockMesh)
         return Error::make(ErrorCode::BackendUnavailable,
                            "blockMesh is not available in this OpenFOAM installation");
@@ -157,10 +165,14 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
         std::ifstream marker(caseDir / ".vortia-nozzle-case");
         std::string kind;
         std::getline(marker,kind);
-        if (kind != "vortia-nozzle-video-2026-v3")
+        std::ifstream flowMarker(caseDir/".vortia-flow-case");
+        std::string flowKind;
+        std::getline(flowMarker,flowKind);
+        const bool generalFlow=flowKind=="vortia-axisymmetric-flow-v1";
+        if (kind != "vortia-nozzle-video-2026-v3" && !generalFlow)
             return Error::make(ErrorCode::InvalidData,
                 "prepare a fresh v3 no-swirl nozzle case; earlier or unmarked cases cannot use this backend");
-        if (kind == "vortia-nozzle-video-2026-v3") {
+        if (kind == "vortia-nozzle-video-2026-v3" || generalFlow) {
             std::string version;
             for (const auto& [key,value] : environment_)
                 if (key=="WM_PROJECT_VERSION") version=value;

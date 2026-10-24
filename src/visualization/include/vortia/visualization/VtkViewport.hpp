@@ -2,6 +2,7 @@
 
 #include "vortia/geometry/BoxDomain.hpp"
 #include "vortia/geometry/TriangleMesh.hpp"
+#include "vortia/visualization/LineSampling.hpp"
 
 #include <QVTKOpenGLNativeWidget.h>
 #include <QPointF>
@@ -44,6 +45,11 @@ public:
 
     /// Re-colors the currently loaded dataset by the given field name.
     void setColorField(const std::string& fieldName);
+    std::array<double,6> fieldBounds() const {return vortia::fieldBounds(currentData_);}
+    std::vector<LineSample> sampleLine(Vec3 start,Vec3 end,int points,const std::string& field) const {
+        return sampleFieldLine(currentData_,start,end,points,field);
+    }
+    void showCellEdges(bool enabled);
 
     void clearScene();
     void resetCamera();
@@ -79,6 +85,7 @@ private:
     std::string currentField_;
     std::string loadedFile_;
     bool resetViewOnNextData_{true};
+    bool edgesVisible_{false};
     // Authoritative Qt press state. Unlike a VTK interactor state, this
     // cannot be set by a stray vtkCommand::MouseMoveEvent.
     bool intentionalPointerDrag_{false};

@@ -72,6 +72,7 @@ if(VORTIA_BUILD_UI)
         FiltersCore
         FiltersGeometry
         FiltersModeling
+        FiltersSources
         IOGeometry
         IOLegacy
         IOXML

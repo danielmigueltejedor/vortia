@@ -1,8 +1,11 @@
 # Nozzle video practice — experimental OpenFOAM v2606 case
 
-Vortia's **File / Model → Nozzle tutorial** action prepares a new independent
-axisymmetric case. The geometry, material and boundary values remain editable
-in the preparation dialog. Existing folders are never overwritten. Python 3
+This directory preserves the historical command-line nozzle reference. The
+desktop tutorial-specific action has been removed: use the general **Model →
+Flow configuration / Generate mesh from sketch** tools, which mesh the actual
+CAD contour and persist independent materials and per-segment boundaries. See
+resources/flow/README.md. The historical preparer still produces an independent
+axisymmetric case for comparison. Existing folders are never overwritten. Python 3
 (standard library), OpenFOAM v2606 and its `wmake` compiler are required. Use a
 destination without whitespace, as required by this build procedure.
 
