@@ -3,6 +3,7 @@
 #include "vortia/core/Logger.hpp"
 
 #include <QPlainTextEdit>
+#include <QTimer>
 
 namespace vortia {
 
@@ -18,11 +19,14 @@ public:
 
     void appendSolverOutput(const QString& text);
     void clearConsole();
+    void flushOutput();
 
 private:
     void appendLine(const QString& html);
 
     std::size_t loggerSinkId_{0};
+    QString pendingOutput_;
+    QTimer outputTimer_;
 };
 
 } // namespace vortia

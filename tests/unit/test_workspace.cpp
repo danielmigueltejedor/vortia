@@ -3,8 +3,13 @@
 #include "vortia/physics/CaseSetupJson.hpp"
 #include "vortia/ui/ResultFiles.hpp"
 #include "vortia/ui/FlowSetup.hpp"
+#include "vortia/ui/ConsolePanel.hpp"
+#include "vortia/solver/openfoam/Detector.hpp"
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QLineEdit>
 
 #include <gtest/gtest.h>
@@ -47,6 +52,8 @@
 namespace vortia {
 // Exercise document operations directly without native file-picker automation.
 struct WorkspaceTestAccess {
+    static QString fingerprint(MainWindow& w,bool legacy=false) {return w.flowFingerprint(legacy);}
+    static void configure(MainWindow& w) {w.configureFlow(3);}
     static void result(MainWindow& w,const QString& path) {w.onResultsReady(path);}
     static auto bounds(MainWindow& w) {return w.viewport_->fieldBounds();}
     static int actors(MainWindow& w) {
@@ -548,6 +555,114 @@ TEST(WorkspaceFlow, GeneralSettingsPersistAndRemainSeparateBetweenTabs) {
     EXPECT_EQ(WorkspaceTestAccess::flow(reopened),values);
     const auto actions=reopened.findChildren<QAction*>();
     EXPECT_TRUE(std::none_of(actions.cbegin(),actions.cend(),[](const QAction* a){return a->text().contains("Nozzle practice");}));
+}
+
+TEST(WorkspaceFlow, RuntimeEditsKeepTheCaseAndMigrateLegacyFingerprints) {
+    QTemporaryDir folder;ASSERT_TRUE(folder.isValid());
+    auto project=Project::create((folder.path()+"/editable").toStdString(),"editable");ASSERT_TRUE(project);
+    MainWindow window;project->setSetupJson(WorkspaceTestAccess::setupJson(window));ASSERT_TRUE(project->save());
+    ASSERT_TRUE(WorkspaceTestAccess::open(window,QString::fromStdString(project->rootDir().string())));
+    auto shape=makeRectangleSketch(200,50).value();WorkspaceTestAccess::edit(window,shape,{});
+    ASSERT_TRUE(WorkspaceTestAccess::save(window));
+    QTimer::singleShot(0,[](){qobject_cast<QDialog*>(QApplication::activeModalWidget())->accept();});
+    auto cfg=editFlowSetup(nullptr,shape,{});cfg.insert("activeCase","/saved/existing/case");
+    WorkspaceTestAccess::flow(window,cfg);
+    cfg.insert("preparedHash",WorkspaceTestAccess::fingerprint(window,true));WorkspaceTestAccess::flow(window,cfg);
+    const auto expected=WorkspaceTestAccess::fingerprint(window);
+    QTimer::singleShot(0,[](){
+        auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);
+        d->findChild<QDoubleSpinBox*>("flow-solver-iterations")->setValue(5000);d->accept();
+    });
+    WorkspaceTestAccess::configure(window);
+    EXPECT_EQ(WorkspaceTestAccess::flow(window).value("activeCase").toString(),"/saved/existing/case");
+    EXPECT_EQ(WorkspaceTestAccess::flow(window).value("preparedHash").toString(),expected);
+    EXPECT_EQ(WorkspaceTestAccess::fingerprint(window),expected);
+    EXPECT_EQ(WorkspaceTestAccess::flow(window).value("solver").toObject().value("iterations").toInt(),5000);
+    QTimer::singleShot(0,[](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());d->findChild<QDoubleSpinBox*>("flow-material-Cp")->setValue(1501);d->accept();});
+    WorkspaceTestAccess::configure(window);
+    EXPECT_NE(WorkspaceTestAccess::fingerprint(window),expected);
+    WorkspaceTestAccess::edit(window,makeRectangleSketch(300,50).value(),{});
+    EXPECT_TRUE(WorkspaceTestAccess::flow(window).value("preparedHash").toString().isEmpty());
+}
+
+TEST(WorkspaceFlow, FailedControlUpdateNeverChangesTheActiveCase) {
+    QTemporaryDir folder;ASSERT_TRUE(folder.isValid());
+    ASSERT_TRUE(QDir().mkpath(folder.filePath("system")));ASSERT_TRUE(QDir().mkpath(folder.filePath("100")));
+    writeFile(folder.filePath(".vortia-flow-case"),"vortia-axisymmetric-flow-v1\n");
+    const QByteArray original="endTime 100; writeInterval 100; maxCo 0.05;\n";
+    writeFile(folder.filePath("system/controlDict"),original);writeFile(folder.filePath("100/p"),"saved solution");
+    const auto tool=folder.filePath("foamDictionary");
+    writeFile(tool,"#!/bin/sh\necho damaged > \"$1\"\nexit 7\n");
+    ASSERT_TRUE(QFile::setPermissions(tool,QFileDevice::ReadOwner|QFileDevice::WriteOwner|QFileDevice::ExeOwner));
+    const QJsonObject cfg{{"iterations",200},{"writeInterval",100},{"maxCo",.1}};
+    EXPECT_FALSE(updateFlowRunControls(folder.path(),cfg,{{"PATH",folder.path().toStdString()}}).isEmpty());
+    EXPECT_EQ(readFile(folder.filePath("system/controlDict")),original);
+    EXPECT_EQ(readFile(folder.filePath("100/p")),"saved solution");
+    EXPECT_FALSE(updateFlowRunControls(folder.path(),QJsonObject{{"iterations",-1}},{}).isEmpty());
+}
+
+TEST(FlowRunControls, NativeDictionaryPreservesSavedFieldsWhenExplicitlyRequested) {
+    const auto root=qEnvironmentVariable("VORTIA_FLOW_CONTROL_CASE");
+    if(root.isEmpty())GTEST_SKIP()<<"Requires an explicit isolated native OpenFOAM case";
+    const auto mesh=readFile(root+"/constant/polyMesh/boundary");const auto pressure=readFile(root+"/100/p");
+    PosixProcessRunner processes;
+    auto installation=openfoam::Detector::probe(qEnvironmentVariable("VORTIA_NATIVE_OF_ROOT").toStdString());ASSERT_TRUE(installation);
+    auto captured=openfoam::Detector::captureEnvironment(*installation,processes);ASSERT_TRUE(captured);
+    const auto& environment=*captured;
+    QElapsedTimer clock;clock.start();
+    EXPECT_TRUE(updateFlowRunControls(root,QJsonObject{{"iterations",200},{"writeInterval",10},{"maxCo",.05}},environment).isEmpty());
+    std::cout<<"Native control update milliseconds="<<static_cast<double>(clock.nsecsElapsed())/1e6<<std::endl;
+    EXPECT_EQ(readFile(root+"/constant/polyMesh/boundary"),mesh);EXPECT_EQ(readFile(root+"/100/p"),pressure);
+    QProcessEnvironment native;
+    for(const auto& [key,value]:environment)native.insert(QString::fromStdString(key),QString::fromStdString(value));
+    QProcess check;check.setProcessEnvironment(native);
+    const auto executable=openfoam::Detector::resolveExecutable("foamDictionary",environment);ASSERT_TRUE(executable);
+    check.start(QString::fromStdString(executable->string()),{root+"/system/controlDict","-entry","endTime","-value"});
+    ASSERT_TRUE(check.waitForFinished(10000));ASSERT_EQ(check.exitCode(),0);
+    EXPECT_EQ(check.readAllStandardOutput().trimmed(),"200");
+    const auto text=QString::fromUtf8(readFile(root+"/system/controlDict"));
+    EXPECT_TRUE(text.contains(QRegularExpression("mass_inlet\\s*\\{[^}]*writeInterval\\s+100\\s*;")));
+}
+
+TEST(FlowRunControls, NativeContinuationStartsAfterTheSavedIterationWhenExplicitlyRequested) {
+    const auto root=qEnvironmentVariable("VORTIA_FLOW_RESUME_CASE");
+    if(root.isEmpty())GTEST_SKIP()<<"Requires an explicit isolated native OpenFOAM continuation case";
+    PosixProcessRunner processes;
+    auto installation=openfoam::Detector::probe(qEnvironmentVariable("VORTIA_NATIVE_OF_ROOT").toStdString());ASSERT_TRUE(installation);
+    auto environment=openfoam::Detector::captureEnvironment(*installation,processes);ASSERT_TRUE(environment);
+    const auto seed=readFile(root+"/100/p");const auto mesh=readFile(root+"/constant/polyMesh/boundary");
+    ASSERT_TRUE(updateFlowRunControls(root,QJsonObject{{"iterations",200},{"writeInterval",100},{"maxCo",.05}},*environment).isEmpty());
+    openfoam::CaseRunner runner(processes,*environment);
+    const auto caps=openfoam::Detector::verifyCapabilities(*installation,*environment);
+    double first=0;openfoam::RunCallbacks callbacks;
+    callbacks.onProgress=[&](const openfoam::SolverProgress& progress){if(first==0&&progress.time>0)first=progress.time;};
+    QElapsedTimer clock;clock.start();
+    const auto outcome=runner.runSolver(root.toStdString(),{},caps,callbacks,nullptr,"vortiaCentralFoam");
+    ASSERT_TRUE(outcome);ASSERT_TRUE(outcome->process.succeeded());EXPECT_FALSE(outcome->diverged);
+    EXPECT_GT(first,100);EXPECT_DOUBLE_EQ(outcome->finalTime,200);
+    EXPECT_EQ(readFile(root+"/100/p"),seed);EXPECT_EQ(readFile(root+"/constant/polyMesh/boundary"),mesh);
+    EXPECT_TRUE(QFileInfo::exists(root+"/200/p"));
+    std::cout<<"Native continuation: first="<<first<<" final="<<outcome->finalTime<<" milliseconds="<<static_cast<double>(clock.nsecsElapsed())/1e6<<std::endl;
+}
+
+TEST(ConsoleOutput, BatchesChunksInOrderAndClearCancelsPendingText) {
+    ConsolePanel console;
+    console.appendSolverOutput("Time = 1\n");console.appendSolverOutput("p = 10000\n");
+    EXPECT_TRUE(console.toPlainText().isEmpty());console.flushOutput();
+    EXPECT_EQ(console.toPlainText(),"Time = 1\np = 10000\n");
+    console.appendSolverOutput("old project\n");console.clearConsole();console.flushOutput();
+    EXPECT_TRUE(console.toPlainText().isEmpty());
+    if(qEnvironmentVariableIsSet("VORTIA_CONSOLE_BENCHMARK")) {
+        const QString chunk="Time = 100\nSolving for p, Initial residual = 0.1, Final residual = 0.01\n";
+        QPlainTextEdit immediate;immediate.setMaximumBlockCount(20000);
+        QElapsedTimer clock;clock.start();
+        for(int i=0;i<10000;++i){immediate.moveCursor(QTextCursor::End);immediate.insertPlainText(chunk);immediate.ensureCursorVisible();}
+        const auto unbatched=clock.nsecsElapsed();clock.restart();
+        for(int i=0;i<10000;++i)console.appendSolverOutput(chunk);
+        console.flushOutput();const auto batched=clock.nsecsElapsed();
+        EXPECT_EQ(console.toPlainText(),immediate.toPlainText());
+        std::cout<<"Console benchmark: immediate_ms="<<static_cast<double>(unbatched)/1e6<<" batched_ms="<<static_cast<double>(batched)/1e6<<std::endl;
+    }
 }
 
 TEST(WorkspaceFlow, GeneralDialogReadsAndReturnsTheChosenGasAndSegmentAssignments) {

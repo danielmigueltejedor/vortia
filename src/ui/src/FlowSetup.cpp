@@ -23,6 +23,9 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QTemporaryDir>
+#include <QTemporaryFile>
+#include <QSaveFile>
+#include "vortia/solver/openfoam/Detector.hpp"
 #include <QUuid>
 #include <cmath>
 #include <algorithm>
@@ -133,9 +136,53 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     result.insert("boundaries",boundaries);return result;
 }
 
+QString updateFlowRunControls(const QString& caseDir,const QJsonObject& solver,
+        const std::vector<std::pair<std::string,std::string>>& environment) {
+    const double iterations=solver.value("iterations").toDouble(-1);
+    const double interval=solver.value("writeInterval").toDouble(-1);
+    const double courant=solver.value("maxCo").toDouble(-1);
+    if(!std::isfinite(iterations)||!std::isfinite(interval)||!std::isfinite(courant)||
+       iterations<1||iterations>200000||std::floor(iterations)!=iterations||
+       interval<1||interval>iterations||std::floor(interval)!=interval||courant<=0||courant>.5)
+        return tr("Invalid iteration limit, output interval or Courant number.");
+    QFile marker(caseDir+"/.vortia-flow-case");
+    if(!marker.open(QIODevice::ReadOnly)||marker.readAll().trimmed()!="vortia-axisymmetric-flow-v1")
+        return tr("Only a generated flow case can be resumed with these controls.");
+    QFile original(caseDir+"/system/controlDict");
+    if(!original.open(QIODevice::ReadOnly))return original.errorString();
+    const auto bytes=original.readAll();original.close();
+    QTemporaryFile staged(caseDir+"/system/.vortia-controls-XXXXXX");
+    if(!staged.open()||staged.write(bytes)!=bytes.size()||!staged.flush())return staged.errorString();
+    staged.close();
+    const auto executable=openfoam::Detector::resolveExecutable("foamDictionary",environment);
+    if(!executable)return tr("OpenFOAM foamDictionary is required to update calculation controls.");
+    QProcessEnvironment captured;
+    for(const auto& [key,value]:environment)captured.insert(QString::fromStdString(key),QString::fromStdString(value));
+    for(const auto& entry:std::vector<std::pair<QString,double>>{{"endTime",iterations},{"writeInterval",interval},{"maxCo",courant}}) {
+        QProcess command;command.setProcessEnvironment(captured);command.setWorkingDirectory(caseDir);
+        command.start(QString::fromStdString(executable->string()),
+            {staged.fileName(),"-entry",entry.first,"-set",QString::number(entry.second,'g',15)});
+        if(!command.waitForFinished(10000)||command.exitStatus()!=QProcess::NormalExit||command.exitCode()!=0) {
+            command.kill();command.waitForFinished(1000);
+            return tr("Calculation controls could not be updated; the existing case was preserved.")+"\n"+QString::fromUtf8(command.readAllStandardError());
+        }
+    }
+    if(!staged.open())return staged.errorString();
+    const auto updated=staged.readAll();
+    if(updated.isEmpty())return tr("The updated calculation dictionary is empty.");
+    QSaveFile output(caseDir+"/system/controlDict");
+    if(!output.open(QIODevice::WriteOnly)||output.write(updated)!=updated.size()||!output.commit())return output.errorString();
+    return {};
+}
+
 QString generateFlowCase(QWidget* parent,const QString& sketchPath,const QJsonObject& cfg,
                          const QString& projectRoot,const std::vector<std::pair<std::string,std::string>>& environment){
     QString parentDir=QDir(projectRoot).filePath("cases");
+#ifdef Q_OS_MACOS
+    // Keep solver writes/builds off iCloud-managed Documents/Desktop folders.
+    // The small editable project retains the absolute reference to its results.
+    parentDir=QDir::homePath()+"/Library/Vortia/cases";
+#endif
     if(std::any_of(parentDir.cbegin(),parentDir.cend(),[](QChar c){return c.isSpace();}))
         parentDir=QDir::homePath()+"/Library/Vortia/cases";
     if(!QDir().mkpath(parentDir))return {};

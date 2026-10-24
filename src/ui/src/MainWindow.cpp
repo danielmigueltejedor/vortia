@@ -110,6 +110,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     jobController_ = new JobController(this);
     connect(jobController_, &JobController::outputReceived, console_, &ConsolePanel::appendSolverOutput);
+    connect(jobController_, &JobController::jobFinished, console_, &ConsolePanel::flushOutput);
     connect(jobController_, &JobController::jobFinished, this, &MainWindow::onJobFinished);
     connect(jobController_, &JobController::resultsReady, this, &MainWindow::onResultsReady);
     connect(jobController_, &JobController::progressUpdated, this,
@@ -372,6 +373,7 @@ void MainWindow::buildDocks() {
             [this]() { workspaceTabs_->setCurrentWidget(viewport_); });
     connect(sketchEditor_, &SketchEditorDialog::sketchChanged, this, [this]() {
         dirty_ = true;
+        flowConfig_.remove("preparedHash");
         storeCurrentTab();
         refreshProjectTabTitle();
         updateNozzleNotice();
@@ -935,8 +937,17 @@ void MainWindow::configureFlow(int page) {
     }
     const auto edited=editFlowSetup(this,sketchEditor_->sketch(),flowConfig_,page);
     if (edited.isEmpty()) return;
+    // Migrate a verified pre-resume fingerprint before changing runtime controls.
+    // Physics/geometry edits still invalidate it after the source project is saved.
+    if(flowConfig_.value("preparedHash").toString()==flowFingerprint(true))
+        flowConfig_.insert("preparedHash",flowFingerprint());
     auto old=flowConfig_; old.remove("activeCase"); old.remove("preparedHash");
-    if (old!=edited) flowConfig_=edited;
+    if (old!=edited) {
+        const auto active=flowConfig_.value("activeCase"),prepared=flowConfig_.value("preparedHash");
+        flowConfig_=edited;
+        if(!active.isUndefined())flowConfig_.insert("activeCase",active);
+        if(!prepared.isUndefined())flowConfig_.insert("preparedHash",prepared);
+    }
     dirty_=true;properties_->setEnabled(false);storeCurrentTab();refreshProjectTabTitle();updateNozzleNotice();
 }
 
@@ -961,8 +972,13 @@ bool MainWindow::ensureFlowEnvironment() {
     return true;
 }
 
-QString MainWindow::flowFingerprint() const {
+QString MainWindow::flowFingerprint(bool includeRunControls) const {
     auto cfg=flowConfig_;cfg.remove("activeCase");cfg.remove("preparedHash");
+    if(!includeRunControls) {
+        auto solver=cfg.value("solver").toObject();
+        for(const auto* key:{"iterations","writeInterval","maxCo"})solver.remove(key);
+        if(solver.isEmpty())cfg.remove("solver");else cfg.insert("solver",solver);
+    }
     QFile sketch(QString::fromStdString((projectRoot_/"geometry/working-sketch.vsketch.json").string()));
     if (!sketch.open(QIODevice::ReadOnly)) return {};
     const auto inputs=QJsonDocument(cfg).toJson(QJsonDocument::Compact)+sketch.readAll();
@@ -977,8 +993,17 @@ bool MainWindow::ensureFlowCase(bool force) {
     if (!ensureFlowEnvironment() || !saveProject()) return false;
     const auto fingerprint=flowFingerprint();
     const auto previous=flowConfig_.value("activeCase").toString();
-    if (!force && !fingerprint.isEmpty() && fingerprint==flowConfig_.value("preparedHash").toString()
-        && QFileInfo::exists(previous+"/constant/polyMesh/boundary")) return true;
+    const auto prepared=flowConfig_.value("preparedHash").toString();
+    if (!force && !fingerprint.isEmpty() && (fingerprint==prepared || flowFingerprint(true)==prepared)
+        && QFileInfo::exists(previous+"/constant/polyMesh/boundary")) {
+        const auto error=updateFlowRunControls(previous,flowConfig_.value("solver").toObject(),ofEnvironment_);
+        if(!error.isEmpty()) {QMessageBox::warning(this,tr("Run failed"),error);return false;}
+        flowConfig_.insert("preparedHash",fingerprint);storeCurrentTab();
+        if(!saveProject())return false;
+        console_->appendSolverOutput(tr("Reusing mesh and saved fields: %1. Continuing to iteration %2.\n")
+            .arg(previous).arg(flowConfig_.value("solver").toObject().value("iterations").toInt()));
+        return true;
+    }
     const auto caseDir=generateFlowCase(this,
         QString::fromStdString((projectRoot_/"geometry/working-sketch.vsketch.json").string()),
         flowConfig_,QString::fromStdString(projectRoot_.string()),ofEnvironment_);
@@ -1133,7 +1158,8 @@ void MainWindow::updateNozzleNotice() {
         QString text=tr("Experimental compressible flow: convergence, mass balance and mesh dependence must be checked. Geometry and settings remain editable in this project; regenerating the mesh creates a new calculation revision.");
         if (!useExistingCase_ && flowConfig_.value("activeCase").toString().isEmpty())
             text+=tr(" Generate a mesh from the sketch before calculating.");
-        else if (!useExistingCase_ && (dirty_ || flowConfig_.value("preparedHash").toString().isEmpty() || flowConfig_.value("preparedHash").toString()!=flowFingerprint()))
+        else if (!useExistingCase_ && (flowConfig_.value("preparedHash").toString().isEmpty() ||
+                 (flowConfig_.value("preparedHash").toString()!=flowFingerprint() && flowConfig_.value("preparedHash").toString()!=flowFingerprint(true))))
             text+=tr(" Mesh inputs have changed. Generate a new mesh revision before calculating; any loaded results belong to the earlier revision.");
         nozzleNotice_->setText(text);return;
     }

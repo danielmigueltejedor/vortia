@@ -354,7 +354,10 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source> Mass imbalance, iterations %1-%2: mean %3%, maximum %4% of the principal inlet flow (%5 samples).</source><translation> Desequilibrio de masa, iteraciones %1–%2: media %3 %, máximo %4 % del caudal principal de entrada (%5 muestras).</translation></message>
 <message><source> Mesh inputs have changed. Generate a new mesh revision before calculating; any loaded results belong to the earlier revision.</source><translation> Han cambiado los datos de la malla. Genera una nueva revisión antes de calcular; los resultados cargados pertenecen a la revisión anterior.</translation></message>
     <message><source> Generate a mesh from the sketch before calculating.</source><translation> Genera la malla desde el croquis antes de calcular.</translation></message>
-  </context>
+      <message><source>Reusing mesh and saved fields: %1. Continuing to iteration %2.
+</source><translation>Se reutilizan la malla y los campos guardados: %1. Se continúa hasta la iteración %2.
+</translation></message>
+</context>
 <context>
     <name>vortia::PropertiesPanel</name>
     <message><source>Apply</source><translation>Aplicar</translation></message>
@@ -754,6 +757,11 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
             <translation>Error al generar la malla</translation>
         </message>
     <message><source>Check the contour, boundary assignments and mesh sizes. Details are saved in the project&#x27;s logs folder.</source><translation>Revisa el contorno, las asignaciones de contorno y los tamaños de malla. Los detalles se guardan en la carpeta de registros del proyecto.</translation></message>
+    <message><source>Invalid iteration limit, output interval or Courant number.</source><translation>Límite de iteraciones, intervalo de guardado o número de Courant no válido.</translation></message>
+    <message><source>Only a generated flow case can be resumed with these controls.</source><translation>Estos controles solo permiten continuar un caso de flujo generado por Vortia.</translation></message>
+    <message><source>OpenFOAM foamDictionary is required to update calculation controls.</source><translation>Se necesita foamDictionary de OpenFOAM para actualizar los controles de cálculo.</translation></message>
+    <message><source>Calculation controls could not be updated; the existing case was preserved.</source><translation>No se pudieron actualizar los controles de cálculo; se ha conservado el caso existente.</translation></message>
+    <message><source>The updated calculation dictionary is empty.</source><translation>El archivo de controles de cálculo actualizado está vacío.</translation></message>
 </context>
 
 <context>

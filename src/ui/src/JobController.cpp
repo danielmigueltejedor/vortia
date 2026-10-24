@@ -5,6 +5,7 @@
 #include "vortia/ui/ResultFiles.hpp"
 
 #include <filesystem>
+#include <chrono>
 
 #include <QMetaObject>
 
@@ -81,6 +82,7 @@ void JobController::runJob(JobSpec spec) {
                 return;
             }
             openfoam::SolverProgress last;
+            auto lastProgress=std::chrono::steady_clock::now()-std::chrono::milliseconds(100);
             openfoam::RunCallbacks callbacks;
             callbacks.onOutput = [&](OutputStream /*stream*/, std::string_view chunk) {
                 const QString text = QString::fromUtf8(chunk.data(),
@@ -91,6 +93,9 @@ void JobController::runJob(JobSpec spec) {
             };
             callbacks.onProgress = [&](const openfoam::SolverProgress& p) {
                 last = p;
+                const auto now=std::chrono::steady_clock::now();
+                if(!p.diverged && now-lastProgress<std::chrono::milliseconds(100))return;
+                lastProgress=now;
                 QString res;
                 for (const auto& r : p.residuals)
                     res += QString::fromStdString(r.field) + "=" +
