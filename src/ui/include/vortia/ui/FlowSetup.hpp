@@ -14,4 +14,7 @@ QString generateFlowCase(QWidget*, const QString& sketchPath, const QJsonObject&
 // Returns an error message, or an empty string on success.
 QString updateFlowRunControls(const QString& caseDir, const QJsonObject& solver,
                              const std::vector<std::pair<std::string,std::string>>& environment);
+// Stage a content-addressed bundled backend without replacing legacy sources,
+// executables, boundary dictionaries, mesh or saved fields. Empty = success.
+QString stageFlowBackend(const QString& caseDir);
 }

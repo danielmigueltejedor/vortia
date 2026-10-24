@@ -71,3 +71,27 @@ open build-macos/Vortia.app
 El ejecutable de desarrollo `build-macos/bin/vortia` sigue disponible. El
 paquete `.app` está pensado para **uso local**; distribuirlo en otros Mac
 requerirá incorporar las dependencias de Qt/VTK y firmarlo/notarizarlo.
+
+
+## Cálculo compresible en varios procesos
+
+En Configuración del flujo → Inicialización y cálculo, Procesos de CPU permite
+elegir de 1 a 8 procesos (1 es secuencial). Cambiar este ajuste conserva la malla
+y los campos guardados. Pulsa Ejecutar para continuar; Generar malla crea otra
+revisión. Los proyectos anteriores mantienen un proceso hasta editar y guardar
+esta opción. El valor inicial de proyectos nuevos se adapta al equipo, hasta 8.
+
+La app conserva el motor anterior y prepara la revisión incluida en la app en
+solver-backends/<hash>, con su ejecutable independiente en bin/<hash>. La
+primera ejecución de una revisión puede compilarla. Los contornos existentes
+no se modifican. El cálculo paralelo usa MPI/Scotch dentro de parallel-runs;
+reconstruye únicamente el último estado completo al terminar o cancelar. Las
+escrituras intermedias por partición y los registros se conservan en esa
+carpeta para recuperación. Inclúyela en las copias de seguridad. Si falla la
+reconstrucción, el último estado del caso principal permanece intacto.
+
+La aceleración depende del equipo y la malla; más procesos pueden añadir
+coste de comunicación. No se han aumentado los pasos de Courant ni relajado
+las tolerancias para obtener esta ganancia. El cálculo compresible continúa
+siendo experimental: comprueba convergencia, balance de masa, dependencia de
+malla y sensibilidad a la partición, especialmente en los campos turbulentos.

@@ -26,6 +26,7 @@ public:
         std::vector<std::pair<std::string, std::string>> environment;
         std::string solverOverride; ///< If set, run this solver instead of caps-based selection.
         bool meshOnly{false};
+        unsigned processes{1};
     };
 
     explicit JobController(QObject* parent = nullptr);

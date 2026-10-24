@@ -10,6 +10,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <thread>
+#include <chrono>
 
 using namespace vortia;
 using namespace vortia::openfoam;
@@ -70,6 +72,28 @@ protected:
         };
         s.time = {0.0, 0.1, 0.001, 50, false, 1.0};
         return s;
+    }
+
+    std::filesystem::path parallelCase() {
+        const auto root=dir_/"parallel-case";
+        const std::string revision(64,'a');
+        std::filesystem::create_directories(root/"bin"/revision);
+        std::filesystem::create_directories(root/"system");
+        std::filesystem::create_directories(root/"constant");
+        std::filesystem::create_directories(root/"1000");
+        std::filesystem::create_directories(root/"processor0");
+        std::ofstream(root/".vortia-flow-case")<<"vortia-axisymmetric-flow-v1\n";
+        std::ofstream(root/".vortia-solver-revision")<<revision<<'\n';
+        std::ofstream(root/"1000/p")<<"saved pressure";
+        std::ofstream(root/"processor0/user-data")<<"preserve existing parallel data";
+        const auto exe=root/"bin"/revision/"vortiaCentralFoam";
+        std::ofstream(exe)<<"#!/bin/sh\nexit 0\n";
+        std::filesystem::permissions(exe,std::filesystem::perms::owner_all);
+        environment_.emplace_back("WM_PROJECT_VERSION","v2606");
+        makeFakeTool("decomposePar","/bin/mkdir -p dynamicCode\necho cached > dynamicCode/compiled-boundary\necho 'decomposed latest fields'\n");
+        makeFakeTool("mpirun","test \"$1\" = -np && test \"$2\" = 4 && test \"$3\" = vortiaCentralFoam && test \"$4\" = -parallel || exit 88\necho 'Time = 2000'\n");
+        makeFakeTool("reconstructPar","/bin/mkdir -p 2000 postProcessing/mass_inlet\necho monitor > postProcessing/mass_inlet/flux.dat\nfor field in p T U rho; do echo complete > \"2000/$field\"; done\n");
+        return root;
     }
 
     std::filesystem::path dir_;
@@ -220,6 +244,45 @@ TEST_F(FakeBackendTest, GeneralCadMeshIsCheckedWithoutReplacingOrInitializingIt)
     ASSERT_TRUE(mesh);EXPECT_TRUE(mesh->process.succeeded());EXPECT_EQ(mesh->name,"check CAD mesh");
     std::filesystem::remove(caseDir/"constant/polyMesh/boundary");
     EXPECT_FALSE(runner.runMeshing(caseDir,caps_,{},nullptr));
+}
+
+TEST_F(FakeBackendTest, ParallelFlowPublishesACheckpointAndPreservesOriginalData) {
+    const auto root=parallelCase();PosixProcessRunner processes;CaseRunner runner(processes,environment_);
+    const auto result=runner.runSolver(root,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam",4);
+    ASSERT_TRUE(result)<<result.error().describe();EXPECT_TRUE(result->process.succeeded());EXPECT_EQ(result->finalTime,2000);
+    EXPECT_TRUE(std::filesystem::is_regular_file(root/"2000/U"));
+    std::string pressure;std::ifstream(root/"1000/p")>>pressure;EXPECT_EQ(pressure,"saved");
+    EXPECT_TRUE(std::filesystem::is_regular_file(root/"processor0/user-data"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(root/"dynamicCode/compiled-boundary"));
+    EXPECT_FALSE(std::filesystem::exists(root/"system/decomposeParDict"));
+    ASSERT_TRUE(std::filesystem::is_directory(root/"parallel-runs"));
+    const auto run=*std::filesystem::directory_iterator(root/"parallel-runs");
+    EXPECT_TRUE(std::filesystem::is_regular_file(run.path()/"log.vortia"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(root/"postProcessing"/("parallel_"+run.path().filename().string())/"mass_inlet/flux.dat"));
+    std::ofstream(root/".vortia-solver-revision")<<"../../outside\n";
+    EXPECT_FALSE(runner.runSolver(root,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam",4));
+}
+
+TEST_F(FakeBackendTest, ReconstructionFailureLeavesTheSavedCheckpointUntouched) {
+    const auto root=parallelCase();makeFakeTool("reconstructPar","echo 'incomplete checkpoint'\nexit 9\n");
+    PosixProcessRunner processes;CaseRunner runner(processes,environment_);
+    const auto result=runner.runSolver(root,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam",4);
+    ASSERT_TRUE(result);EXPECT_EQ(result->process.exitCode,9);
+    EXPECT_FALSE(std::filesystem::exists(root/"2000"));EXPECT_TRUE(std::filesystem::exists(root/"1000/p"));
+    EXPECT_TRUE(std::filesystem::is_directory(root/"parallel-runs"));
+}
+
+TEST_F(FakeBackendTest, CancelledParallelRunRecoversItsLastCompleteCheckpoint) {
+    const auto root=parallelCase();
+    makeFakeTool("mpirun","/bin/mkdir -p processor0/1500\necho 'Time = 1550'\n/bin/sleep 30\n");
+    makeFakeTool("reconstructPar","test -d processor0/1500 || exit 9\n/bin/mkdir -p 1500\nfor field in p T U rho; do echo saved > \"1500/$field\"; done\n");
+    PosixProcessRunner processes;CaseRunner runner(processes,environment_);CancellationToken token;
+    RunCallbacks callbacks;callbacks.onOutput=[&](OutputStream,std::string_view text) {
+        if(text.find("Time = 1550")!=std::string_view::npos)token.cancel();
+    };
+    const auto result=runner.runSolver(root,minimalSetup(),caps_,callbacks,&token,"vortiaCentralFoam",4);
+    ASSERT_TRUE(result);EXPECT_TRUE(result->process.cancelled);EXPECT_TRUE(std::filesystem::is_regular_file(root/"1500/U"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(root/"1000/p"));
 }
 
 TEST_F(FakeBackendTest, DivergenceIsDetected) {

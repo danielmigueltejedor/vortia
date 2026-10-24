@@ -102,8 +102,13 @@ Expected<ProcessResult> PosixProcessRunner::run(const ProcessRequest& request,
 
     pid_t pid = -1;
     const std::string exe = request.executable.string();
-    const int spawnRc = ::posix_spawnp(&pid, exe.c_str(), &actions, nullptr, argv.data(),
+    posix_spawnattr_t attributes;
+    ::posix_spawnattr_init(&attributes);
+    ::posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP);
+    ::posix_spawnattr_setpgroup(&attributes, 0);
+    const int spawnRc = ::posix_spawnp(&pid, exe.c_str(), &actions, &attributes, argv.data(),
                                        envp.data());
+    ::posix_spawnattr_destroy(&attributes);
     ::posix_spawn_file_actions_destroy(&actions);
     ::close(stdoutPipe[1]);
     ::close(stderrPipe[1]);
@@ -126,14 +131,16 @@ Expected<ProcessResult> PosixProcessRunner::run(const ProcessRequest& request,
     char buffer[8192];
 
     auto terminateChild = [&pid]() {
-        ::kill(pid, SIGTERM);
+        ::kill(-pid, SIGTERM);
         for (int i = 0; i < 20; ++i) { // up to ~2 s of grace
             int status = 0;
-            if (::waitpid(pid, &status, WNOHANG) == pid)
+            if (::waitpid(pid, &status, WNOHANG) == pid) {
+                ::kill(-pid, SIGKILL);
                 return;
+            }
             ::usleep(100'000);
         }
-        ::kill(pid, SIGKILL);
+        ::kill(-pid, SIGKILL);
     };
 
     bool childReaped = false;

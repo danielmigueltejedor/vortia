@@ -48,9 +48,12 @@ public:
                                                   const Capabilities& caps,
                                                   const RunCallbacks& callbacks,
                                                   CancellationToken* token,
-                                                  const std::string& solverOverride = {});
+                                                  const std::string& solverOverride = {},
+                                                  unsigned processes = 1);
 
 private:
+    [[nodiscard]] Expected<StepOutcome> runParallelFlow(const std::filesystem::path& caseDir,
+        unsigned processes, const RunCallbacks&, CancellationToken*);
     [[nodiscard]] Expected<StepOutcome> execute(const std::string& label,
                                                 const std::string& executable,
                                                 const std::vector<std::string>& args,

@@ -571,7 +571,8 @@ TEST(WorkspaceFlow, RuntimeEditsKeepTheCaseAndMigrateLegacyFingerprints) {
     const auto expected=WorkspaceTestAccess::fingerprint(window);
     QTimer::singleShot(0,[](){
         auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);
-        d->findChild<QDoubleSpinBox*>("flow-solver-iterations")->setValue(5000);d->accept();
+        d->findChild<QDoubleSpinBox*>("flow-solver-iterations")->setValue(5000);
+        d->findChild<QDoubleSpinBox*>("flow-solver-processes")->setValue(2);d->accept();
     });
     WorkspaceTestAccess::configure(window);
     EXPECT_EQ(WorkspaceTestAccess::flow(window).value("activeCase").toString(),"/saved/existing/case");
@@ -599,6 +600,24 @@ TEST(WorkspaceFlow, FailedControlUpdateNeverChangesTheActiveCase) {
     EXPECT_EQ(readFile(folder.filePath("system/controlDict")),original);
     EXPECT_EQ(readFile(folder.filePath("100/p")),"saved solution");
     EXPECT_FALSE(updateFlowRunControls(folder.path(),QJsonObject{{"iterations",-1}},{}).isEmpty());
+}
+
+TEST(WorkspaceFlow, BundledBackendRevisionPreservesLegacySourcesAndRejectsModifiedCache) {
+    QTemporaryDir folder;ASSERT_TRUE(folder.isValid());
+    QDir().mkpath(folder.filePath("solver"));QDir().mkpath(folder.filePath("bin"));QDir().mkpath(folder.filePath("100"));
+    writeFile(folder.filePath(".vortia-flow-case"),"vortia-axisymmetric-flow-v1\n");
+    writeFile(folder.filePath("solver/vortiaCentralFoam.C"),"old source");
+    writeFile(folder.filePath("bin/vortiaCentralFoam"),"old binary");
+    writeFile(folder.filePath("100/p"),"saved pressure");
+    ASSERT_TRUE(stageFlowBackend(folder.path()).isEmpty());
+    const auto revision=readFile(folder.filePath(".vortia-solver-revision")).trimmed();
+    ASSERT_EQ(revision.size(),64);
+    ASSERT_TRUE(stageFlowBackend(folder.path()).isEmpty());
+    EXPECT_EQ(readFile(folder.filePath("solver/vortiaCentralFoam.C")),"old source");
+    EXPECT_EQ(readFile(folder.filePath("bin/vortiaCentralFoam")),"old binary");
+    EXPECT_EQ(readFile(folder.filePath("100/p")),"saved pressure");
+    writeFile(folder.filePath("solver-backends/"+QString::fromUtf8(revision)+"/vortiaCentralFoam.C"),"modified cache");
+    EXPECT_FALSE(stageFlowBackend(folder.path()).isEmpty());
 }
 
 TEST(FlowRunControls, NativeDictionaryPreservesSavedFieldsWhenExplicitlyRequested) {
@@ -663,6 +682,37 @@ TEST(ConsoleOutput, BatchesChunksInOrderAndClearCancelsPendingText) {
         EXPECT_EQ(console.toPlainText(),immediate.toPlainText());
         std::cout<<"Console benchmark: immediate_ms="<<static_cast<double>(unbatched)/1e6<<" batched_ms="<<static_cast<double>(batched)/1e6<<std::endl;
     }
+}
+
+TEST(FlowRunControls, NativeParallelCheckpointWhenExplicitlyRequested) {
+    const auto root=qEnvironmentVariable("VORTIA_PARALLEL_TEST_CASE");
+    if(root.isEmpty())GTEST_SKIP()<<"Requires an isolated native OpenFOAM case";
+    const auto mesh=readFile(root+"/constant/polyMesh/boundary"),seed=readFile(root+"/1000/p");
+    ASSERT_FALSE(seed.isEmpty());
+    const auto installation=openfoam::Detector::probe(qEnvironmentVariable("VORTIA_NATIVE_OF_ROOT").toStdString());ASSERT_TRUE(installation);
+    PosixProcessRunner processes;
+    const auto environment=openfoam::Detector::captureEnvironment(*installation,processes);ASSERT_TRUE(environment);
+    const bool cancel=qEnvironmentVariableIsSet("VORTIA_PARALLEL_TEST_CANCEL");
+    ASSERT_TRUE(updateFlowRunControls(root,QJsonObject{{"iterations",2000},{"writeInterval",cancel?100:1000},{"maxCo",.05}},*environment).isEmpty());
+    ASSERT_TRUE(stageFlowBackend(root).isEmpty());
+    CancellationToken token;openfoam::RunCallbacks callbacks;double first=0;
+    callbacks.onProgress=[&](const auto& progress) {
+        if(first==0&&progress.time>1000)first=progress.time;
+        if(cancel&&progress.time>=1120)token.cancel();
+    };
+    openfoam::CaseRunner runner(processes,*environment);
+    QElapsedTimer clock;clock.start();
+    const auto outcome=runner.runSolver(root.toStdString(),{},openfoam::capabilitiesFor(*installation),callbacks,&token,"vortiaCentralFoam",8);
+    ASSERT_TRUE(outcome)<<outcome.error().describe();
+    EXPECT_EQ(readFile(root+"/1000/p"),seed);EXPECT_EQ(readFile(root+"/constant/polyMesh/boundary"),mesh);
+    if(cancel) {
+        EXPECT_TRUE(outcome->process.cancelled);EXPECT_TRUE(QFileInfo::exists(root+"/1100/p"));
+    } else {
+        EXPECT_TRUE(outcome->process.succeeded())<<outcome->process.stdErr;
+        EXPECT_DOUBLE_EQ(outcome->finalTime,2000);EXPECT_TRUE(QFileInfo::exists(root+"/2000/p"));
+    }
+    EXPECT_GT(first,1000);
+    std::cout<<"Native parallel orchestrated milliseconds="<<clock.elapsed()<<" cancel="<<cancel<<std::endl;
 }
 
 TEST(WorkspaceFlow, GeneralDialogReadsAndReturnsTheChosenGasAndSegmentAssignments) {

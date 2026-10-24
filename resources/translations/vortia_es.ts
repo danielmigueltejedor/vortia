@@ -592,6 +592,11 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
         <name>vortia::FlowSetup</name>
+        <message><source>CPU processes (1 = serial)</source><translation>Procesos de CPU (1 = secuencial)</translation></message>
+        <message><source>Parallel runs use an isolated working folder and retain recovery files. The latest complete checkpoint is reconstructed into this case. Small meshes may run faster with fewer processes.</source><translation>El cálculo paralelo usa una carpeta de trabajo independiente y conserva archivos de recuperación. El último estado completo se reconstruye en este caso. En mallas pequeñas puede ser más rápido usar menos procesos.</translation></message>
+        <message><source>Only a generated flow case can receive the bundled backend.</source><translation>Solo se puede actualizar el motor de un caso de flujo generado por Vortia.</translation></message>
+        <message><source>Cannot stage the bundled flow backend.</source><translation>No se pudo preparar la revisión del motor de cálculo.</translation></message>
+        <message><source>The staged flow backend was modified; use a new mesh revision.</source><translation>Se ha modificado la revisión guardada del motor; genera otra revisión de malla.</translation></message>
         <message>
             <source>Flow configuration</source>
             <translation>Configuración del flujo</translation>
@@ -766,6 +771,7 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 
 <context>
         <name>vortia::JobController</name>
+        <message><source>Calculation cancelled. Resume from the latest saved checkpoint.</source><translation>Cálculo cancelado. Puedes continuar desde el último estado guardado.</translation></message>
         <message>
             <source>Mesh checked and exported; no CFD calculation was run.</source>
             <translation>Malla comprobada y exportada; todavía no se ha calculado el flujo.</translation>

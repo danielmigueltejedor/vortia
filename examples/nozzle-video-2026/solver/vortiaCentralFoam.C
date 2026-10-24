@@ -108,18 +108,22 @@ int main(int argc, char *argv[])
 
         // --- Directed interpolation of primitive fields onto faces
 
-        surfaceScalarField rho_pos(interpolate(rho, pos));
-        surfaceScalarField rho_neg(interpolate(rho, neg));
+        auto rhoFaces = reconstructPair(rho, pos, neg);
+        surfaceScalarField rho_pos(rhoFaces.first);
+        surfaceScalarField rho_neg(rhoFaces.second);
 
-        surfaceVectorField rhoU_pos(interpolate(rhoU, pos, U.name()));
-        surfaceVectorField rhoU_neg(interpolate(rhoU, neg, U.name()));
+        auto momentumFaces = reconstructPair(rhoU, pos, neg, U.name());
+        surfaceVectorField rhoU_pos(momentumFaces.first);
+        surfaceVectorField rhoU_neg(momentumFaces.second);
 
         volScalarField rPsi("rPsi", 1.0/psi);
-        surfaceScalarField rPsi_pos(interpolate(rPsi, pos, T.name()));
-        surfaceScalarField rPsi_neg(interpolate(rPsi, neg, T.name()));
+        auto rPsiFaces = reconstructPair(rPsi, pos, neg, T.name());
+        surfaceScalarField rPsi_pos(rPsiFaces.first);
+        surfaceScalarField rPsi_neg(rPsiFaces.second);
 
-        surfaceScalarField e_pos(interpolate(e, pos, T.name()));
-        surfaceScalarField e_neg(interpolate(e, neg, T.name()));
+        auto energyFaces = reconstructPair(e, pos, neg, T.name());
+        surfaceScalarField e_pos(energyFaces.first);
+        surfaceScalarField e_neg(energyFaces.second);
 
         surfaceVectorField U_pos("U_pos", rhoU_pos/rho_pos);
         surfaceVectorField U_neg("U_neg", rhoU_neg/rho_neg);
@@ -143,17 +147,9 @@ int main(int argc, char *argv[])
         }
 
         volScalarField c("c", sqrt(thermo.Cp()/thermo.Cv()*rPsi));
-        surfaceScalarField cSf_pos
-        (
-            "cSf_pos",
-            interpolate(c, pos, T.name())*mesh.magSf()
-        );
-
-        surfaceScalarField cSf_neg
-        (
-            "cSf_neg",
-            interpolate(c, neg, T.name())*mesh.magSf()
-        );
+        auto soundFaces = reconstructPair(c, pos, neg, T.name());
+        surfaceScalarField cSf_pos("cSf_pos", soundFaces.first*mesh.magSf());
+        surfaceScalarField cSf_neg("cSf_neg", soundFaces.second*mesh.magSf());
 
         surfaceScalarField ap
         (
@@ -241,26 +237,28 @@ int main(int argc, char *argv[])
         const volScalarField pStepStart("pStepStart", p);
         const volScalarField TStepStart("TStepStart", T);
         auto energyIsPhysical = [&]() {
+            bool valid = true;
             forAll(e.primitiveField(),i)
-                if (!std::isfinite(e[i]) || e[i] <= minimumEnergy[i]) return false;
+                if (!std::isfinite(e[i]) || e[i] <= minimumEnergy[i]) valid = false;
             forAll(e.boundaryField(), patchi)
             {
-                if (e.boundaryField()[patchi].size() &&
-                    gMin(e.boundaryField()[patchi]-minimumEnergy.boundaryField()[patchi]) <= 0) return false;
                 forAll(e.boundaryField()[patchi],i)
-                    if (!std::isfinite(e.boundaryField()[patchi][i])) return false;
+                    if (!std::isfinite(e.boundaryField()[patchi][i]) ||
+                        e.boundaryField()[patchi][i] <= minimumEnergy.boundaryField()[patchi][i]) valid = false;
             }
-            return true;
+            // Every rank must accept/retry together, including empty patches.
+            return returnReduce(valid, andOp<bool>());
         };
         auto temperatureIsPhysical = [&]() {
+            bool valid = true;
             forAll(T.primitiveField(),i)
-                if (!(T[i] > 0) || !std::isfinite(T[i])) return false;
+                if (!(T[i] > 0) || !std::isfinite(T[i])) valid = false;
             forAll(T.boundaryField(), patchi)
             {
                 forAll(T.boundaryField()[patchi],i)
-                    if (!(T.boundaryField()[patchi][i] > 0) || !std::isfinite(T.boundaryField()[patchi][i])) return false;
+                    if (!(T.boundaryField()[patchi][i] > 0) || !std::isfinite(T.boundaryField()[patchi][i])) valid = false;
             }
-            return true;
+            return returnReduce(valid, andOp<bool>());
         };
         auto rejectCandidate = [&]() {
             Info<< "Vortia: rejected non-positive candidate; halving local steps" << endl;
