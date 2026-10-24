@@ -63,6 +63,23 @@ void JobController::runJob(JobSpec spec) {
             success = false;
             summary = QStringLiteral("%1 failed (exit %2)").arg(QString::fromStdString(meshStep->name)).arg(meshStep->process.exitCode);
         } else {
+            if (spec.meshOnly) {
+                ProcessRequest request;
+                request.executable="foamToVTK";
+                request.arguments={"-latestTime","-no-fields"};
+                request.workingDirectory=spec.caseDir; request.environment=spec.environment;
+                const auto executable=openfoam::Detector::resolveExecutable("foamToVTK",spec.environment);
+                if (executable) request.executable=executable->string();
+                const auto result=processes.run(request,cancelToken_.get(),nullptr);
+                const bool converted=result && result->succeeded();
+                const auto vtm=converted ? latestVtmFile(QString::fromStdString((spec.caseDir/"VTK").string())) : QString{};
+                running_.store(false);
+                QMetaObject::invokeMethod(this,[this,vtm,converted]() {
+                    if (!vtm.isEmpty()) emit resultsReady(vtm);
+                    emit jobFinished(converted,converted ? tr("Mesh checked and exported; no CFD calculation was run.") : tr("Mesh export failed."));
+                },Qt::QueuedConnection);
+                return;
+            }
             openfoam::SolverProgress last;
             openfoam::RunCallbacks callbacks;
             callbacks.onOutput = [&](OutputStream /*stream*/, std::string_view chunk) {

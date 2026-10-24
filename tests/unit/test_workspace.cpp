@@ -2,6 +2,10 @@
 #include "vortia/core/Project.hpp"
 #include "vortia/physics/CaseSetupJson.hpp"
 #include "vortia/ui/ResultFiles.hpp"
+#include "vortia/ui/FlowSetup.hpp"
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QLineEdit>
 
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -31,6 +35,8 @@
 namespace vortia {
 // Exercise document operations directly without native file-picker automation.
 struct WorkspaceTestAccess {
+    static void flow(MainWindow& w,const QJsonObject& value) {w.flowConfig_=value;w.dirty_=true;w.storeCurrentTab();}
+    static QJsonObject flow(const MainWindow& w) {return w.flowConfig_;}
     static void add(MainWindow& w, const QString& name) { w.addProjectTab(name, w.setup_); }
     static std::string setupJson(MainWindow& w) { return caseSetupToJson(w.setup_); }
     static void close(MainWindow& w, int index) { w.closeProjectTab(index); }
@@ -481,6 +487,42 @@ TEST(Workspace, EmbeddedEditorEscapeReturnsToViewport) {
     tabs->setCurrentIndex(1);
     WorkspaceTestAccess::editor(window).reject();
     EXPECT_EQ(tabs->currentIndex(), 0);
+}
+
+TEST(WorkspaceFlow, GeneralSettingsPersistAndRemainSeparateBetweenTabs) {
+    QTemporaryDir folder;ASSERT_TRUE(folder.isValid());
+    auto project=Project::create((folder.path()+"/editable").toStdString(),"editable");
+    ASSERT_TRUE(project);
+    MainWindow window;
+    project->setSetupJson(WorkspaceTestAccess::setupJson(window));
+    ASSERT_TRUE(project->save());
+    ASSERT_TRUE(WorkspaceTestAccess::open(window,QString::fromStdString(project->rootDir().string())));
+    const QJsonObject values{{"material",QJsonObject{{"Cp",1501},{"molecularWeight",24}}},
+        {"boundaries",QJsonArray{}},{"mesh",QJsonObject{{"sizeMm",25}}}};
+    WorkspaceTestAccess::flow(window,values);ASSERT_TRUE(WorkspaceTestAccess::save(window));
+    WorkspaceTestAccess::add(window,"Another flow");EXPECT_TRUE(WorkspaceTestAccess::flow(window).isEmpty());
+    WorkspaceTestAccess::select(window,1);EXPECT_EQ(WorkspaceTestAccess::flow(window),values);
+    MainWindow reopened;
+    ASSERT_TRUE(WorkspaceTestAccess::open(reopened,QString::fromStdString(project->rootDir().string())));
+    EXPECT_EQ(WorkspaceTestAccess::flow(reopened),values);
+    const auto actions=reopened.findChildren<QAction*>();
+    EXPECT_TRUE(std::none_of(actions.cbegin(),actions.cend(),[](const QAction* a){return a->text().contains("Nozzle practice");}));
+}
+
+TEST(WorkspaceFlow, GeneralDialogReadsAndReturnsTheChosenGasAndSegmentAssignments) {
+    Sketch2D shape;ASSERT_TRUE(shape.addPoint({0,0}));ASSERT_TRUE(shape.addPoint({200,0}));
+    ASSERT_TRUE(shape.addPoint({200,50}));ASSERT_TRUE(shape.addPoint({0,50}));ASSERT_TRUE(shape.close());
+    QTimer::singleShot(0,[]() {
+        auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(dialog,nullptr);
+        auto* cp=dialog->findChild<QDoubleSpinBox*>("flow-material-Cp");ASSERT_NE(cp,nullptr);cp->setValue(1501);
+        auto* mw=dialog->findChild<QDoubleSpinBox*>("flow-material-molecularWeight");ASSERT_NE(mw,nullptr);mw->setValue(24);
+        dialog->accept();
+    });
+    const auto config=editFlowSetup(nullptr,shape,{});
+    EXPECT_DOUBLE_EQ(config.value("material").toObject().value("Cp").toDouble(),1501);
+    EXPECT_DOUBLE_EQ(config.value("material").toObject().value("molecularWeight").toDouble(),24);
+    ASSERT_EQ(config.value("boundaries").toArray().size(),4);
+    EXPECT_EQ(config.value("boundaries").toArray()[0].toObject().value("type").toString(),"axis");
 }
 
 TEST(JobController, CanStartAgainAfterCompletedWorker) {

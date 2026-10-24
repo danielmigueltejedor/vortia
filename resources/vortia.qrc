@@ -1,10 +1,12 @@
 <RCC>
+  <qresource prefix="/vortia/flow">
+    <file alias="prepare.py">flow/prepare.py</file>
+    <file alias="boundaries.py">flow/boundaries.py</file>
+  </qresource>
   <qresource prefix="/vortia">
     <file alias="app-icon.png">icons/vortia.png</file>
   </qresource>
-  <qresource prefix="/vortia/nozzle-video">
-    <file alias="prepare.py">../examples/nozzle-video-2026/prepare.py</file>
-    <file alias="reference.json">../examples/nozzle-video-2026/reference.json</file>
+  <qresource prefix="/vortia/openfoam">
     <file alias="solver/vortiaCentralFoam.C">../examples/nozzle-video-2026/solver/vortiaCentralFoam.C</file>
     <file alias="solver/centralCourantNo.H">../examples/nozzle-video-2026/solver/centralCourantNo.H</file>
     <file alias="solver/createFieldRefs.H">../examples/nozzle-video-2026/solver/createFieldRefs.H</file>

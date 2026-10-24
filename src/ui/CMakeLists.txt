@@ -11,7 +11,8 @@ add_library(vortia_ui STATIC
     src/ConsolePanel.cpp
     src/JobController.cpp
     src/MainWindow.cpp
-    src/NozzlePractice.cpp
+    src/FlowSetup.cpp
+    src/LineProfile.cpp
     src/ProjectExplorerPanel.cpp
     src/PropertiesPanel.cpp
     src/ThemeManager.cpp

@@ -11,6 +11,7 @@
 #include "vortia/visualization/VtkViewport.hpp"
 
 #include <QComboBox>
+#include <QJsonObject>
 #include <QLabel>
 #include <QMainWindow>
 #include <QSettings>
@@ -40,7 +41,11 @@ private slots:
     void onOpenExistingCase();
     void onImportStl();
     void onImportFluent();
-    void onPrepareNozzlePractice();
+    void configureFlow(int page = 0);
+    void onGenerateFlowMesh();
+    bool ensureFlowCase(bool force = false);
+    bool ensureFlowEnvironment();
+    QString flowFingerprint() const;
     void onOpenResults();
     void onNodeActivated(int nodeId);
     void onApplySetup(const CaseSetup& setup);
@@ -88,6 +93,7 @@ private:
         bool existingCase{false};
         bool modified{false};
         QString resultVtm;
+        QJsonObject flowConfig;
         std::shared_ptr<QTemporaryDir> temporaryCase;
     };
     std::vector<ProjectDocument> documents_;
@@ -99,6 +105,7 @@ private:
     std::filesystem::path existingCaseDir_;
     bool useExistingCase_{false};
     CaseSetup setup_;
+    QJsonObject flowConfig_;
     std::vector<std::pair<std::string, std::string>> ofEnvironment_;
     openfoam::Capabilities ofCaps_{};
     openfoam::Installation ofInstallation_{};

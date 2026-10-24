@@ -1,3 +1,8 @@
+#include "vortia/ui/FlowSetup.hpp"
+#include "vortia/ui/LineProfile.hpp"
+#include <QSaveFile>
+#include <QCryptographicHash>
+#include <QJsonDocument>
 #include "vortia/ui/MainWindow.hpp"
 
 #include "vortia/core/Logger.hpp"
@@ -13,7 +18,6 @@
 #include "vortia/solver/openfoam/Detector.hpp"
 #include "vortia/ui/ThemeManager.hpp"
 #include "vortia/ui/SketchEditorDialog.hpp"
-#include "vortia/ui/NozzlePractice.hpp"
 #include "vortia/ui/ResultFiles.hpp"
 
 #include <QMenuBar>
@@ -126,7 +130,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     loadSettings();
     addProjectTab(tr("Untitled %1").arg(++untitledCount_), setup_);
-    setProjectState(tr("New untitled project — default cavity template (Re=100)."));
+    setProjectState(tr("New project: draw a closed fluid domain, then configure its mesh and flow."));
 }
 
 MainWindow::~MainWindow() {
@@ -150,8 +154,12 @@ void MainWindow::buildMenusAndToolbar() {
     auto* importStl = fileMenu->addAction(tr("Import STL…"), this, &MainWindow::onImportStl);
     auto* importFluent = fileMenu->addAction(tr("Import ANSYS Fluent…"), this, &MainWindow::onImportFluent);
     auto* openResults = fileMenu->addAction(tr("Open CFD results…"), this, &MainWindow::onOpenResults);
-    auto* nozzlePractice = fileMenu->addAction(tr("Nozzle practice…"), this, &MainWindow::onPrepareNozzlePractice);
-    nozzlePractice->setIcon(QIcon(QStringLiteral(":/vortia/icons/sketch.svg")));
+    auto* flowSetup = fileMenu->addAction(tr("Flow configuration…"), this, [this]() { configureFlow(1); });
+    flowSetup->setObjectName(QStringLiteral("vortia-flow-setup-action"));
+    flowSetup->setIcon(QIcon(QStringLiteral(":/vortia/icons/solver.svg")));
+    auto* generateMesh = new QAction(QIcon(QStringLiteral(":/vortia/icons/mesh.svg")),tr("Generate mesh from sketch"),this);
+    generateMesh->setObjectName(QStringLiteral("vortia-generate-flow-mesh"));
+    connect(generateMesh,&QAction::triggered,this,&MainWindow::onGenerateFlowMesh);
     openResults->setIcon(QIcon(QStringLiteral(":/vortia/icons/view.svg")));
     fileMenu->addSeparator();
     fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
@@ -209,13 +217,13 @@ void MainWindow::buildMenusAndToolbar() {
     connect(geometryEditor, &QAction::triggered, this,
             [this]() { onNodeActivated(ProjectExplorerPanel::GeometryNode); });
     connect(meshEditor, &QAction::triggered, this,
-            [this]() { properties_->showNode(ProjectExplorerPanel::MeshNode); });
+            [this]() { if (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount()) configureFlow(0); else properties_->showNode(ProjectExplorerPanel::MeshNode); });
     connect(materialsEditor, &QAction::triggered, this,
-            [this]() { properties_->showNode(ProjectExplorerPanel::MaterialsNode); });
+            [this]() { if (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount()) configureFlow(1); else properties_->showNode(ProjectExplorerPanel::MaterialsNode); });
     connect(boundaryEditor, &QAction::triggered, this,
-            [this]() { properties_->showNode(ProjectExplorerPanel::BoundaryConditionsNode); });
+            [this]() { if (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount()) configureFlow(2); else properties_->showNode(ProjectExplorerPanel::BoundaryConditionsNode); });
     connect(solverEditor, &QAction::triggered, this,
-            [this]() { properties_->showNode(ProjectExplorerPanel::SolverNode); });
+            [this]() { if (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount()) configureFlow(3); else properties_->showNode(ProjectExplorerPanel::SolverNode); });
 
     auto* viewXY = new QAction(icon(QStyle::SP_ArrowUp), tr("XY"), this);
     auto* viewXZ = new QAction(icon(QStyle::SP_ArrowRight), tr("XZ"), this);
@@ -284,7 +292,7 @@ void MainWindow::buildMenusAndToolbar() {
     addGroup(homePage, tr("Import"), {openFoam, importStl, importFluent});
 
     auto* modelPage = newPage(tr("Model"));
-    addGroup(modelPage, tr("Tutorial"), {nozzlePractice});
+    addGroup(modelPage, tr("Flow"), {flowSetup, generateMesh});
     addGroup(modelPage, tr("Geometry & mesh"), {sketchEditor, geometryEditor, meshEditor});
     addGroup(modelPage, tr("Physics"), {materialsEditor, boundaryEditor});
     addGroup(modelPage, tr("Solver setup"), {solverEditor});
@@ -294,6 +302,12 @@ void MainWindow::buildMenusAndToolbar() {
     addGroup(simPage, tr("Execution"), {runAction_, cancelAction_});
 
     auto* resultsPage = newPage(tr("Results"));
+    auto* profileAction=new QAction(QIcon(QStringLiteral(":/vortia/icons/view.svg")),tr("Line profile…"),this);
+    connect(profileAction,&QAction::triggered,this,[this](){showLineProfile(this,viewport_,fieldCombo_->currentText());});
+    auto* edgeAction=new QAction(QIcon(QStringLiteral(":/vortia/icons/mesh.svg")),tr("Show cell edges"),this);
+    edgeAction->setCheckable(true);
+    connect(edgeAction,&QAction::toggled,this,[this](bool enabled){viewport_->showCellEdges(enabled);});
+    addGroup(resultsPage,tr("Inspect"),{profileAction,edgeAction});
     auto* fields = new QWidget(this);
     auto* fv = new QVBoxLayout(fields);
     fv->setContentsMargins(0, 0, 0, 0);
@@ -360,6 +374,7 @@ void MainWindow::buildDocks() {
         dirty_ = true;
         storeCurrentTab();
         refreshProjectTabTitle();
+        updateNozzleNotice();
     });
     centralLayout->addWidget(workspaceTabs_, 1);
     setCentralWidget(central);
@@ -460,6 +475,7 @@ void MainWindow::storeCurrentTab() {
     }
     tab.modified = dirty_;
     tab.resultVtm = lastVtmPath_;
+    tab.flowConfig = flowConfig_;
 }
 
 void MainWindow::refreshProjectTabTitle() {
@@ -516,13 +532,14 @@ void MainWindow::activateProjectTab(int index) {
     existingCaseDir_ = tab.externalCase;
     useExistingCase_ = tab.existingCase;
     setup_ = tab.setup;
+    flowConfig_ = tab.flowConfig;
     dirty_ = tab.modified;
     lastVtmPath_ = tab.resultVtm;
     updateNozzleNotice();
     properties_->setSetup(setup_);
     // An external case owns its physics dictionaries. Never show the cavity
     // editor as though it configured that case, or edit an uncoupled sketch.
-    properties_->setEnabled(!useExistingCase_);
+    properties_->setEnabled(!useExistingCase_ && flowConfig_.isEmpty());
     sketchEditor_->setReadOnly(useExistingCase_);
     if (sketchEditor_) {
         sketchEditor_->setNozzleDimensions(tab.nozzleDimensions);
@@ -577,7 +594,7 @@ void MainWindow::closeProjectTab(int index) {
 void MainWindow::onNewProject() {
     if (projectSwitchLocked()) return;
     addProjectTab(tr("Untitled %1").arg(++untitledCount_), makeCavity());
-    setProjectState(tr("New untitled project — default cavity template (Re=100)."));
+    setProjectState(tr("New project: draw a closed fluid domain, then configure its mesh and flow."));
 }
 
 void MainWindow::onOpenProject() {
@@ -651,8 +668,23 @@ bool MainWindow::openProjectDirectory(const QString& dir) {
                              tr("This project contains an invalid 2D sketch file."));
         return false;
     }
+    QJsonObject openedFlow;
+    QFile flowFile(QString::fromStdString((project->rootDir()/"flow-setup.json").string()));
+    if (flowFile.exists()) {
+        if (!flowFile.open(QIODevice::ReadOnly)) return false;
+        const auto flowDocument=QJsonDocument::fromJson(flowFile.readAll());
+        if (!flowDocument.isObject() || flowDocument.object().isEmpty()) {
+            QMessageBox::warning(this,tr("Open failed"),tr("The saved flow configuration is invalid.")); return false;
+        }
+        openedFlow=flowDocument.object();
+    }
     addProjectTab(QString::fromStdString(project->name()), openedSetup,
                   project->rootDir());
+    flowConfig_=openedFlow;
+    properties_->setEnabled(flowConfig_.isEmpty());
+    updateNozzleNotice();
+    const auto flowResult=latestVtmFile(QDir(flowConfig_.value("activeCase").toString()).filePath("VTK"));
+    if (!flowConfig_.isEmpty() && !flowResult.isEmpty()) onResultsReady(flowResult);
     sketchEditor_->setNozzleDimensions(staged.nozzleDimensions());
     sketchEditor_->setSketch(staged.sketch());
     storeCurrentTab();
@@ -668,7 +700,7 @@ bool MainWindow::saveProject() {
     if (useExistingCase_) {
         QMessageBox::information(this,tr("Existing OpenFOAM case"),
             tr("This case stores its geometry and physics in its own folder. It is not saved as a cavity project. "
-               "The nozzle preparation creates a new case whenever its dimensions are changed."));
+               "Open its editable source project to change geometry and generate a new mesh revision."));
         return false;
     }
     if (projectRoot_.empty()) {
@@ -676,7 +708,7 @@ bool MainWindow::saveProject() {
         if (dir.isEmpty())
             return false;
         const QString name = QInputDialog::getText(this, tr("Project name"), tr("Name:"), QLineEdit::Normal,
-                                                   QStringLiteral("cavity"));
+                                                   QStringLiteral("proyecto-flujo"));
         if (name.isEmpty())
             return false;
         auto project = Project::create((dir.toStdString() + "/" + name.toStdString()), name.toStdString());
@@ -711,9 +743,17 @@ bool MainWindow::saveProject() {
         storeCurrentTab();
         return false;
     }
+    if (!flowConfig_.isEmpty()) {
+        QSaveFile flowFile(QString::fromStdString((projectRoot_/"flow-setup.json").string()));
+        const auto data=QJsonDocument(flowConfig_).toJson();
+        if (!flowFile.open(QIODevice::WriteOnly) || flowFile.write(data)!=data.size() || !flowFile.commit()) {
+            QMessageBox::warning(this,tr("Save failed"),tr("The flow configuration could not be saved.")); return false;
+        }
+    }
     dirty_ = false;
     refreshProjectTabTitle();
     storeCurrentTab();
+    updateNozzleNotice();
     setProjectState(tr("Saved project: %1").arg(QString::fromStdString(project->name())));
     return true;
 }
@@ -858,6 +898,12 @@ void MainWindow::onOpenExistingCase() {
 }
 
 void MainWindow::onNodeActivated(int nodeId) {
+    if (!useExistingCase_ && (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount())) {
+        if (nodeId==ProjectExplorerPanel::MeshNode) { configureFlow(0);return; }
+        if (nodeId==ProjectExplorerPanel::MaterialsNode) { configureFlow(1);return; }
+        if (nodeId==ProjectExplorerPanel::BoundaryConditionsNode) { configureFlow(2);return; }
+        if (nodeId==ProjectExplorerPanel::SolverNode) { configureFlow(3);return; }
+    }
     if (!useExistingCase_) properties_->showNode(nodeId);
     if (workspaceTabs_) {
         workspaceTabs_->setCurrentWidget(
@@ -867,7 +913,7 @@ void MainWindow::onNodeActivated(int nodeId) {
 }
 
 void MainWindow::onApplySetup(const CaseSetup& setup) {
-    if (useExistingCase_) return;
+    if (useExistingCase_ || !flowConfig_.isEmpty()) return;
     setup_ = setup;
     dirty_ = true;
     storeCurrentTab();
@@ -877,6 +923,81 @@ void MainWindow::onApplySetup(const CaseSetup& setup) {
 
 void MainWindow::onValidationReport(const QString& text) {
     console_->appendSolverOutput(text + "\n");
+}
+
+void MainWindow::configureFlow(int page) {
+    if (projectSwitchLocked()) return;
+    if (useExistingCase_) {
+        QMessageBox::information(this,tr("Imported case"),tr("Open the editable source project to change geometry and flow settings. Existing imported case files are preserved."));
+        return;
+    }
+    const auto edited=editFlowSetup(this,sketchEditor_->sketch(),flowConfig_,page);
+    if (edited.isEmpty()) return;
+    auto old=flowConfig_; old.remove("activeCase"); old.remove("preparedHash");
+    if (old!=edited) flowConfig_=edited;
+    dirty_=true;properties_->setEnabled(false);storeCurrentTab();refreshProjectTabTitle();updateNozzleNotice();
+}
+
+bool MainWindow::ensureFlowEnvironment() {
+    ensureOpenFoamInstallation();
+    if (!hasOfInstallation_) {
+        QMessageBox::warning(this,tr("Backend unavailable"),tr("OpenFOAM v2606 is required for compressible flow."));
+        return false;
+    }
+    if (ofEnvironment_.empty()) {
+        PosixProcessRunner processes;
+        const auto captured=openfoam::Detector::captureEnvironment(ofInstallation_,processes);
+        if (!captured) { QMessageBox::warning(this,tr("Backend unavailable"),QString::fromStdString(captured.error().describe()));return false; }
+        ofEnvironment_=captured.value();
+        ofCaps_=openfoam::Detector::verifyCapabilities(ofInstallation_,ofEnvironment_);
+    }
+    std::string version;
+    for (const auto& [key,value]:ofEnvironment_) if (key=="WM_PROJECT_VERSION") version=value;
+    if (version!="v2606" && version!="2606") {
+        QMessageBox::warning(this,tr("Backend unavailable"),tr("OpenFOAM v2606 is required for compressible flow."));return false;
+    }
+    return true;
+}
+
+QString MainWindow::flowFingerprint() const {
+    auto cfg=flowConfig_;cfg.remove("activeCase");cfg.remove("preparedHash");
+    QFile sketch(QString::fromStdString((projectRoot_/"geometry/working-sketch.vsketch.json").string()));
+    if (!sketch.open(QIODevice::ReadOnly)) return {};
+    const auto inputs=QJsonDocument(cfg).toJson(QJsonDocument::Compact)+sketch.readAll();
+    return QString::fromLatin1(QCryptographicHash::hash(inputs,QCryptographicHash::Sha256).toHex());
+}
+
+bool MainWindow::ensureFlowCase(bool force) {
+    if (!sketchEditor_->sketch().closed()) {
+        QMessageBox::warning(this,tr("Invalid fluid domain"),tr("Close the fluid contour before generating its mesh."));return false;
+    }
+    if (flowConfig_.isEmpty()) { configureFlow(0); if (flowConfig_.isEmpty()) return false; }
+    if (!ensureFlowEnvironment() || !saveProject()) return false;
+    const auto fingerprint=flowFingerprint();
+    const auto previous=flowConfig_.value("activeCase").toString();
+    if (!force && !fingerprint.isEmpty() && fingerprint==flowConfig_.value("preparedHash").toString()
+        && QFileInfo::exists(previous+"/constant/polyMesh/boundary")) return true;
+    const auto caseDir=generateFlowCase(this,
+        QString::fromStdString((projectRoot_/"geometry/working-sketch.vsketch.json").string()),
+        flowConfig_,QString::fromStdString(projectRoot_.string()),ofEnvironment_);
+    if (caseDir.isEmpty()) return false;
+    flowConfig_.insert("activeCase",caseDir);flowConfig_.insert("preparedHash",fingerprint);
+    dirty_=true;storeCurrentTab();
+    if (!saveProject()) return false;
+    console_->appendSolverOutput(tr("New mesh revision: %1\n").arg(caseDir));
+    updateNozzleNotice();
+    return true;
+}
+
+void MainWindow::onGenerateFlowMesh() {
+    if (projectSwitchLocked() || useExistingCase_) return;
+    if (!ensureFlowCase(true)) return;
+    JobController::JobSpec spec;
+    spec.caseDir=flowConfig_.value("activeCase").toString().toStdString();
+    spec.setup=setup_;spec.caps=ofCaps_;spec.environment=ofEnvironment_;
+    spec.meshOnly=true;
+    setJobUiRunning(true);
+    if (!jobController_->start(spec)) setJobUiRunning(false);
 }
 
 void MainWindow::onRun() {
@@ -911,9 +1032,19 @@ void MainWindow::onRun() {
         return;
     }
 
+    if (!useExistingCase_ && projectRoot_.empty() && sketchEditor_->sketch().segmentCount()==0) {
+        QMessageBox::information(this,tr("Fluid domain required"),tr("Draw a closed fluid contour or open an existing configured project before calculating."));return;
+    }
+    if (!useExistingCase_ && sketchEditor_->sketch().segmentCount() && flowConfig_.isEmpty()) {
+        configureFlow(1); if (flowConfig_.isEmpty()) return;
+    }
     std::filesystem::path caseDir;
     std::string detectedSolver;
-    if (useExistingCase_ && !existingCaseDir_.empty()) {
+    if (!useExistingCase_ && !flowConfig_.isEmpty()) {
+        if (!ensureFlowCase()) return;
+        caseDir=flowConfig_.value("activeCase").toString().toStdString();
+        detectedSolver="vortiaCentralFoam";
+    } else if (useExistingCase_ && !existingCaseDir_.empty()) {
         caseDir = existingCaseDir_;
         console_->appendSolverOutput(tr("Using existing case: %1\n").arg(QString::fromStdString(caseDir.string())));
         // Detect the solver from controlDict.
@@ -991,9 +1122,17 @@ void MainWindow::onCancel() {
 
 void MainWindow::updateNozzleNotice() {
     const auto caseDir = useExistingCase_ ? existingCaseDir_ :
-        (projectRoot_.empty() ? std::filesystem::path{} : projectRoot_ / "case");
+        (!flowConfig_.isEmpty() ? std::filesystem::path(flowConfig_.value("activeCase").toString().toStdString()) :
+        (projectRoot_.empty() ? std::filesystem::path{} : projectRoot_ / "case"));
+    const bool generic = !flowConfig_.isEmpty() || std::filesystem::exists(caseDir/".vortia-flow-case");
     const bool nozzle = !caseDir.empty() && openfoam::isNozzlePracticeCase(caseDir);
-    nozzleNotice_->setVisible(nozzle);
+    nozzleNotice_->setVisible(nozzle || generic);
+    if (generic) {
+        QString text=tr("Experimental compressible flow: convergence, mass balance and mesh dependence must be checked. Geometry and settings remain editable in this project; regenerating the mesh creates a new calculation revision.");
+        if (!useExistingCase_ && (dirty_ || flowConfig_.value("preparedHash").toString().isEmpty() || flowConfig_.value("preparedHash").toString()!=flowFingerprint()))
+            text+=tr(" Mesh inputs have changed. Generate a new mesh revision before calculating; any loaded results belong to the earlier revision.");
+        nozzleNotice_->setText(text);return;
+    }
     if (!nozzle) return;
     QString notice = tr("Experimental nozzle: results remain provisional. Convergence and mesh dependence have not been established.");
     const auto balance = openfoam::nozzleMassBalance(caseDir);
@@ -1049,14 +1188,7 @@ void MainWindow::onResultsReady(const QString& vtmPath) {
     }
 }
 
-void MainWindow::onPrepareNozzlePractice() {
-    if (projectSwitchLocked()) return;
-    const QString path=createNozzlePractice(this);
-    if (!path.isEmpty() && openProjectDirectory(path)) {
-        workspaceTabs_->setCurrentWidget(sketchEditor_);
-        setProjectState(tr("Nozzle case prepared. Review the geometry, then run the simulation. Convergence is not yet established."));
-    }
-}
+
 
 void MainWindow::onOpenResults() {
     if (projectSwitchLocked()) return;
