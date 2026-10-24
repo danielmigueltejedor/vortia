@@ -113,7 +113,7 @@
     <message><source>Opened project: %1</source><translation>Proyecto abierto: %1</translation></message>
     <message><source>Saved project: %1</source><translation>Proyecto guardado: %1</translation></message>
     <message><source>Loaded results: %1\n</source><translation>Resultados cargados: %1\n</translation></message>
-    <message><source>Run finished: %1</source><translation>Simulación terminada: %1</translation></message>
+    <message><source>Run finished: %1</source><translation>Ejecución terminada: %1</translation></message>
     <message><source>Run failed: %1</source><translation>La simulación ha fallado: %1</translation></message>
     <message><source>Cancellation requested…\n</source><translation>Cancelación solicitada…\n</translation></message>
     <message><source>No OpenFOAM installation found.\nSet VORTIA_OPENFOAM_DIR or install OpenFOAM.</source><translation>No se ha encontrado OpenFOAM.\nConfigura VORTIA_OPENFOAM_DIR o instala OpenFOAM.</translation></message>
@@ -765,6 +765,8 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
             <source>Mesh export failed.</source>
             <translation>Error al exportar la malla.</translation>
         </message>
+        <message><source>Finished at iteration %1; check convergence.</source><translation>Cálculo finalizado en la iteración %1; comprueba la convergencia.</translation></message>
+        <message><source>Finished at t=%1</source><translation>Cálculo finalizado en t=%1</translation></message>
     </context>
 
 <context>

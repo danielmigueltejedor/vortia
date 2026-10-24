@@ -1,5 +1,6 @@
 #include "vortia/visualization/LineSampling.hpp"
 #include <vtkCellDataToPointData.h>
+#include <vtkCell.h>
 #include <vtkCompositeDataSet.h>
 #include <vtkCompositeDataIterator.h>
 #include <vtkDataSet.h>
@@ -15,12 +16,23 @@
 namespace vortia {
 namespace {
 vtkDataSet* volume(vtkDataObject* data) {
-    auto* best=vtkDataSet::SafeDownCast(data);
+    vtkDataSet* best=nullptr;
+    int bestDimension=-1;
+    const auto consider=[&](vtkDataSet* candidate) {
+        if(!candidate||candidate->GetNumberOfCells()==0)return;
+        // OpenFOAM wedge patches can have as many cells as the fluid block.
+        // Prefer volume cells independently of traversal order and patch size.
+        const int dimension=candidate->GetCell(0)->GetCellDimension();
+        if(dimension>bestDimension || (dimension==bestDimension &&
+           (!best||candidate->GetNumberOfCells()>best->GetNumberOfCells()))) {
+            best=candidate;bestDimension=dimension;
+        }
+    };
+    consider(vtkDataSet::SafeDownCast(data));
     if(auto* composite=vtkCompositeDataSet::SafeDownCast(data)) {
         auto iterator=vtkSmartPointer<vtkCompositeDataIterator>::Take(composite->NewIterator());
         for(iterator->InitTraversal();!iterator->IsDoneWithTraversal();iterator->GoToNextItem())
-            if(auto* candidate=vtkDataSet::SafeDownCast(iterator->GetCurrentDataObject()))
-                if(!best||candidate->GetNumberOfCells()>best->GetNumberOfCells())best=candidate;
+            consider(vtkDataSet::SafeDownCast(iterator->GetCurrentDataObject()));
     }
     if(!best||best->GetNumberOfCells()==0)throw std::runtime_error("No field data is loaded");
     return best;

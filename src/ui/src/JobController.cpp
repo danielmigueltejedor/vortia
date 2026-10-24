@@ -114,7 +114,9 @@ void JobController::runJob(JobSpec spec) {
                 summary = QStringLiteral("Solver failed (exit %1)").arg(solverStep->process.exitCode);
             } else {
                 double finalT = solverStep->finalTime > 0 ? solverStep->finalTime : last.time;
-                summary = QStringLiteral("Finished at t=%1").arg(finalT, 0, 'g', 6);
+                summary = (spec.solverOverride=="vortiaCentralFoam"
+                    ? tr("Finished at iteration %1; check convergence.")
+                    : tr("Finished at t=%1")).arg(finalT, 0, 'g', 6);
                 // Convert results to VTK for visualization (best-effort).
                 ProcessRequest vtkReq;
                 vtkReq.executable = "foamToVTK";
