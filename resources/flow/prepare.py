@@ -164,7 +164,7 @@ def fields(root, cfg, groups):
         nu = chi*mat['mu']*gasr*t/p
         bcs['p'][name] = ('type zeroGradient;' if kind == 'wall' else pressure_outlet(local) if kind == 'outlet'
             else f'type totalPressure; p0 uniform {p}; U U; phi phi; rho rho; psi thermo:psi; gamma {gamma}; value uniform {p};')
-        bcs['U'][name] = ('type noSlip;' if kind == 'wall' else reservoir_velocity(local) if kind == 'reservoir'
+        bcs['U'][name] = ('type noSlip;' if kind == 'wall' else reservoir_velocity(local) if kind in ('reservoir','inlet')
             else 'type pressureInletOutletVelocity; value uniform (0 0 0);')
         bcs['T'][name] = ('type zeroGradient;' if kind == 'wall' else
             f'type {"totalTemperature" if kind == "inlet" else "inletOutletTotalTemperature"}; T0 uniform {t}; U U; phi phi; psi thermo:psi; gamma {gamma}; value uniform {t};')
