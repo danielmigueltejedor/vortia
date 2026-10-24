@@ -454,7 +454,7 @@ void MainWindow::saveSettings() {
 }
 
 void MainWindow::updateViewport() {
-    viewport_->showBoxDomain(useExistingCase_ ? nullptr : &setup_.domain);
+    viewport_->showBoxDomain(useExistingCase_ || !flowConfig_.isEmpty() ? nullptr : &setup_.domain);
     viewport_->setDarkTheme(ThemeManager::fromName(
         settings_->value(QStringLiteral("theme"), QStringLiteral("dark")).toString()) ==
         ThemeManager::Theme::Dark);
@@ -545,6 +545,7 @@ void MainWindow::activateProjectTab(int index) {
         sketchEditor_->setNozzleDimensions(tab.nozzleDimensions);
         sketchEditor_->setSketch(tab.sketch);
     }
+    viewport_->clearScene();
     updateViewport();
     if (!lastVtmPath_.isEmpty() && QFileInfo::exists(lastVtmPath_)) {
         try {
@@ -682,6 +683,7 @@ bool MainWindow::openProjectDirectory(const QString& dir) {
                   project->rootDir());
     flowConfig_=openedFlow;
     properties_->setEnabled(flowConfig_.isEmpty());
+    updateViewport();
     updateNozzleNotice();
     const auto flowResult=latestVtmFile(QDir(flowConfig_.value("activeCase").toString()).filePath("VTK"));
     if (!flowConfig_.isEmpty() && !flowResult.isEmpty()) onResultsReady(flowResult);
@@ -1129,7 +1131,9 @@ void MainWindow::updateNozzleNotice() {
     nozzleNotice_->setVisible(nozzle || generic);
     if (generic) {
         QString text=tr("Experimental compressible flow: convergence, mass balance and mesh dependence must be checked. Geometry and settings remain editable in this project; regenerating the mesh creates a new calculation revision.");
-        if (!useExistingCase_ && (dirty_ || flowConfig_.value("preparedHash").toString().isEmpty() || flowConfig_.value("preparedHash").toString()!=flowFingerprint()))
+        if (!useExistingCase_ && flowConfig_.value("activeCase").toString().isEmpty())
+            text+=tr(" Generate a mesh from the sketch before calculating.");
+        else if (!useExistingCase_ && (dirty_ || flowConfig_.value("preparedHash").toString().isEmpty() || flowConfig_.value("preparedHash").toString()!=flowFingerprint()))
             text+=tr(" Mesh inputs have changed. Generate a new mesh revision before calculating; any loaded results belong to the earlier revision.");
         nozzleNotice_->setText(text);return;
     }

@@ -353,7 +353,8 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 
     <message><source> Mass imbalance, iterations %1-%2: mean %3%, maximum %4% of the principal inlet flow (%5 samples).</source><translation> Desequilibrio de masa, iteraciones %1–%2: media %3 %, máximo %4 % del caudal principal de entrada (%5 muestras).</translation></message>
 <message><source> Mesh inputs have changed. Generate a new mesh revision before calculating; any loaded results belong to the earlier revision.</source><translation> Han cambiado los datos de la malla. Genera una nueva revisión antes de calcular; los resultados cargados pertenecen a la revisión anterior.</translation></message>
-</context>
+    <message><source> Generate a mesh from the sketch before calculating.</source><translation> Genera la malla desde el croquis antes de calcular.</translation></message>
+  </context>
 <context>
     <name>vortia::PropertiesPanel</name>
     <message><source>Apply</source><translation>Aplicar</translation></message>

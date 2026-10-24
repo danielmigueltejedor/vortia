@@ -31,10 +31,27 @@
 #include <QTimer>
 #include <QTranslator>
 #include <QTableWidget>
+#include <vtkNew.h>
+#include <vtkImageData.h>
+#include <vtkMultiBlockDataSet.h>
+#include <vtkXMLMultiBlockDataWriter.h>
+#include <vtkDoubleArray.h>
+#include <vtkPointData.h>
+#include <vtkAppendFilter.h>
+#include <vtkUnstructuredGrid.h>
+#include <vtkRenderer.h>
+#include <vtkRendererCollection.h>
+#include <vtkRenderWindow.h>
+#include <vtkActorCollection.h>
 
 namespace vortia {
 // Exercise document operations directly without native file-picker automation.
 struct WorkspaceTestAccess {
+    static void result(MainWindow& w,const QString& path) {w.onResultsReady(path);}
+    static auto bounds(MainWindow& w) {return w.viewport_->fieldBounds();}
+    static int actors(MainWindow& w) {
+        return w.viewport_->renderWindow()->GetRenderers()->GetFirstRenderer()->GetActors()->GetNumberOfItems();
+    }
     static void flow(MainWindow& w,const QJsonObject& value) {w.flowConfig_=value;w.dirty_=true;w.storeCurrentTab();}
     static QJsonObject flow(const MainWindow& w) {return w.flowConfig_;}
     static void add(MainWindow& w, const QString& name) { w.addProjectTab(name, w.setup_); }
@@ -487,6 +504,30 @@ TEST(Workspace, EmbeddedEditorEscapeReturnsToViewport) {
     tabs->setCurrentIndex(1);
     WorkspaceTestAccess::editor(window).reject();
     EXPECT_EQ(tabs->currentIndex(), 0);
+}
+
+TEST(Workspace, ResultActorsAndSamplingNeverLeakIntoAnotherProject) {
+    QTemporaryDir folder;ASSERT_TRUE(folder.isValid());
+    vtkNew<vtkImageData> grid;grid->SetDimensions(2,2,2);
+    vtkNew<vtkDoubleArray> field;field->SetName("p");field->SetNumberOfTuples(8);field->Fill(101325);
+    grid->GetPointData()->AddArray(field);
+    vtkNew<vtkAppendFilter> volume;volume->AddInputData(grid);volume->Update();
+    vtkNew<vtkMultiBlockDataSet> blocks;blocks->SetBlock(0,volume->GetOutput());
+    vtkNew<vtkXMLMultiBlockDataWriter> writer;
+    const auto path=folder.filePath("fluid.vtm");writer->SetFileName(path.toStdString().c_str());writer->SetInputData(blocks);
+    ASSERT_EQ(writer->Write(),1);
+    MainWindow window;WorkspaceTestAccess::result(window,path);
+    EXPECT_NO_THROW(WorkspaceTestAccess::bounds(window));
+    ASSERT_EQ(WorkspaceTestAccess::actors(window),1);
+    WorkspaceTestAccess::add(window,"Empty project");
+    EXPECT_EQ(WorkspaceTestAccess::actors(window),1); // Only this project's domain outline.
+    EXPECT_THROW(WorkspaceTestAccess::bounds(window),std::runtime_error);
+    WorkspaceTestAccess::select(window,0);
+    EXPECT_NO_THROW(WorkspaceTestAccess::bounds(window));
+    EXPECT_EQ(WorkspaceTestAccess::actors(window),1);
+    WorkspaceTestAccess::select(window,1);
+    EXPECT_EQ(WorkspaceTestAccess::actors(window),1);
+    EXPECT_THROW(WorkspaceTestAccess::bounds(window),std::runtime_error);
 }
 
 TEST(WorkspaceFlow, GeneralSettingsPersistAndRemainSeparateBetweenTabs) {
