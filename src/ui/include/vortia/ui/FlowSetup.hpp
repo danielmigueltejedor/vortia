@@ -10,4 +10,8 @@ QJsonObject editFlowSetup(QWidget*, const Sketch2D&, const QJsonObject&, int pag
 QString generateFlowCase(QWidget*, const QString& sketchPath, const QJsonObject&,
                          const QString& projectRoot,
                          const std::vector<std::pair<std::string,std::string>>& environment);
+// Update only runtime controls in a staged dictionary, preserving all saved fields.
+// Returns an error message, or an empty string on success.
+QString updateFlowRunControls(const QString& caseDir, const QJsonObject& solver,
+                             const std::vector<std::pair<std::string,std::string>>& environment);
 }

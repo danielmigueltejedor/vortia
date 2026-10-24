@@ -51,4 +51,17 @@ class GeneralFlowTest(unittest.TestCase):
             self.assertIn('molWeight 24',(root/'constant/thermophysicalProperties').read_text())
             self.assertNotIn('axis {',(root/'0/U').read_text())
 
+    def test_total_pressure_inlet_uses_a_bounded_normal_characteristic_velocity(self):
+        s,c=inputs();c['boundaries'][3].update(pressure=3640000,temperature=2900)
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'0').mkdir();(root/'constant').mkdir()
+            fields(root,c,validate(s,c))
+            velocity=(root/'0/U').read_text()
+            self.assertIn('name reservoirCharacteristicVelocity_inlet;',velocity)
+            self.assertIn('totalT = 2900;',velocity)
+            self.assertIn('const scalar q = min(cstar',velocity)
+            self.assertIn('ub[i] = -n[i]*q;',velocity)
+            self.assertIn('p0 uniform 3640000',(root/'0/p').read_text())
+            self.assertIn('T0 uniform 2900',(root/'0/T').read_text())
+
 if __name__=='__main__':unittest.main()

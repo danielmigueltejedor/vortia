@@ -45,7 +45,7 @@ private slots:
     void onGenerateFlowMesh();
     bool ensureFlowCase(bool force = false);
     bool ensureFlowEnvironment();
-    QString flowFingerprint() const;
+    QString flowFingerprint(bool includeRunControls = false) const;
     void onOpenResults();
     void onNodeActivated(int nodeId);
     void onApplySetup(const CaseSetup& setup);
