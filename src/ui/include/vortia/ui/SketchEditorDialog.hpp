@@ -10,6 +10,7 @@ class QDoubleSpinBox;
 class QLabel;
 class QTableWidget;
 class QWidget;
+class QPushButton;
 
 namespace vortia {
 
@@ -29,6 +30,7 @@ public:
     bool readSketchFile(const QString& path);
     void exportNozzleMesh();
     void exportWedgeMesh();
+    void reject() override;
 
 signals:
     void sketchChanged();
@@ -43,11 +45,14 @@ private:
     void movePoint();
     void split();
     void changeLength();
+    void fillet();
+    void changeRadius();
     void save();
     void load();
     Sketch2D sketch_;
     NozzleDimensions nozzleDims_;
     SketchCanvas2D* canvas_{nullptr};
+    QPushButton* drawButton_{nullptr};
     QTableWidget* table_{nullptr};
     QLabel* status_{nullptr};
     QLabel* selected_{nullptr};

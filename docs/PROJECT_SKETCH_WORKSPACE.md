@@ -8,9 +8,39 @@ Vortia now exposes **project document tabs** and **editor tabs** separately:
   split segments and editable lengths).
 
 The 2D sketch is saved automatically to
-\`<project>/geometry/working-sketch.vsketch.json\` when the Vortia project
+`<project>/geometry/working-sketch.vsketch.json` when the Vortia project
 is saved, and restored when that project is reopened. The explicit Load/Save
 Sketch buttons remain available for importing/exporting a standalone profile.
+
+Opening an already open project focuses its existing tab, preserving unsaved
+edits. Invalid saved setup/sketch data aborts opening before changing the active
+document; it is not silently replaced by the default cavity or an empty sketch.
+Loading legacy sketches without nozzle dimensions resets the parameter defaults
+instead of inheriting them from another document. Standalone import asks before
+replacing an existing profile. Each unsaved project's generated case uses its own
+temporary directory, retained until that document is closed.
+
+New/Open/Close and switching projects remain locked until the solver completion
+signal is delivered. Completed workers are joined before another run can start.
+Imported STL/CFF visualization actors remain transient and are not saved with
+the project. A planar nozzle dictionary export is available separately; it does
+not configure the solver used by the 3D CFD workspace.
+
+Spanish catalogs use the actual namespaced Qt class contexts. The resource test
+calls the same class `tr()` functions as the application; the workspace test also
+checks translated tree labels and renders the bundled vector icons.
+Standard confirmation buttons also use the Spanish catalog. Dense profiles
+show dimensions only where labels fit, with the selected segment's measurement
+always visible; short wall segments and vertex numbers no longer obscure the
+nozzle contour. Their exact values remain available by selecting them.
+
+## Automated regression checks
+The macOS UI build runs `vortia_workspace` with the Qt offscreen platform. It
+checks nozzle dimension dialogs, exact segment edits and JSON round trips,
+independent project setups/profiles, save/reopen, duplicate opens, malformed
+files, canceling a dirty-tab close, project locks, embedded-editor Escape,
+repeated worker starts and Spanish/icon resources. These are UI/state checks,
+not CFD validation. Test preferences and project files use temporary folders.
 
 **Crucial limitation:** these 2D profiles are NOT yet connected to a curved,
 axisymmetric OpenFOAM mesher or a compressible solver. The 3D CFD view still

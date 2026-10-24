@@ -25,6 +25,7 @@
 #include <QFileInfo>
 #include <QFile>
 #include <QDir>
+#include <QTemporaryDir>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFrame>
@@ -125,7 +126,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setProjectState(tr("New untitled project — default cavity template (Re=100)."));
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    // Stop/join the worker before documents release their temporary case dirs.
+    delete jobController_;
+}
 
 void MainWindow::buildMenusAndToolbar() {
     // Native macOS menu actions remain the source of truth. All ribbon
@@ -136,6 +140,9 @@ void MainWindow::buildMenusAndToolbar() {
     auto* openProject = fileMenu->addAction(tr("Open Project…"), this, &MainWindow::onOpenProject, QKeySequence::Open);
     auto* openFoam = fileMenu->addAction(tr("Open OpenFOAM Case…"), this, &MainWindow::onOpenExistingCase);
     auto* saveProject = fileMenu->addAction(tr("Save Project"), this, &MainWindow::onSaveProject, QKeySequence::Save);
+    newProjectAction_ = newProject;
+    openProjectAction_ = openProject;
+    openCaseAction_ = openFoam;
     fileMenu->addSeparator();
     auto* importStl = fileMenu->addAction(tr("Import STL…"), this, &MainWindow::onImportStl);
     auto* importFluent = fileMenu->addAction(tr("Import ANSYS Fluent…"), this, &MainWindow::onImportFluent);
@@ -193,7 +200,7 @@ void MainWindow::buildMenusAndToolbar() {
             workspaceTabs_->setCurrentWidget(sketchEditor_);
     });
     connect(geometryEditor, &QAction::triggered, this,
-            [this]() { properties_->showNode(ProjectExplorerPanel::GeometryNode); });
+            [this]() { onNodeActivated(ProjectExplorerPanel::GeometryNode); });
     connect(meshEditor, &QAction::triggered, this,
             [this]() { properties_->showNode(ProjectExplorerPanel::MeshNode); });
     connect(materialsEditor, &QAction::triggered, this,
@@ -456,6 +463,7 @@ void MainWindow::refreshProjectTabTitle() {
 void MainWindow::addProjectTab(const QString& name, CaseSetup setup,
                               const std::filesystem::path& root,
                               const std::filesystem::path& caseDir) {
+    if (projectSwitchLocked()) return;
     storeCurrentTab();
     ProjectDocument doc;
     doc.name = name;
@@ -478,7 +486,7 @@ void MainWindow::activateProjectTab(int index) {
     if (index < 0 || static_cast<std::size_t>(index) >= documents_.size()
         || index == activeProjectTab_)
         return;
-    if (cancelAction_ && cancelAction_->isEnabled()) {
+    if (projectSwitchLocked()) {
         // A solver run always belongs to the active case. Do not allow the
         // result/console to be attributed to a different document.
         QSignalBlocker block(projectTabs_);
@@ -515,7 +523,7 @@ void MainWindow::activateProjectTab(int index) {
 
 void MainWindow::closeProjectTab(int index) {
     if (index < 0 || static_cast<std::size_t>(index) >= documents_.size()
-        || (cancelAction_ && cancelAction_->isEnabled()))
+        || projectSwitchLocked())
         return;
     storeCurrentTab();
     const auto& tab = documents_[static_cast<std::size_t>(index)];
@@ -524,6 +532,7 @@ void MainWindow::closeProjectTab(int index) {
             tr("Discard unsaved changes in %1?").arg(tab.name),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
         return;
+    const int oldActive = activeProjectTab_;
     {
         QSignalBlocker block(projectTabs_);
         documents_.erase(documents_.begin() + index);
@@ -533,7 +542,9 @@ void MainWindow::closeProjectTab(int index) {
     if (documents_.empty()) {
         addProjectTab(tr("Untitled %1").arg(++untitledCount_), makeCavity());
     } else {
-        const int next = std::min(index, static_cast<int>(documents_.size()) - 1);
+        const int next = index == oldActive
+            ? std::min(index, static_cast<int>(documents_.size()) - 1)
+            : oldActive - (index < oldActive ? 1 : 0);
         {
             QSignalBlocker block(projectTabs_);
             projectTabs_->setCurrentIndex(next);
@@ -543,63 +554,98 @@ void MainWindow::closeProjectTab(int index) {
 }
 
 void MainWindow::onNewProject() {
+    if (projectSwitchLocked()) return;
     addProjectTab(tr("Untitled %1").arg(++untitledCount_), makeCavity());
     setProjectState(tr("New untitled project — default cavity template (Re=100)."));
 }
 
 void MainWindow::onOpenProject() {
+    if (projectSwitchLocked()) return;
     const QString dir = QFileDialog::getExistingDirectory(this, tr("Open Vortia Project"));
     if (dir.isEmpty())
         return;
-    auto project = Project::open(dir.toStdString());
+    openProjectDirectory(dir);
+}
+
+bool MainWindow::openProjectDirectory(const QString& dir) {
+    if (projectSwitchLocked()) return false;
+    // Reopening a directory must focus its document, never create competing
+    // in-memory copies that can overwrite each other's saved sketch.
+    const QString canonical = QFileInfo(dir).canonicalFilePath();
+    for (std::size_t i = 0; i < documents_.size(); ++i) {
+        const auto& doc = documents_[i];
+        const auto path = doc.root.empty() ? doc.externalCase : doc.root;
+        if (!canonical.isEmpty() && !path.empty()
+            && QFileInfo(QString::fromStdString(path.string())).canonicalFilePath() == canonical) {
+            projectTabs_->setCurrentIndex(static_cast<int>(i));
+            return true;
+        }
+    }
+    // Native folder pickers may append a slash; filesystem::path::filename()
+    // would then be empty and erase the project tab label on activation.
+    const QString normalizedDir = canonical.isEmpty() ? dir : canonical;
+    auto project = Project::open(normalizedDir.toStdString());
     if (!project) {
         // Not a Vortia project — maybe it's an OpenFOAM case directory.
-        if (std::filesystem::exists(dir.toStdString() + "/system/controlDict")) {
-            addProjectTab(QFileInfo(dir).fileName(), makeCavity(),
-                          {}, std::filesystem::path(dir.toStdString()));
+        if (!std::filesystem::exists(std::filesystem::path(dir.toStdString()) / std::string(Project::kManifestFileName))
+            && std::filesystem::exists(dir.toStdString() + "/system/controlDict")) {
+            addProjectTab(QFileInfo(normalizedDir).fileName(), makeCavity(),
+                          {}, std::filesystem::path(normalizedDir.toStdString()));
             setProjectState(tr("Opened existing OpenFOAM case: %1").arg(dir));
             console_->appendSolverOutput(tr("Opened existing OpenFOAM case: %1\n").arg(dir));
-            return;
+            return true;
         }
         QMessageBox::warning(this, tr("Open failed"), QString::fromStdString(project.error().describe()));
-        return;
+        return false;
     }
     CaseSetup openedSetup = makeCavity();
     if (!project->setupJson().empty()) {
         auto loaded = caseSetupFromJson(project->setupJson());
         if (loaded)
             openedSetup = loaded.value();
-        else
+        else {
             QMessageBox::warning(this, tr("Open warning"),
                                  tr("Case setup could not be fully restored: %1")
                                      .arg(QString::fromStdString(loaded.error().describe())));
+            return false;
+        }
     }
-    if (!project->backendFingerprint().empty())
-        ofInstallation_ = openfoam::Installation{}; // cleared; re-detect on run
-    addProjectTab(QString::fromStdString(project->name()), openedSetup,
-                  project->rootDir());
+    // Parse into a staging editor before changing any active document. A bad
+    // saved profile must never become an empty sketch that Save overwrites.
+    SketchEditorDialog staged;
     const auto sketchPath = project->rootDir() / "geometry" / "working-sketch.vsketch.json";
     if (std::filesystem::exists(sketchPath) &&
-        !sketchEditor_->readSketchFile(QString::fromStdString(sketchPath.string())))
+        !staged.readSketchFile(QString::fromStdString(sketchPath.string()))) {
         QMessageBox::warning(this, tr("Sketch load failed"),
                              tr("This project contains an invalid 2D sketch file."));
+        return false;
+    }
+    addProjectTab(QString::fromStdString(project->name()), openedSetup,
+                  project->rootDir());
+    sketchEditor_->setNozzleDimensions(staged.nozzleDimensions());
+    sketchEditor_->setSketch(staged.sketch());
     storeCurrentTab();
     setProjectState(tr("Opened project: %1").arg(QString::fromStdString(project->name())));
+    return true;
 }
 
 void MainWindow::onSaveProject() {
+    saveProject();
+}
+
+bool MainWindow::saveProject() {
     if (projectRoot_.empty()) {
         const QString dir = QFileDialog::getExistingDirectory(this, tr("Choose project location"));
         if (dir.isEmpty())
-            return;
+            return false;
         const QString name = QInputDialog::getText(this, tr("Project name"), tr("Name:"), QLineEdit::Normal,
                                                    QStringLiteral("cavity"));
         if (name.isEmpty())
-            return;
+            return false;
         auto project = Project::create((dir.toStdString() + "/" + name.toStdString()), name.toStdString());
         if (!project) {
             QMessageBox::warning(this, tr("Save failed"), QString::fromStdString(project.error().describe()));
-            return;
+            return false;
         }
         projectRoot_ = project->rootDir();
     }
@@ -607,18 +653,17 @@ void MainWindow::onSaveProject() {
     auto project = Project::open(projectRoot_);
     if (!project) {
         QMessageBox::warning(this, tr("Save failed"), QString::fromStdString(project.error().describe()));
-        return;
+        return false;
     }
     project->setName(projectRoot_.filename().string());
     project->setSetupJson(caseSetupToJson(setup_));
     if (hasOfInstallation_)
         project->setBackendFingerprint(ofInstallation_.fingerprint());
-    if (dirty_ == false) { /* state untouched */ }
     if (std::filesystem::exists(projectRoot_ / "case" / openfoam::CaseWriter::kMarkerFile))
         project->setCaseState(Project::CaseState::Configured);
     if (auto saved = project->save(); !saved) {
         QMessageBox::warning(this, tr("Save failed"), QString::fromStdString(saved.error().describe()));
-        return;
+        return false;
     }
     const auto sketchPath = projectRoot_ / "geometry" / "working-sketch.vsketch.json";
     if (!sketchEditor_->writeSketchFile(QString::fromStdString(sketchPath.string()))) {
@@ -626,12 +671,14 @@ void MainWindow::onSaveProject() {
                              tr("The project metadata was saved, but its 2D sketch could not be written."));
         dirty_ = true;
         refreshProjectTabTitle();
-        return;
+        storeCurrentTab();
+        return false;
     }
     dirty_ = false;
     refreshProjectTabTitle();
     storeCurrentTab();
     setProjectState(tr("Saved project: %1").arg(QString::fromStdString(project->name())));
+    return true;
 }
 
 void MainWindow::onImportStl() {
@@ -758,6 +805,7 @@ void MainWindow::onImportFluent() {
 }
 
 void MainWindow::onOpenExistingCase() {
+    if (projectSwitchLocked()) return;
     const QString dir = QFileDialog::getExistingDirectory(this, tr("Open OpenFOAM Case"));
     if (dir.isEmpty())
         return;
@@ -767,7 +815,7 @@ void MainWindow::onOpenExistingCase() {
                              tr("The selected directory has no system/controlDict."));
         return;
     }
-    addProjectTab(QFileInfo(dir).fileName(), makeCavity(), {}, caseDir);
+    openProjectDirectory(dir);
     setProjectState(tr("Opened existing case: %1").arg(dir));
     console_->appendSolverOutput(tr("Opened existing OpenFOAM case: %1\n").arg(dir));
 }
@@ -794,6 +842,7 @@ void MainWindow::onValidationReport(const QString& text) {
 }
 
 void MainWindow::onRun() {
+    if (projectSwitchLocked()) return;
     try {
     ensureOpenFoamInstallation();
     if (!hasOfInstallation_) {
@@ -847,8 +896,18 @@ void MainWindow::onRun() {
             }
         }
     } else {
-        caseDir = projectRoot_.empty() ? std::filesystem::temp_directory_path() / "vortia-case"
-                                       : projectRoot_ / "case";
+        if (projectRoot_.empty()) {
+            auto& temporary = documents_.at(static_cast<std::size_t>(activeProjectTab_)).temporaryCase;
+            if (!temporary)
+                temporary = std::make_shared<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/vortia-case-XXXXXX"));
+            if (!temporary->isValid()) {
+                QMessageBox::warning(this, tr("Run failed"), tr("Could not create a temporary case directory."));
+                return;
+            }
+            caseDir = temporary->path().toStdString();
+        } else {
+            caseDir = projectRoot_ / "case";
+        }
         auto issues = setup_.validate();
         for (const auto& i : issues) {
             if (i.severity == Severity::Error) {
@@ -868,9 +927,7 @@ void MainWindow::onRun() {
                                         .arg(QString::fromStdString(caseDir.string())));
     }
 
-    runAction_->setEnabled(false);
-    cancelAction_->setEnabled(true);
-    projectTabs_->setEnabled(false);
+    setJobUiRunning(true);
 
     JobController::JobSpec spec;
     spec.caseDir = caseDir;
@@ -878,11 +935,13 @@ void MainWindow::onRun() {
     spec.caps = ofCaps_;
     spec.environment = ofEnvironment_;
     spec.solverOverride = detectedSolver;
-    jobController_->start(spec);
+    if (!jobController_->start(spec)) setJobUiRunning(false);
     } catch (const std::exception& e) {
+        setJobUiRunning(jobController_->isRunning());
         QMessageBox::warning(this, tr("Run failed"),
                              QString::fromStdString(std::string("exception: ") + e.what()));
     } catch (...) {
+        setJobUiRunning(jobController_->isRunning());
         QMessageBox::warning(this, tr("Run failed"), tr("unknown exception"));
     }
 }
@@ -893,12 +952,25 @@ void MainWindow::onCancel() {
 }
 
 void MainWindow::onJobFinished(bool success, const QString& summary) {
-    runAction_->setEnabled(true);
-    cancelAction_->setEnabled(false);
-    projectTabs_->setEnabled(true);
+    setJobUiRunning(false);
     setProjectState(success ? tr("Run finished: %1").arg(summary)
                            : tr("Run failed: %1").arg(summary));
     console_->appendSolverOutput((success ? tr("SUCCESS: ") : tr("FAILED: ")) + summary + "\n");
+}
+
+bool MainWindow::projectSwitchLocked() const {
+    // Keep the lock through delivery of the queued results/finished signals,
+    // even after the worker's atomic running flag has become false.
+    return cancelAction_ && cancelAction_->isEnabled();
+}
+
+void MainWindow::setJobUiRunning(bool running) {
+    runAction_->setEnabled(!running);
+    cancelAction_->setEnabled(running);
+    projectTabs_->setEnabled(!running);
+    newProjectAction_->setEnabled(!running);
+    openProjectAction_->setEnabled(!running);
+    openCaseAction_->setEnabled(!running);
 }
 
 void MainWindow::onResultsReady(const QString& vtmPath) {

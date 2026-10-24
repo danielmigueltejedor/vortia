@@ -19,9 +19,10 @@ int main(int argc, char* argv[]) {
         QCoreApplication checkApp(argc, argv);
         QTranslator catalog;
         const bool loaded = catalog.load(QStringLiteral(":/translations/vortia_es.qm"));
-        if (!loaded || catalog.translate("MainWindow", "File") != QStringLiteral("Archivo")
-            || catalog.translate("ProjectExplorerPanel", "Geometry")
-                   != QStringLiteral("Geometría")) {
+        checkApp.installTranslator(&catalog);
+        if (!loaded || vortia::MainWindow::tr("File") != QStringLiteral("Archivo")
+            || vortia::ProjectExplorerPanel::tr("Geometry") != QStringLiteral("Geometría")
+            || vortia::SketchEditorDialog::tr("Nozzle dimensions") != QStringLiteral("Cotas de la tobera")) {
             qCritical() << "Vortia Spanish catalog missing or invalid;"
                         << "loaded:" << loaded;
             return 2;
