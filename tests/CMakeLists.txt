@@ -24,7 +24,8 @@ gtest_discover_tests(test_geometry)
 
 add_executable(test_mesh
     unit/test_block_mesh_dict.cpp
-    unit/test_planar_nozzle_block_mesh.cpp)
+    unit/test_planar_nozzle_block_mesh.cpp
+    unit/test_axisymmetric_nozzle_block_mesh.cpp)
 target_link_libraries(test_mesh PRIVATE vortia::mesh GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_mesh)
 
@@ -82,3 +83,7 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME nozzle_video_reference
         COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/nozzle-video-2026/test_prepare.py)
 endif()
+
+# Small standalone exporter for actual OpenFOAM blockMesh/checkMesh smoke tests.
+add_executable(nozzle_mesh_export_smoke integration/nozzle_mesh_export_smoke.cpp)
+target_link_libraries(nozzle_mesh_export_smoke PRIVATE vortia::mesh vortia_warnings)
