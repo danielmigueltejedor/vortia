@@ -11,9 +11,10 @@ namespace {
 const std::regex kResidual(
     R"(\bSolving for (\w+), Initial residual = ([0-9.eE+\-nanif]+), Final residual = ([0-9.eE+\-nanif]+), No Iterations (\d+))");
 
-const std::regex kTime(R"(Time = ([0-9.eE+\-]+))");
+const std::regex kTime(R"(^\s*Time = ([0-9.eE+\-]+)\s*$)");
 
-const std::regex kCourant(R"(Courant Number mean: ([0-9.eE+\-]+) max: ([0-9.eE+\-]+))");
+const std::regex kCourant(R"(Courant Number mean: ([0-9.eE+\-nanif]+) max: ([0-9.eE+\-nanif]+))");
+const std::regex kCentralCourant(R"(Courant Numbers: min = [0-9.eE+\-nanif]+, average = ([0-9.eE+\-nanif]+), max = ([0-9.eE+\-nanif]+))");
 
 [[nodiscard]] bool looksFatal(const std::string& line) {
     return line.find("FOAM FATAL") != std::string::npos ||
@@ -67,7 +68,7 @@ void LogParser::processLine(const std::string& line) {
         }
         return;
     }
-    if (std::regex_search(line, match, kCourant)) {
+    if (std::regex_search(line, match, kCourant) || std::regex_search(line, match, kCentralCourant)) {
         try {
             progress_.courantMean = std::stod(match[1].str());
             progress_.courantMax = std::stod(match[2].str());

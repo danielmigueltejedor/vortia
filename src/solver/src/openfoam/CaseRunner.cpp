@@ -4,6 +4,7 @@
 #include "vortia/solver/openfoam/Detector.hpp"
 
 #include <fstream>
+#include <cmath>
 
 namespace vortia::openfoam {
 
@@ -105,6 +106,26 @@ Expected<StepOutcome> CaseRunner::runMeshing(const std::filesystem::path& caseDi
             return check; // quality failure is signalled, not hidden
         }
     }
+    // Only the dedicated Vortia nozzle preparer opts into initialization.
+    // Resuming an existing solution must never reset its fields.
+    std::ifstream marker(caseDir / ".vortia-nozzle-case");
+    std::string kind;
+    std::getline(marker, kind);
+    if (kind == "vortia-nozzle-video-2026-v1" || kind == "vortia-nozzle-video-2026-v2"
+        || kind == "vortia-nozzle-video-2026-v3") {
+        bool hasSolution = false;
+        for (const auto& entry : std::filesystem::directory_iterator(caseDir)) {
+            if (!entry.is_directory()) continue;
+            const auto name = entry.path().filename().string();
+            try {
+                std::size_t used = 0;
+                const double time = std::stod(name, &used);
+                if (used == name.size() && std::isfinite(time) && time > 0) hasSolution = true;
+            } catch (...) {} // ordinary folders such as constant/system
+        }
+        if (!hasSolution)
+            return execute("initialize nozzle", "setFields", {}, caseDir, callbacks, token);
+    }
     return mesh;
 }
 
@@ -131,6 +152,43 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
         if (exe == "foamRun" && !caps.hasFoamRun)
             return Error::make(ErrorCode::BackendUnavailable,
                                "foamRun is not available in this OpenFOAM installation");
+    }
+    if (exe == "vortiaCentralFoam") {
+        std::ifstream marker(caseDir / ".vortia-nozzle-case");
+        std::string kind;
+        std::getline(marker,kind);
+        if (kind != "vortia-nozzle-video-2026-v3")
+            return Error::make(ErrorCode::InvalidData,
+                "prepare a fresh v3 no-swirl nozzle case; earlier or unmarked cases cannot use this backend");
+        if (kind == "vortia-nozzle-video-2026-v3") {
+            std::string version;
+            for (const auto& [key,value] : environment_)
+                if (key=="WM_PROJECT_VERSION") version=value;
+            if (version!="v2606" && version!="2606")
+                return Error::make(ErrorCode::BackendUnavailable,
+                    "the experimental nozzle backend requires OpenFOAM v2606");
+            const auto bin=std::filesystem::absolute(caseDir/"bin");
+            if (!std::filesystem::is_regular_file(bin/exe)) {
+                if (!std::filesystem::is_regular_file(caseDir/"solver"/"vortiaCentralFoam.C"))
+                    return Error::make(ErrorCode::InvalidData,"nozzle solver sources are missing");
+                std::filesystem::create_directories(bin);
+                auto buildEnvironment=environment_;
+                bool outputSet=false;
+                for (auto& [key,value] : buildEnvironment)
+                    if (key=="VORTIA_NOZZLE_OUTPUT") { value=(bin/exe).string(); outputSet=true; }
+                if (!outputSet) buildEnvironment.emplace_back("VORTIA_NOZZLE_OUTPUT",(bin/exe).string());
+                CaseRunner builder(processes_,std::move(buildEnvironment));
+                auto built=builder.execute("build nozzle backend","wmake",{"solver"},caseDir,callbacks,token);
+                if (!built || !built->process.succeeded()) return built;
+            }
+            // Scope the case binary to this dedicated solver invocation. The
+            // general executable resolver still accepts plain names only.
+            auto environment=environment_;
+            for (auto& [key,value] : environment)
+                if (key=="PATH") value=bin.string()+":"+value;
+            CaseRunner solver(processes_,std::move(environment));
+            return solver.execute(exe,exe,args,caseDir,callbacks,token);
+        }
     }
     return execute(exe, exe, args, caseDir, callbacks, token);
 }

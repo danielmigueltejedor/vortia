@@ -1,8 +1,11 @@
 #include "vortia/ui/MainWindow.hpp"
 #include "vortia/core/Project.hpp"
 #include "vortia/physics/CaseSetupJson.hpp"
+#include "vortia/ui/ResultFiles.hpp"
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cmath>
 #include <QApplication>
 #include <QAction>
 #include <QElapsedTimer>
@@ -13,6 +16,10 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QKeyEvent>
+#include <QMouseEvent>
+#include <QNativeGestureEvent>
+#include <QPointingDevice>
+#include <QWheelEvent>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTemporaryDir>
@@ -40,6 +47,9 @@ struct WorkspaceTestAccess {
     static void select(MainWindow& w, int index) { w.projectTabs_->setCurrentIndex(index); }
     static int active(const MainWindow& w) { return w.activeProjectTab_; }
     static QString title(const MainWindow& w, int i) { return w.projectTabs_->tabText(i); }
+    static bool external(const MainWindow& w) { return w.useExistingCase_; }
+    static bool physicsEnabled(const MainWindow& w) { return w.properties_->isEnabled(); }
+    static void applyCavity(MainWindow& w) { auto setup=w.setup_; setup.time.endTime=123; w.onApplySetup(setup); }
     static std::size_t count(const MainWindow& w) { return w.documents_.size(); }
     static bool newEnabled(MainWindow& w) { return w.newProjectAction_->isEnabled(); }
     static double endTime(MainWindow& w) { return w.setup_.time.endTime; }
@@ -73,6 +83,140 @@ void expectShape(const Sketch2D& actual, const Sketch2D& expected) {
     }
     for (std::size_t i = 0; i < expected.segmentCount(); ++i)
         EXPECT_DOUBLE_EQ(actual.segmentBulge(i), expected.segmentBulge(i));
+}
+
+TEST(ResultFiles, SeriesUsesActualTimeAndFallbackUsesNumericIndex) {
+    QTemporaryDir dir;
+    writeFile(dir.filePath("case_9.vtm"),"test");
+    writeFile(dir.filePath("case_10.vtm"),"test");
+    EXPECT_EQ(latestVtmFile(dir.path()),dir.filePath("case_10.vtm"));
+    writeFile(dir.filePath("case.vtm.series"),R"({"files":[{"name":"case_9.vtm","time":20},{"name":"case_10.vtm","time":10},{"name":"../outside.vtm","time":99},{"name":"missing.vtm","time":100}]})");
+    EXPECT_EQ(latestVtmFile(dir.path()),dir.filePath("case_9.vtm"));
+}
+
+TEST(SketchNavigation, NativePinchAndPanKeepGeometryAndCameraStableWhileDrawing) {
+    SketchEditorDialog editor;
+    editor.resize(1000, 700);
+    editor.show();
+    QApplication::processEvents();
+    auto* canvas = editor.findChild<QWidget*>("vortia-sketch-canvas");
+    auto* draw = editor.findChild<QPushButton*>("vortia-sketch-draw");
+    auto* select = editor.findChild<QPushButton*>("vortia-sketch-select");
+    auto* fit = editor.findChild<QPushButton*>("vortia-sketch-fit");
+    ASSERT_TRUE(canvas && draw && select && fit);
+    int changes = 0;
+    QObject::connect(&editor, &SketchEditorDialog::sketchChanged, [&] { ++changes; });
+    const double scale = std::min((canvas->width()-65.0)/200.0, (canvas->height()-65.0)/140.0);
+    const QPointF center(canvas->width()/2.0, canvas->height()/2.0);
+    QNativeGestureEvent pinch(Qt::ZoomNativeGesture, QPointingDevice::primaryPointingDevice(),
+        2, center, center, center, 1.0, {});
+    QApplication::sendEvent(canvas, &pinch);
+    QWheelEvent swipe(center, center, QPoint(40,-20), {}, Qt::NoButton, Qt::NoModifier,
+                      Qt::ScrollUpdate, false, Qt::MouseEventSynthesizedBySystem);
+    QApplication::sendEvent(canvas, &swipe);
+    const auto mouse = [&](QEvent::Type type, QPointF at, Qt::MouseButton button, Qt::MouseButtons buttons) {
+        QMouseEvent event(type, at, at, at, button, buttons, Qt::NoModifier);
+        QApplication::sendEvent(canvas, &event);
+    };
+    mouse(QEvent::MouseButtonPress, {80,50}, Qt::MiddleButton, Qt::MiddleButton);
+    mouse(QEvent::MouseMove, {110,65}, Qt::NoButton, Qt::MiddleButton);
+    mouse(QEvent::MouseButtonRelease, {110,65}, Qt::MiddleButton, Qt::NoButton);
+    QApplication::processEvents();
+    EXPECT_EQ(changes, 0);
+    EXPECT_TRUE(editor.sketch().points().empty());
+    // Accessibility can toggle a checkable button without emitting clicked.
+    draw->setChecked(true);
+    const auto appendAt = [&](QPointF at) {
+        mouse(QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton);
+        mouse(QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton);
+        QApplication::processEvents(); // repaint must not refit the camera
+        const auto& point = editor.sketch().points().back();
+        EXPECT_DOUBLE_EQ(point.xMm, std::round(100+(at.x()-center.x()-70)/(2*scale)));
+        EXPECT_DOUBLE_EQ(point.yMm, std::round((center.y()-at.y()-5)/(2*scale)));
+    };
+    appendAt(center + QPointF(80,40));
+    appendAt(center + QPointF(140,70));
+    EXPECT_EQ(changes, 2);
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    QApplication::sendEvent(canvas, &escape);
+    EXPECT_TRUE(select->isChecked()); EXPECT_FALSE(draw->isChecked());
+    fit->click(); QApplication::processEvents();
+    EXPECT_EQ(changes, 2);
+}
+
+TEST(SketchNavigation, CadToolsHaveAccessibleIconsAndExclusiveModes) {
+    SketchEditorDialog editor;
+    for (const auto* id : {"select", "draw", "pan", "fit", "rectangle", "circle", "nozzle",
+                          "add", "move", "split", "dimension", "fillet", "radius", "close-profile", "export"}) {
+        auto* tool = editor.findChild<QPushButton*>(QStringLiteral("vortia-sketch-")+id);
+        ASSERT_NE(tool, nullptr) << id;
+        EXPECT_FALSE(tool->icon().isNull()) << id;
+        EXPECT_FALSE(tool->accessibleName().isEmpty()) << id;
+        EXPECT_FALSE(tool->toolTip().isEmpty()) << id;
+        EXPECT_TRUE(tool->text().isEmpty()) << id;
+    }
+    auto* pan = editor.findChild<QPushButton*>("vortia-sketch-pan");
+    auto* draw = editor.findChild<QPushButton*>("vortia-sketch-draw");
+    auto* select = editor.findChild<QPushButton*>("vortia-sketch-select");
+    pan->click(); EXPECT_TRUE(pan->isChecked()); EXPECT_FALSE(select->isChecked());
+    draw->click(); EXPECT_TRUE(draw->isChecked()); EXPECT_FALSE(pan->isChecked());
+    editor.setSketch({}); EXPECT_TRUE(select->isChecked()); EXPECT_FALSE(draw->isChecked());
+}
+
+TEST(SketchNavigation, ReadOnlyAllowsSelectingAndPanningButNeverMovesVertices) {
+    SketchEditorDialog editor;
+    const auto shape = makeRectangleSketch(200,100).value();
+    editor.setSketch(shape); editor.resize(1000,700); editor.show();
+    QApplication::processEvents(); editor.setReadOnly(true);
+    auto* canvas = editor.findChild<QWidget*>("vortia-sketch-canvas");
+    ASSERT_NE(canvas,nullptr);
+    const double scale = std::min((canvas->width()-65.0)/200.0, (canvas->height()-65.0)/170.0);
+    const QPointF vertex(canvas->width()/2.0-100*scale, canvas->height()/2.0+15*scale);
+    int changes=0;
+    QObject::connect(&editor,&SketchEditorDialog::sketchChanged,[&] { ++changes; });
+    QMouseEvent down(QEvent::MouseButtonPress,vertex,vertex,vertex,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QApplication::sendEvent(canvas,&down);
+    const QPointF moved=vertex+QPointF(40,30);
+    QMouseEvent drag(QEvent::MouseMove,moved,moved,moved,Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+    QApplication::sendEvent(canvas,&drag);
+    QMouseEvent up(QEvent::MouseButtonRelease,moved,moved,moved,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(canvas,&up);
+    expectShape(editor.sketch(),shape); EXPECT_EQ(changes,0);
+    auto* draw=editor.findChild<QPushButton*>("vortia-sketch-draw");
+    draw->click(); EXPECT_FALSE(draw->isChecked());
+    auto* pan=editor.findChild<QPushButton*>("vortia-sketch-pan");
+    EXPECT_TRUE(pan->isEnabled()); pan->click(); EXPECT_TRUE(pan->isChecked());
+    editor.setReadOnly(false); EXPECT_TRUE(draw->isEnabled());
+}
+
+TEST(Workspace, ExternalCaseLoadsSketchAndCannotBecomeCavityProject) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(QDir().mkpath(dir.filePath("system")));
+    const QByteArray control="application rhoCentralFoam;\n";
+    writeFile(dir.filePath("system/controlDict"),control);
+    auto shape=makeRectangleSketch(100,50).value();
+    ASSERT_TRUE(shape.filletVertex(1,10));
+    SketchEditorDialog editor;editor.setSketch(shape);
+    ASSERT_TRUE(editor.writeSketchFile(dir.filePath("geometry/working-sketch.vsketch.json")));
+    MainWindow window;
+    ASSERT_TRUE(WorkspaceTestAccess::open(window,dir.path()));
+    EXPECT_TRUE(WorkspaceTestAccess::external(window));
+    EXPECT_FALSE(WorkspaceTestAccess::physicsEnabled(window));
+    EXPECT_TRUE(WorkspaceTestAccess::editor(window).isEnabled());
+    EXPECT_TRUE(WorkspaceTestAccess::editor(window).isReadOnly());
+    EXPECT_TRUE(WorkspaceTestAccess::editor(window).findChild<QPushButton*>("vortia-sketch-pan")->isEnabled());
+    EXPECT_FALSE(WorkspaceTestAccess::editor(window).findChild<QPushButton*>("vortia-sketch-draw")->isEnabled());
+    expectShape(WorkspaceTestAccess::editor(window).sketch(),shape);
+    WorkspaceTestAccess::applyCavity(window);
+    EXPECT_FALSE(WorkspaceTestAccess::dirty(window));
+    QTimer::singleShot(0,[] { if (auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget())) d->accept(); });
+    EXPECT_FALSE(WorkspaceTestAccess::save(window));
+    EXPECT_FALSE(QFileInfo::exists(dir.filePath("project.vortia")));
+    EXPECT_EQ(readFile(dir.filePath("system/controlDict")),control);
+    WorkspaceTestAccess::select(window,0);
+    EXPECT_TRUE(WorkspaceTestAccess::physicsEnabled(window));
+    EXPECT_TRUE(WorkspaceTestAccess::editor(window).isEnabled());
+    EXPECT_FALSE(WorkspaceTestAccess::editor(window).isReadOnly());
 }
 
 TEST(SketchPersistence, CircularArcsRoundTripAndMalformedArcsAreAtomic) {
@@ -198,9 +342,7 @@ TEST(SketchPersistence, LegacyFilesResetDimensionsAndEmptyProfileRoundTrips) {
 
 TEST(SketchPersistence, NozzleDimensionDialogRegeneratesAndSavesChangedSizes) {
     SketchEditorDialog editor;
-    QPushButton* nozzleButton = nullptr;
-    for (auto* b : editor.findChildren<QPushButton*>())
-        if (b->text() == SketchEditorDialog::tr("Parametric nozzle…")) nozzleButton = b;
+    auto* nozzleButton = editor.findChild<QPushButton*>("vortia-sketch-nozzle");
     ASSERT_NE(nozzleButton, nullptr);
     const auto create = [&](const std::vector<double>& values) {
         QTimer answer;

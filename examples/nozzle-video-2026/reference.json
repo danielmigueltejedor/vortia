@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "values": {
+    "inletHeight": 0.1,
+    "throatHeight": 0.052,
+    "outletHeight": 0.154,
+    "inletPlateau": 0.07823,
+    "shoulderRadius": 0.08942,
+    "throatRadius": 0.02281,
+    "straightDivergingLength": 0.578,
+    "nozzleExitX": 0.772909,
+    "exteriorLength": 3.5,
+    "exteriorHeightAboveExit": 2.0,
+    "operatingPressure": 0.0,
+    "inletGaugeTotalPressure": 2580000.0,
+    "exteriorGaugePressure": 30000.0,
+    "inletTotalTemperature": 2800.0,
+    "exteriorTotalTemperature": 300.0,
+    "Cp": 1501.0,
+    "molecularWeight": 24.0,
+    "mu": 1.7894e-05,
+    "conductivity": 0.0242,
+    "turbulentViscosityRatio": 10.0
+  },
+  "source": "User-supplied Ansys nozzle tutorial; retain displayed fillet radii while imposing the final dimensions.",
+  "geometryAssumption": "R89.42 and R22.81 mm retained after re-dimensioning; no original CAD provided.",
+  "operatingPressureEvidence": "At 12:10.33 the field is changed to 0 Pa; accepted at 12:11.67. The earlier 1013250 value is an intermediate edit.",
+  "molecularWeightEvidence": "At 10:05 the final material dialog displays 24 kg/kmol before closing; Cp 1501, conductivity 0.0242 and viscosity 1.7894e-5."
+}

@@ -77,6 +77,13 @@ if(TARGET vortia)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
+# The tutorial preparer uses only the Python standard library.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME nozzle_video_reference
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/nozzle-video-2026/test_prepare.py)
+endif()
+
 # Small standalone exporter for actual OpenFOAM blockMesh/checkMesh smoke tests.
 add_executable(nozzle_mesh_export_smoke integration/nozzle_mesh_export_smoke.cpp)
 target_link_libraries(nozzle_mesh_export_smoke PRIVATE vortia::mesh vortia_warnings)
