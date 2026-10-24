@@ -124,7 +124,8 @@ TEST(SketchNavigation, NativePinchAndPanKeepGeometryAndCameraStableWhileDrawing)
     QApplication::processEvents();
     EXPECT_EQ(changes, 0);
     EXPECT_TRUE(editor.sketch().points().empty());
-    draw->click();
+    // Accessibility can toggle a checkable button without emitting clicked.
+    draw->setChecked(true);
     const auto appendAt = [&](QPointF at) {
         mouse(QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton);
         mouse(QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton);

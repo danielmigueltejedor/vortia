@@ -582,16 +582,19 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     status_ = new QLabel(this);
     root->addWidget(status_);
 
-    connect(select, &QPushButton::clicked, this, [this, modeHint] {
+    connect(select, &QPushButton::toggled, this, [this, modeHint](bool checked) {
+        if (!checked) return;
         canvas_->setDrawMode(false); canvas_->setPanMode(false);
         modeHint->setText(readOnly_ ? tr("Case geometry: select to inspect; drag empty space to pan.")
                                     : tr("Select: drag vertices or empty space."));
     });
-    connect(draw, &QPushButton::clicked, this, [this, modeHint] {
+    connect(draw, &QPushButton::toggled, this, [this, modeHint](bool checked) {
+        if (!checked) return;
         canvas_->setPanMode(false); canvas_->setDrawMode(true);
         modeHint->setText(tr("Draw: click to add vertices. Esc returns to selection."));
     });
-    connect(pan, &QPushButton::clicked, this, [this, modeHint] {
+    connect(pan, &QPushButton::toggled, this, [this, modeHint](bool checked) {
+        if (!checked) return;
         canvas_->setDrawMode(false); canvas_->setPanMode(true);
         modeHint->setText(tr("Pan: drag the view. Pinch to zoom."));
     });
@@ -862,6 +865,10 @@ void SketchEditorDialog::setReadOnly(bool readOnly) {
                           "dimension", "fillet", "radius", "close-profile", "export", "load", "clear"})
         if (auto* button = findChild<QPushButton*>(QStringLiteral("vortia-sketch-")+id)) button->setEnabled(!readOnly);
     x_->setReadOnly(readOnly); y_->setReadOnly(readOnly);
+    if (findChild<QPushButton*>(QStringLiteral("vortia-sketch-select"))->isChecked())
+        findChild<QLabel*>(QStringLiteral("vortia-sketch-mode-hint"))->setText(readOnly
+            ? tr("Case geometry: select to inspect; drag empty space to pan.")
+            : tr("Select: drag vertices or empty space."));
     findChild<QLabel*>(QStringLiteral("vortia-sketch-intro"))->setText(readOnly
         ? tr("OpenFOAM case geometry: pinch to zoom, pan and inspect dimensions. To change the mesh, prepare a new nozzle case with the desired dimensions.")
         : tr("Precise 2D sketch in millimetres. Select a segment to split it or enter an exact length. "
