@@ -34,6 +34,13 @@ The CFD model uses a 5° wedge, ideal gas, energy and Spalart–Allmaras with an
 adiabatic no-slip wall. This structured wedge replaces the tutorial's
 triangular mesh. Kurganov/Minmod local time stepping replaces Fluent's
 density-based implicit Roe scheme; the numerical methods are not identical.
+Version 3 explicitly enforces **no swirl**, matching Fluent's axisymmetric
+selection. OpenFOAM wedges retain three solution components and can represent
+swirl; geometry alone does not impose zero azimuthal momentum. The helper
+keeps internal mid-plane Uz exactly zero after each momentum update, while
+the wedge boundary transformation retains the proper radial face components.
+It rejects restarts containing azimuthal velocity instead of silently
+reusing the energy of a contaminated earlier run.
 The initial quasi-one-dimensional flow is a starting estimate, not a result.
 
 The pressure outlet fixes pressure only where the outward normal velocity is
@@ -51,9 +58,10 @@ have been exercised on macOS with v2606. The default mesh has 8660 cells and
 basic `checkMesh` passes. Advanced topology/geometry checks flag small cell
 determinants in the anisotropic wall layers; this remains a mesh-quality caveat.
 
-**The compressible practice is not yet validated or complete.** A 50,000-step
-run retained positive temperature and density, but still had a material net
-boundary mass imbalance. Reaching the requested iteration count or observing
+**The compressible practice is not yet validated or complete.** The earlier
+v2 run retained positive temperature and density but had material boundary
+mass imbalance and developed unintended azimuthal velocity. It is diagnostic
+only; v3 requires a fresh no-swirl case. Reaching an iteration count or observing
 zero diagonal solver residuals is not proof of steady convergence. Inspect
 `postProcessing/mass*`, extrema, exit/axis profiles, field changes between
 checkpoints and `wallResolution`, then establish mesh dependence. Do not use
@@ -64,6 +72,12 @@ boundary definitions and preservation of existing destinations. The normal
 Vortia test suite checks initialization/resume isolation, backend compilation,
 result selection and sketch persistence/navigation. These software checks do
 not replace CFD validation.
+
+`python3 validate_fields.py CASE/TIME` checks finite positive internal pressure,
+temperature and density, together with zero mid-plane azimuthal velocity. A
+fresh native 120-step v3 run passed these checks on all 8660 cells; the earlier
+v2 checkpoint was correctly rejected for its nonzero Uz. This is an initial
+admissibility check, not a convergence result.
 
 ## License
 

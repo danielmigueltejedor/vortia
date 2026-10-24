@@ -179,7 +179,7 @@ TEST_F(FakeBackendTest, DedicatedNozzleBackendBuildsOnceAndRequiresItsVersionAnd
     ASSERT_TRUE(CaseWriter::write(caseDir,minimalSetup(),caps_).hasValue());
     std::filesystem::create_directory(caseDir/"solver");
     { std::ofstream source(caseDir/"solver"/"vortiaCentralFoam.C"); source << "fake backend source\n"; }
-    { std::ofstream marker(caseDir/".vortia-nozzle-case"); marker << "vortia-nozzle-video-2026-v2\n"; }
+    { std::ofstream marker(caseDir/".vortia-nozzle-case"); marker << "vortia-nozzle-video-2026-v3\n"; }
     makeFakeTool("wmake",R"(
 printf '#!/bin/sh\necho "Time = 50000"\necho "ExecutionTime = 2.6 s ClockTime = 3 s"\n' > "$VORTIA_NOZZLE_OUTPUT"
 /bin/chmod +x "$VORTIA_NOZZLE_OUTPUT"
@@ -199,9 +199,12 @@ printf '#!/bin/sh\necho "Time = 50000"\necho "ExecutionTime = 2.6 s ClockTime = 
     auto cached=runner.runSolver(caseDir,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
     ASSERT_TRUE(cached.hasValue());
     EXPECT_TRUE(cached->process.succeeded());
-    { std::ofstream marker(caseDir/".vortia-nozzle-case"); marker << "vortia-nozzle-video-2026-v1\n"; }
-    auto ordinary=runner.runSolver(caseDir,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
-    EXPECT_FALSE(ordinary.hasValue());
+    for (const auto* kind : {"vortia-nozzle-video-2026-v1", "vortia-nozzle-video-2026-v2", "unmarked"}) {
+        { std::ofstream marker(caseDir/".vortia-nozzle-case"); marker << kind << '\n'; }
+        auto ordinary=runner.runSolver(caseDir,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
+        ASSERT_FALSE(ordinary.hasValue());
+        EXPECT_EQ(ordinary.error().code,ErrorCode::InvalidData);
+    }
 }
 
 TEST_F(FakeBackendTest, DivergenceIsDetected) {

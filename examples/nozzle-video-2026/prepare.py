@@ -310,6 +310,7 @@ writeControl timeStep; writeInterval 1000; purgeWrite 3;
 writeFormat ascii; writePrecision 9; writeCompression off; timeFormat general; timePrecision 9;
 runTimeModifiable true;
 maxDiffusionCo 0.1;
+noSwirl true;
 functions {{
  startupSchedule {{ type timeActivatedFileUpdate; libs (utilityFunctionObjects);
   fileToUpdate "<system>/localTimeStep";
@@ -367,7 +368,7 @@ functions {{
         p,t,u=state_at((x0+x1)/2)
         init+=f'boxToCell {{ box ({x0:.12g} -1 -1) ({x1:.12g} {ymax:.12g} 1); fieldValues ({fields(p,t,u)}); }}\n'
     put('system/setFieldsDict',init+');\n')
-    put('.vortia-nozzle-case','vortia-nozzle-video-2026-v2\n')
+    put('.vortia-nozzle-case','vortia-nozzle-video-2026-v3\n')
     put('README.md',f'''# Práctica de tobera — caso experimental OpenFOAM v2606
 
 Estado: preparado; la ejecución y la convergencia deben comprobarse.
@@ -378,7 +379,7 @@ El gas ideal tiene Cp={c['Cp']:g} J/kg/K y masa molecular {c['molecularWeight']:
 
 La malla estructurada es una cuña axisimétrica de 5 grados, concentrada en la pared y la capa de mezcla. Sustituye a los triángulos del vídeo. Los controles ampliados de malla pueden avisar del determinante pequeño de celdas muy anisótropas próximas a la pared; revisar también yPlus y la dependencia con el refinamiento.
 
-Vortia construye el motor local de este caso con wmake en la primera ejecución. Se requiere OpenFOAM v2606 y su compilador. El código derivado de rhoCentralFoam y su licencia GPL se conservan en solver/. Utiliza Kurganov, reconstrucción Minmod, energía y Spalart–Allmaras. El límite por difusión y el rechazo de candidatos no físicos reducen el paso; no se recorta la temperatura. Es una aproximación numérica distinta del método estacionario implícito Roe de Fluent.
+Vortia construye el motor local de este caso con wmake en la primera ejecución. Se requiere OpenFOAM v2606 y su compilador. El código derivado de rhoCentralFoam y su licencia GPL se conservan en solver/. Utiliza Kurganov, reconstrucción Minmod, energía y Spalart–Allmaras. La versión v3 impone flujo axisimétrico sin giro: Uz interna en el plano medio se conserva exactamente a cero; las caras wedge mantienen su transformación radial. No admite reinicios de ensayos anteriores que contengan giro azimutal. El límite por difusión y el rechazo de candidatos no físicos reducen el paso; no se recorta la temperatura. Es una aproximación numérica distinta del método estacionario implícito Roe de Fluent.
 
 localEuler busca una solución estacionaria mediante pseudotiempo: las etiquetas son iteraciones, no segundos físicos. El límite solicitado es {end_time:g}; no es un criterio de convergencia. La inicialización cuasiunidimensional de setFields es una estimación, no un resultado CFD. Al reanudar una solución existente, Vortia conserva sus campos.
 

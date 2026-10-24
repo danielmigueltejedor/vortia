@@ -293,6 +293,8 @@ int main(int argc, char *argv[])
         U.ref() =
             rhoU()
            /rho();
+        U.primitiveFieldRef().replace(vector::Z, scalar(0));
+        rhoU.primitiveFieldRef() = rho.primitiveField()*U.primitiveField();
         U.correctBoundaryConditions();
         rhoU.boundaryFieldRef() == rho.boundaryField()*U.boundaryField();
 
@@ -304,6 +306,8 @@ int main(int argc, char *argv[])
               - fvm::laplacian(muEff, U)
               - fvc::div(tauMC)
             );
+            U.primitiveFieldRef().replace(vector::Z, scalar(0));
+            U.correctBoundaryConditions();
             rhoU = rho*U;
         }
 

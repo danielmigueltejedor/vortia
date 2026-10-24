@@ -111,7 +111,8 @@ Expected<StepOutcome> CaseRunner::runMeshing(const std::filesystem::path& caseDi
     std::ifstream marker(caseDir / ".vortia-nozzle-case");
     std::string kind;
     std::getline(marker, kind);
-    if (kind == "vortia-nozzle-video-2026-v1" || kind == "vortia-nozzle-video-2026-v2") {
+    if (kind == "vortia-nozzle-video-2026-v1" || kind == "vortia-nozzle-video-2026-v2"
+        || kind == "vortia-nozzle-video-2026-v3") {
         bool hasSolution = false;
         for (const auto& entry : std::filesystem::directory_iterator(caseDir)) {
             if (!entry.is_directory()) continue;
@@ -156,7 +157,10 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
         std::ifstream marker(caseDir / ".vortia-nozzle-case");
         std::string kind;
         std::getline(marker,kind);
-        if (kind == "vortia-nozzle-video-2026-v2") {
+        if (kind != "vortia-nozzle-video-2026-v3")
+            return Error::make(ErrorCode::InvalidData,
+                "prepare a fresh v3 no-swirl nozzle case; earlier or unmarked cases cannot use this backend");
+        if (kind == "vortia-nozzle-video-2026-v3") {
             std::string version;
             for (const auto& [key,value] : environment_)
                 if (key=="WM_PROJECT_VERSION") version=value;

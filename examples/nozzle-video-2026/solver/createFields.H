@@ -24,6 +24,24 @@ volVectorField U
     mesh
 );
 
+// The tutorial selects axisymmetric flow WITHOUT swirl. OpenFOAM wedge
+// geometry still permits three solution components (including swirl).
+// Reject incompatible restarts rather than silently reusing their energy.
+const auto directions = mesh.geometricD();
+if (directions.x() != 1 || directions.y() != 1 || directions.z() != -1
+    || !runTime.controlDict().getOrDefault<Switch>("noSwirl", false))
+{
+    FatalErrorInFunction << "This nozzle backend requires an x-axis wedge in the xy mid-plane and noSwirl true"
+        << exit(FatalError);
+}
+if (gMax(mag(U.primitiveField().component(vector::Z))) > 1e-8)
+{
+    FatalErrorInFunction << "The restart contains azimuthal velocity; initialize a fresh no-swirl case"
+        << exit(FatalError);
+}
+U.primitiveFieldRef().replace(vector::Z, scalar(0));
+Info<< "Axisymmetric no-swirl constraint: mid-plane Uz = 0" << endl;
+
 volScalarField rho
 (
     IOobject
