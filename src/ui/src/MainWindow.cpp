@@ -57,6 +57,7 @@
 #include <fstream>
 #include <memory>
 #include <sstream>
+#include "vortia/solver/openfoam/MassBalance.hpp"
 
 namespace vortia {
 
@@ -338,6 +339,13 @@ void MainWindow::buildDocks() {
     projectTabs_->setExpanding(false);
     projectTabs_->setUsesScrollButtons(true);
     centralLayout->addWidget(projectTabs_);
+    nozzleNotice_ = new QLabel(central);
+    nozzleNotice_->setObjectName(QStringLiteral("vortia-nozzle-validation-notice"));
+    nozzleNotice_->setWordWrap(true);
+    nozzleNotice_->setMargin(8);
+    nozzleNotice_->setStyleSheet(QStringLiteral("QLabel { background: #584719; color: #fff0bd; }"));
+    nozzleNotice_->hide();
+    centralLayout->addWidget(nozzleNotice_);
     workspaceTabs_ = new QTabWidget(central);
     workspaceTabs_->setDocumentMode(true);
     workspaceTabs_->setObjectName(QStringLiteral("vortia-editor-tabs"));
@@ -510,6 +518,7 @@ void MainWindow::activateProjectTab(int index) {
     setup_ = tab.setup;
     dirty_ = tab.modified;
     lastVtmPath_ = tab.resultVtm;
+    updateNozzleNotice();
     properties_->setSetup(setup_);
     // An external case owns its physics dictionaries. Never show the cavity
     // editor as though it configured that case, or edit an uncoupled sketch.
@@ -980,8 +989,30 @@ void MainWindow::onCancel() {
     console_->appendSolverOutput(tr("Cancellation requested…\n"));
 }
 
+void MainWindow::updateNozzleNotice() {
+    const auto caseDir = useExistingCase_ ? existingCaseDir_ :
+        (projectRoot_.empty() ? std::filesystem::path{} : projectRoot_ / "case");
+    const bool nozzle = !caseDir.empty() && openfoam::isNozzlePracticeCase(caseDir);
+    nozzleNotice_->setVisible(nozzle);
+    if (!nozzle) return;
+    QString notice = tr("Experimental nozzle: results remain provisional. Convergence and mesh dependence have not been established.");
+    const auto balance = openfoam::nozzleMassBalance(caseDir);
+    if (balance.available) {
+        notice += tr(" Mass imbalance, iterations %1-%2: mean %3%, maximum %4% of the principal inlet flow (%5 samples).")
+            .arg(balance.firstIteration, 0, 'g', 9)
+            .arg(balance.lastIteration, 0, 'g', 9)
+            .arg(balance.meanAbsolutePercent, 0, 'g', 4)
+            .arg(balance.maximumAbsolutePercent, 0, 'g', 4)
+            .arg(balance.samples);
+    } else {
+        notice += tr(" No complete aligned mass-balance window is available yet.");
+    }
+    nozzleNotice_->setText(notice);
+}
+
 void MainWindow::onJobFinished(bool success, const QString& summary) {
     setJobUiRunning(false);
+    updateNozzleNotice();
     setProjectState(success ? tr("Run finished: %1").arg(summary)
                            : tr("Run failed: %1").arg(summary));
     console_->appendSolverOutput((success ? tr("SUCCESS: ") : tr("FAILED: ")) + summary + "\n");
@@ -1010,6 +1041,7 @@ void MainWindow::onResultsReady(const QString& vtmPath) {
         workspaceTabs_->setCurrentWidget(viewport_);
         console_->appendSolverOutput(tr("Loaded results: %1\n").arg(vtmPath));
         setProjectState(tr("Results loaded."));
+        updateNozzleNotice();
     } catch (const std::exception& e) {
         console_->appendSolverOutput(tr("Failed to load results: %1\n").arg(QString::fromStdString(e.what())));
     } catch (...) {

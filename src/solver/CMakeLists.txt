@@ -6,6 +6,7 @@ add_library(vortia_solver STATIC
     src/openfoam/Detector.cpp
     src/openfoam/Installation.cpp
     src/openfoam/LogParser.cpp)
+target_sources(vortia_solver PRIVATE src/openfoam/MassBalance.cpp)
 
 add_library(vortia::solver ALIAS vortia_solver)
 
