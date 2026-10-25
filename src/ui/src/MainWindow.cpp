@@ -147,6 +147,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     loadSettings();
     addProjectTab(tr("Untitled %1").arg(++untitledCount_), setup_);
+    if(workspaceTabs_->currentWidget()==sketchEditor_)
+        if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->hide();
     setProjectState(tr("New project: draw a closed fluid domain, then configure its mesh and flow."));
 }
 
