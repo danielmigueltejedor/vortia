@@ -248,6 +248,7 @@ TEST_F(FakeBackendTest, GeneralCadMeshIsCheckedWithoutReplacingOrInitializingIt)
 
 TEST_F(FakeBackendTest, ParallelFlowPublishesACheckpointAndPreservesOriginalData) {
     const auto root=parallelCase();PosixProcessRunner processes;CaseRunner runner(processes,environment_);
+    makeFakeTool("mpirun","test \"$OMPI_MCA_mpi_yield_when_idle\" = 1 || exit 89\necho 'Time = 2000'\n");
     const auto result=runner.runSolver(root,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam",4);
     ASSERT_TRUE(result)<<result.error().describe();EXPECT_TRUE(result->process.succeeded());EXPECT_EQ(result->finalTime,2000);
     EXPECT_TRUE(std::filesystem::is_regular_file(root/"2000/U"));
@@ -270,6 +271,14 @@ TEST_F(FakeBackendTest, ReconstructionFailureLeavesTheSavedCheckpointUntouched) 
     ASSERT_TRUE(result);EXPECT_EQ(result->process.exitCode,9);
     EXPECT_FALSE(std::filesystem::exists(root/"2000"));EXPECT_TRUE(std::filesystem::exists(root/"1000/p"));
     EXPECT_TRUE(std::filesystem::is_directory(root/"parallel-runs"));
+}
+
+TEST_F(FakeBackendTest, ParallelProgressPreservesAnExplicitMpiWaitPolicy) {
+    const auto root=parallelCase();environment_.emplace_back("OMPI_MCA_mpi_yield_when_idle","0");
+    makeFakeTool("mpirun","test \"$OMPI_MCA_mpi_yield_when_idle\" = 0 || exit 89\necho 'Time = 2000'\n");
+    PosixProcessRunner processes;CaseRunner runner(processes,environment_);
+    const auto result=runner.runSolver(root,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam",4);
+    ASSERT_TRUE(result);EXPECT_TRUE(result->process.succeeded());
 }
 
 TEST_F(FakeBackendTest, CancelledParallelRunRecoversItsLastCompleteCheckpoint) {

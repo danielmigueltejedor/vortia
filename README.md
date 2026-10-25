@@ -95,3 +95,12 @@ coste de comunicación. No se han aumentado los pasos de Courant ni relajado
 las tolerancias para obtener esta ganancia. El cálculo compresible continúa
 siendo experimental: comprueba convergencia, balance de masa, dependencia de
 malla y sensibilidad a la partición, especialmente en los campos turbulentos.
+
+
+En el escritorio, los procesos Open MPI ceden CPU mientras esperan mensajes,
+para evitar esperas activas que empeoran mucho el rendimiento si coinciden
+varios trabajos. No cambia las ecuaciones ni sus tolerancias. Un valor explícito
+de OMPI_MCA_mpi_yield_when_idle en el entorno capturado se conserva. La política
+se limita al proceso MPI; no modifica preferencias globales del equipo. Para
+obtener el menor tiempo total, evita ejecutar varios cálculos que, sumados,
+soliciten más procesos que los núcleos disponibles.

@@ -68,3 +68,30 @@ orquestador, con compilación del motor y reconstrucción, tardó 23,916 s.
 Los monitores de cada ejecución paralela se conservan también en
 postProcessing/parallel_run_<id>/; los monitores antiguos no se sobrescriben.
 El registro indica la carpeta de trabajo/recuperación correspondiente.
+
+
+## Esperas MPI en un escritorio compartido (25/10/2026)
+
+Se observó que dos trabajos independientes de ocho procesos en el M4 de diez
+núcleos provocaban esperas activas y una ralentización grande. Cada lanzador
+cree disponer de todos los núcleos. La política local por defecto pasa a
+OMPI_MCA_mpi_yield_when_idle=1 para ceder CPU únicamente en esperas MPI, según
+[la documentación oficial de Open MPI](https://docs.open-mpi.org/en/main/launching-apps/scheduling.html#forcing-aggressive-or-degraded-performance-mode).
+Se preserva una elección explícita del usuario y no se altera el entorno global.
+
+Ensayo controlado con dos trabajos simultáneos de ocho procesos, 12580 celdas
+cada uno, estado inicial 1000, final 1050, Courant 0,05, misma malla, binarias,
+tolerancias y escritura final:
+
+| Política de espera | Trabajo A | Trabajo B |
+|---|---:|---:|
+| Activa, valor 0 | 28,16 s | 28,14 s |
+| Ceder CPU, valor 1 | 3,80 s | 3,82 s |
+
+La mejora de ~7,4× solo corresponde a ese escenario con exceso de procesos;
+no representa una simulación única. En el ensayo de un solo trabajo de ocho
+procesos y 1000 iteraciones se midieron 13,338 s y 13,537 s respectivamente.
+Los campos reconstruidos p/T/rho/U/nuTilda coinciden a la precisión guardada
+de nueve cifras. Las pruebas de integración verifican la inyección del ajuste
+y la conservación de una elección explícita del usuario. Ninguna de estas
+mediciones demuestra convergencia física de la tobera.
