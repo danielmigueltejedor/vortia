@@ -99,7 +99,14 @@ def validate(sketch, cfg):
 
 
 def mesh_case(root, sketch, cfg):
-    import gmsh
+    # The runtime can live inside a signed app. Importing must not create or
+    # rewrite bytecode in its sealed Resources directory.
+    previous_bytecode_policy = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        import gmsh
+    finally:
+        sys.dont_write_bytecode = previous_bytecode_policy
     gmsh.initialize(['vortia-mesher', '-nopopup'])
     try:
         gmsh.model.add('fluid_domain')
