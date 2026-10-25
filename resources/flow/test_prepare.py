@@ -1,6 +1,7 @@
 import copy
 import unittest
-from prepare import validate, fields, convergence_controls
+from prepare import validate, fields, convergence_controls, mesh_case
+import sys
 from pathlib import Path
 import tempfile
 
@@ -14,6 +15,23 @@ def inputs():
     return sketch,config
 
 class GeneralFlowTest(unittest.TestCase):
+    def test_mesher_import_does_not_write_inside_runtime(self):
+        with tempfile.TemporaryDirectory() as folder:
+            runtime=Path(folder)
+            (runtime/'gmsh.py').write_text("def initialize(args): raise RuntimeError('stop after import')\n")
+            previous=sys.modules.pop('gmsh',None)
+            policy=sys.dont_write_bytecode
+            sys.path.insert(0,folder)
+            try:
+                with self.assertRaisesRegex(RuntimeError,'stop after import'):
+                    mesh_case(None,None,None)
+                self.assertFalse((runtime/'__pycache__').exists())
+                self.assertEqual(sys.dont_write_bytecode,policy)
+            finally:
+                sys.path.remove(folder)
+                sys.modules.pop('gmsh',None)
+                if previous is not None:sys.modules['gmsh']=previous
+
     def test_convergence_controls_default_and_validation(self):
         self.assertIn('enabled true;',convergence_controls({}))
         self.assertIn('stableSamples 5;',convergence_controls({}))
