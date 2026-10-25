@@ -25,7 +25,7 @@ def bisect(f, lo, hi):
 
 
 DEFAULT = json.loads(Path(__file__).with_name('reference.json').read_text())['values']
-SOLVER_FILES = ['vortiaCentralFoam.C','centralCourantNo.H','createFieldRefs.H',
+SOLVER_FILES = ['vortiaCentralFoam.C','ConvergencePolicy.H','ConvergenceMonitor.H','centralCourantNo.H','createFieldRefs.H',
                 'createFields.H','directionInterpolate.H','readFluxScheme.H',
                 'setRDeltaT.H','fixedRhoFvPatchScalarField.H','Make/files','Make/options',
                 'README.md','LICENSE.md']

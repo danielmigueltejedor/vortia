@@ -43,6 +43,7 @@
 #include <algorithm>
 #include <QApplication>
 #include <QDockWidget>
+#include <QScrollArea>
 #include <QFileDialog>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -112,9 +113,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(jobController_, &JobController::outputReceived, console_, &ConsolePanel::appendSolverOutput);
     connect(jobController_, &JobController::jobFinished, console_, &ConsolePanel::flushOutput);
     connect(jobController_, &JobController::jobFinished, this, &MainWindow::onJobFinished);
+    connect(jobController_, &JobController::assessmentUpdated,this,[this](const QString& report){
+        showFlowAssessment(QJsonDocument::fromJson(report.toUtf8()).object());
+    });
     connect(jobController_, &JobController::resultsReady, this, &MainWindow::onResultsReady);
     connect(jobController_, &JobController::progressUpdated, this,
             [this](double time, double coMax, const QString& residuals) {
+                if(!flowConfig_.isEmpty()) {
+                    setProjectState(tr("Calculating · iteration %1 · numerical checks active").arg(time,0,'g',9));return;
+                }
                 setProjectState(QStringLiteral("t=%1  Co_max=%2  %3")
                                     .arg(time, 0, 'g', 6)
                                     .arg(coMax, 0, 'g', 4)
@@ -156,6 +163,7 @@ void MainWindow::buildMenusAndToolbar() {
     auto* importFluent = fileMenu->addAction(tr("Import ANSYS Fluent…"), this, &MainWindow::onImportFluent);
     auto* openResults = fileMenu->addAction(tr("Open CFD results…"), this, &MainWindow::onOpenResults);
     auto* flowSetup = fileMenu->addAction(tr("Flow configuration…"), this, [this]() { configureFlow(1); });
+    flowSetup->setMenuRole(QAction::NoRole);
     flowSetup->setObjectName(QStringLiteral("vortia-flow-setup-action"));
     flowSetup->setIcon(QIcon(QStringLiteral(":/vortia/icons/solver.svg")));
     auto* generateMesh = new QAction(QIcon(QStringLiteral(":/vortia/icons/mesh.svg")),tr("Generate mesh from sketch"),this);
@@ -396,7 +404,19 @@ void MainWindow::buildDocks() {
     propsDock->setObjectName(QStringLiteral("vortia-dock-properties"));
     propsDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     properties_ = new PropertiesPanel(this);
-    propsDock->setWidget(properties_);
+    auto* propertiesContainer=new QWidget(propsDock);auto* propertiesLayout=new QVBoxLayout(propertiesContainer);
+    propertiesLayout->setContentsMargins(8,8,8,8);
+    flowAssessment_=new QLabel(propertiesContainer);flowAssessment_->setObjectName("vortia-flow-assessment");
+    flowAssessment_->setWordWrap(true);flowAssessment_->setTextFormat(Qt::RichText);
+    flowAssessment_->setStyleSheet("QLabel { border: 1px solid palette(mid); border-radius: 12px; padding: 14px; }");
+    flowAssessment_->setMinimumWidth(250);flowAssessment_->hide();
+    propertiesTabs_=new QTabWidget(propertiesContainer);
+    propertiesTabs_->addTab(properties_,tr("Properties"));
+    auto* assessmentScroll=new QScrollArea(propertiesTabs_);assessmentScroll->setWidgetResizable(true);
+    assessmentScroll->setFrameShape(QFrame::NoFrame);assessmentScroll->setWidget(flowAssessment_);
+    propertiesTabs_->addTab(assessmentScroll,tr("Run assessment"));propertiesTabs_->setTabVisible(1,false);
+    propertiesLayout->addWidget(propertiesTabs_,1);
+    propsDock->setWidget(propertiesContainer);
     addDockWidget(Qt::RightDockWidgetArea, propsDock);
 
     auto* consoleDock = new QDockWidget(tr("Simulation Console"), this);
@@ -976,7 +996,7 @@ QString MainWindow::flowFingerprint(bool includeRunControls) const {
     auto cfg=flowConfig_;cfg.remove("activeCase");cfg.remove("preparedHash");
     if(!includeRunControls) {
         auto solver=cfg.value("solver").toObject();
-        for(const auto* key:{"iterations","writeInterval","maxCo","processes"})solver.remove(key);
+        for(const auto* key:{"iterations","writeInterval","maxCo","processes","convergence"})solver.remove(key);
         if(solver.isEmpty())cfg.remove("solver");else cfg.insert("solver",solver);
     }
     QFile sketch(QString::fromStdString((projectRoot_/"geometry/working-sketch.vsketch.json").string()));
@@ -1158,8 +1178,29 @@ void MainWindow::updateNozzleNotice() {
     const bool generic = !flowConfig_.isEmpty() || std::filesystem::exists(caseDir/".vortia-flow-case");
     const bool nozzle = !caseDir.empty() && openfoam::isNozzlePracticeCase(caseDir);
     nozzleNotice_->setVisible(nozzle || generic);
+    flowAssessment_->setVisible(generic);propertiesTabs_->setTabVisible(1,generic);
     if (generic) {
-        QString text=tr("Experimental compressible flow: convergence, mass balance and mesh dependence must be checked. Geometry and settings remain editable in this project; regenerating the mesh creates a new calculation revision.");
+        if(!jobController_ || !projectSwitchLocked()) {
+            QJsonObject report;
+            const bool current=useExistingCase_||flowConfig_.value("preparedHash").toString()==flowFingerprint()
+                ||flowConfig_.value("preparedHash").toString()==flowFingerprint(true);
+            QFile saved(QString::fromStdString((caseDir/"vortia-convergence.json").string()));
+            if(current&&saved.open(QIODevice::ReadOnly)) {
+                const auto bytes=saved.read(8193);
+                const auto parsed=openfoam::parseConvergenceReport(std::string_view(bytes.constData(),static_cast<std::size_t>(bytes.size())));
+                // A report for an unsaved/interrupted sample must never certify a different checkpoint.
+                double latest=-1;
+                if(!caseDir.empty()&&std::filesystem::is_directory(caseDir))for(const auto& entry:std::filesystem::directory_iterator(caseDir)) {
+                    if(!entry.is_directory())continue;
+                    try {std::size_t used=0;const auto name=entry.path().filename().string();const auto t=std::stod(name,&used);
+                        if(used==name.size()&&std::isfinite(t))latest=std::max(latest,t);
+                    }catch(...){}
+                }
+                if(parsed&&parsed->iteration==latest)report=QJsonDocument::fromJson(bytes).object();
+            }
+            showFlowAssessment(report);
+        }
+        QString text=tr("Experimental compressible flow. Vortia monitors numerical convergence automatically. Model suitability and mesh independence require separate validation. Geometry and settings remain editable; regenerating the mesh retains earlier results.");
         if (!useExistingCase_ && flowConfig_.value("activeCase").toString().isEmpty())
             text+=tr(" Generate a mesh from the sketch before calculating.");
         else if (!useExistingCase_ && (flowConfig_.value("preparedHash").toString().isEmpty() ||
@@ -1183,12 +1224,47 @@ void MainWindow::updateNozzleNotice() {
     nozzleNotice_->setText(notice);
 }
 
+void MainWindow::showFlowAssessment(const QJsonObject& r) {
+    if(!flowAssessment_)return;
+    flowAssessment_->setVisible(true);propertiesTabs_->setTabVisible(1,true);propertiesTabs_->setCurrentIndex(1);
+    const auto state=r.value("status").toString();
+    QString title=tr("Automatic numerical checks"),detail;
+    QString color="#559bb8";
+    if(state=="converged") {title=tr("Numerical convergence reached");color="#36a68a";detail=tr("The flow met all numerical criteria for consecutive checks. The final state was saved.");}
+    else if(state=="limit") {title=tr("Safety limit reached · not converged");color="#d39541";detail=tr("Results remain provisional. Continue with a higher safety limit, or revise the mesh, boundaries and physical model if progress stalls.");}
+    else if(state=="interrupted") {title=tr("Calculation did not finish");color="#d39541";detail=r.value("message").toString().toHtmlEscaped();}
+    else if(state=="invalid") {title=tr("Invalid numerical state");color="#d86262";detail=tr("A non-finite or non-positive field was detected. This run cannot be accepted.");}
+    else if(state=="warming") {title=tr("Establishing the initial flow");detail=tr("Automatic checks are active. Acceptance starts after the minimum iteration window.");}
+    else if(state=="stabilizing") {title=tr("Flow stabilizing");detail=tr("The latest check passed. Vortia is waiting for consecutive successful checks.");}
+    else if(state=="checking") {title=tr("Flow still evolving");detail=r.value("automatic").toBool()?tr("Vortia will stop automatically when mass conservation and field stability meet their limits."):tr("Automatic stopping is off. Vortia continues to monitor the flow until the safety limit.");}
+    else {detail=tr("Run the calculation to obtain an assessment. Previous results without a matching saved assessment remain unassessed.");}
+    QString rows;
+    if(r.value("sampled").toBool()) {
+        auto metric=[&](const char* label,const char* key,double tolerance) {
+            const double v=r.value(key).toDouble();
+            return QString("<p>%1<br><b>%2%</b> · %3 %4%</p>").arg(tr(label)).arg(v*100,0,'g',3)
+                .arg(v<=tolerance?tr("Pass · limit"):tr("Pending · limit")).arg(tolerance*100,0,'g',3);
+        };
+        rows+=metric("Global mass balance","globalMass",r.value("massTolerance").toDouble());
+        rows+=metric("Local mass conservation","localMass",r.value("massTolerance").toDouble());
+        rows+=metric("Normalized update rate","equationError",r.value("equationTolerance").toDouble());
+        rows+=metric("Maximum field change","fieldChange",r.value("fieldTolerance").toDouble());
+        rows+=QString("<p>%1: <b>%2 / %3</b><br>%4 %5 · %6 %7</p>")
+            .arg(tr("Consecutive checks")).arg(r.value("stableSamples").toInt()).arg(r.value("requiredSamples").toInt())
+            .arg(tr("Iteration")).arg(r.value("checkedIteration").toDouble(),0,'g',9)
+            .arg(tr("Check interval")).arg(r.value("interval").toInt());
+    }
+    flowAssessment_->setText(QString("<p style='color:%1;font-size:16px'><b>%2</b></p><p>%3</p>%4").arg(color,title,detail,rows));
+}
+
 void MainWindow::onJobFinished(bool success, const QString& summary) {
     setJobUiRunning(false);
     updateNozzleNotice();
+    if(!success&&propertiesTabs_->isTabVisible(1))showFlowAssessment(QJsonObject{{"status","interrupted"},{"message",summary}});
     setProjectState(success ? tr("Run finished: %1").arg(summary)
                            : tr("Run failed: %1").arg(summary));
-    console_->appendSolverOutput((success ? tr("SUCCESS: ") : tr("FAILED: ")) + summary + "\n");
+    const bool unmet=flowAssessment_&&flowAssessment_->isVisible()&&flowAssessment_->text().contains(tr("Safety limit reached · not converged"));
+    console_->appendSolverOutput((success ? unmet?tr("NOT CONVERGED: "):tr("SUCCESS: ") : tr("FAILED: ")) + summary + "\n");
 }
 
 bool MainWindow::projectSwitchLocked() const {
@@ -1198,6 +1274,10 @@ bool MainWindow::projectSwitchLocked() const {
 }
 
 void MainWindow::setJobUiRunning(bool running) {
+    if(running&&!flowConfig_.isEmpty()) {
+        showFlowAssessment(QJsonObject{{"status","warming"}});
+        if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->show();
+    }
     runAction_->setEnabled(!running);
     cancelAction_->setEnabled(running);
     projectTabs_->setEnabled(!running);

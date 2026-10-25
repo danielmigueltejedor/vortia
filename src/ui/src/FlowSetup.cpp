@@ -16,7 +16,13 @@
 #include <QProgressDialog>
 #include <QEventLoop>
 #include <QStandardPaths>
-#include <QTabWidget>
+#include <QStackedWidget>
+#include <QListWidget>
+#include <QScrollArea>
+#include <QCheckBox>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QFile>
@@ -32,6 +38,7 @@
 #include <cmath>
 #include <algorithm>
 #include <map>
+#include <tuple>
 
 namespace vortia {
 namespace {
@@ -42,16 +49,37 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     QDialog dialog(parent);
     dialog.setObjectName("vortia-flow-setup");
     dialog.setWindowTitle(tr("Flow configuration"));
-    dialog.resize(1050, 720);
+    dialog.resize(1120, 800);
+    dialog.setStyleSheet(QStringLiteral(
+        "QListWidget#flow-navigation { border: 0; background: transparent; font-size: 14px; }"
+        "QListWidget#flow-navigation::item { padding: 16px 10px; border-radius: 9px; margin-bottom: 6px; }"
+        "QListWidget#flow-navigation::item:selected { background: #246b8e; color: white; }"
+        "QLabel#flow-title { font-size: 25px; font-weight: 600; }"
+        "QGroupBox { border: 1px solid palette(mid); border-radius: 10px; margin-top: 12px; padding: 16px; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; }"
+        "QDoubleSpinBox, QComboBox, QLineEdit { min-height: 28px; }"));
     auto* layout = new QVBoxLayout(&dialog);
+    auto* title = new QLabel(tr("Set up your flow"),&dialog);
+    title->setObjectName("flow-title");layout->addWidget(title);
     auto* intro = new QLabel(tr("Configure the fluid domain drawn in the sketch. The horizontal X axis is the rotation axis; Y is the radius. Boundary conditions belong to the numbered sketch segments."), &dialog);
     intro->setWordWrap(true); layout->addWidget(intro);
-    auto* tabs = new QTabWidget(&dialog); layout->addWidget(tabs);
+    auto* body=new QHBoxLayout;layout->addLayout(body,1);
+    auto* navigation=new QListWidget(&dialog);navigation->setObjectName("flow-navigation");
+    navigation->setFixedWidth(230);navigation->setIconSize(QSize(28,28));body->addWidget(navigation);
+    auto* pages=new QStackedWidget(&dialog);pages->setObjectName("flow-pages");body->addWidget(pages,1);
+    QObject::connect(navigation,&QListWidget::currentRowChanged,pages,&QStackedWidget::setCurrentIndex);
+    auto registerPage=[&](QWidget* widget,const char* text,const char* icon) {
+        auto* scroll=new QScrollArea(pages);scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setWidget(widget);pages->addWidget(scroll);
+        navigation->addItem(new QListWidgetItem(QIcon(QString(":/vortia/icons/%1.svg").arg(icon)),tr(text)));
+    };
     struct Number { QString section, key; QDoubleSpinBox* spin; };
     std::vector<Number> numbers;
-    auto addPage = [&](const char* title) {
-        auto* widget = new QWidget(tabs); auto* form = new QFormLayout(widget);
-        tabs->addTab(widget, tr(title)); return form;
+    auto addPage = [&](const char* text,const char* icon) {
+        auto* widget=new QWidget(pages);auto* pageLayout=new QVBoxLayout(widget);
+        auto* card=new QGroupBox(tr(text),widget);pageLayout->addWidget(card);pageLayout->addStretch();
+        auto* form=new QFormLayout(card);form->setSpacing(16);form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        registerPage(widget,text,icon);return form;
     };
     auto number = [&](QFormLayout* form, const char* section, const char* key, const char* label,
                       double fallback, double low, double high, int decimals) {
@@ -61,13 +89,13 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
         spin->setValue(previous.value(section).toObject().value(key).toDouble(fallback));
         form->addRow(tr(label),spin); numbers.push_back({section,key,spin}); return spin;
     };
-    auto* mesh = addPage("Mesh");
+    auto* mesh = addPage("Mesh","mesh");
     number(mesh,"mesh","sizeMm","Global cell size (mm)",20,0.001,1e7,3);
     number(mesh,"mesh","wallSizeMm","Cell size near walls (mm)",2,0.001,1e7,3);
     number(mesh,"mesh","wedgeAngle","Axisymmetric wedge angle (degrees)",5,0.1,5,2);
     auto* meshInfo = new QLabel(tr("Generate a new mesh from the actual lines and circular arcs of the sketch. One closed fluid region above Y=0 is supported. Existing mesh and result revisions are retained."),&dialog);
     meshInfo->setWordWrap(true); mesh->addRow(meshInfo);
-    auto* material = addPage("Models and material");
+    auto* material = addPage("Models and material","material");
     material->addRow(new QLabel(tr("Ideal gas · energy enabled · axisymmetric without swirl · adiabatic no-slip walls"), &dialog));
     auto* turbulence = new QComboBox(&dialog); turbulence->setObjectName("flow-turbulence");
     turbulence->addItem(tr("Spalart–Allmaras"),"SpalartAllmaras"); turbulence->addItem(tr("Laminar"),"laminar");
@@ -77,7 +105,7 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     number(material,"material","Cp","Specific heat Cp (J/kg/K)",1005,0.01,1e7,3);
     number(material,"material","mu","Dynamic viscosity (Pa s)",1.8e-5,1e-12,100,10);
     number(material,"material","conductivity","Thermal conductivity (W/m/K)",0.025,1e-9,10000,7);
-    auto* boundaryPage = new QWidget(tabs); auto* boundaryLayout = new QVBoxLayout(boundaryPage);
+    auto* boundaryPage = new QWidget(pages); auto* boundaryLayout = new QVBoxLayout(boundaryPage);
     auto* hint = new QLabel(tr("Pressures are absolute Pa. Inlet pressure and temperature are total values. Outlet pressure is static; its temperature applies to backflow. Axis segments must lie on Y=0. Reuse a region name only when all its settings match."),boundaryPage);
     hint->setWordWrap(true); boundaryLayout->addWidget(hint);
     auto* table = new QTableWidget(static_cast<int>(shape.segmentCount()),6,boundaryPage);
@@ -111,26 +139,59 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
         updateBoundaryEditors();
         segment->setToolTip(QString("(%1, %2) → (%3, %4) mm").arg(a.xMm).arg(a.yMm).arg(b.xMm).arg(b.yMm));
     }
-    tabs->addTab(boundaryPage,tr("Boundary conditions"));
-    auto* calculation=addPage("Initialization and calculation");
+    registerPage(boundaryPage,"Boundary conditions","boundary");
+    auto* calculation=addPage("Initialization and calculation","solver");
     number(calculation,"initial","pressure","Initial absolute pressure (Pa)",101325,0.001,1e9,1);
     number(calculation,"initial","temperature","Initial temperature (K)",300,0.001,100000,2);
-    number(calculation,"solver","iterations","Maximum pseudo-iterations",1000,1,200000,0);
+    const auto convergence=previous.value("solver").toObject().value("convergence").toObject();
+    auto* automatic=new QCheckBox(tr("Stop automatically when the flow stabilizes"),&dialog);
+    automatic->setObjectName("flow-convergence-enabled");automatic->setChecked(convergence.value("enabled").toBool(true));
+    calculation->addRow(automatic);
+    auto* automaticInfo=new QLabel(tr("Vortia checks global and local mass conservation, pressure, temperature, density, velocity and turbulence stability. It saves and stops after consecutive successful checks. Reaching the safety limit is reported as not converged."),&dialog);
+    automaticInfo->setWordWrap(true);calculation->addRow(automaticInfo);
+    number(calculation,"solver","iterations","Safety iteration limit",50000,1,200000,0);
     number(calculation,"solver","writeInterval","Save every N iterations",100,1,200000,0);
     number(calculation,"solver","maxCo","Acoustic Courant limit",0.1,0.001,0.5,3);
     number(calculation,"solver","processes","CPU processes (1 = serial)",std::clamp(QThread::idealThreadCount(),1,8),1,8,0);
     auto* cpuInfo=new QLabel(tr("Parallel runs use an isolated working folder and retain recovery files. The latest complete checkpoint is reconstructed into this case. Small meshes may run faster with fewer processes."),&dialog);
     cpuInfo->setWordWrap(true);calculation->addRow(cpuInfo);
-    auto* method = new QLabel(tr("Experimental compressible OpenFOAM v2606 backend. Kurganov/Minmod local time stepping seeks a steady flow. The iteration limit does not establish convergence; mass balance, field evolution and mesh dependence must be checked."),&dialog);
+    auto* method = new QLabel(tr("Experimental compressible OpenFOAM v2606 backend. Automatic checks assess numerical convergence on this mesh. Model suitability and mesh independence require separate validation."),&dialog);
     method->setWordWrap(true); calculation->addRow(method);
-    tabs->setCurrentIndex(std::clamp(page,0,tabs->count()-1));
+    auto* advanced=new QGroupBox(tr("Advanced convergence criteria"),&dialog);
+    advanced->setObjectName("flow-convergence-advanced");
+    auto* advancedLayout=new QFormLayout(advanced);
+    struct Criterion {const char* key;QDoubleSpinBox* spin;};std::vector<Criterion> criteria;
+    auto criterion=[&](const char* key,const char* text,double fallback,double low,double high,int decimals) {
+        auto* spin=new QDoubleSpinBox(advanced);spin->setObjectName(QString("flow-convergence-%1").arg(key));
+        spin->setDecimals(decimals);spin->setRange(low,high);spin->setValue(convergence.value(key).toDouble(fallback));
+        advancedLayout->addRow(tr(text),spin);criteria.push_back({key,spin});
+    };
+    criterion("interval","Check every N iterations",50,1,10000,0);
+    criterion("minimumIterations","Minimum iterations before acceptance",500,1,200000,0);
+    criterion("stableSamples","Consecutive successful checks",5,2,100,0);
+    criterion("massTolerance","Relative mass error limit",.001,.00000001,.01,8);
+    criterion("fieldTolerance","Relative field change limit",.001,.00000001,.01,8);
+    criterion("equationTolerance","Normalized update rate limit",1e-5,1e-8,1e-3,8);
+    criterion("absoluteMassTolerance","Absolute mass floor (kg/s)",1e-9,1e-15,1e-6,15);
+    auto* showAdvanced=new QCheckBox(tr("Show advanced criteria"),&dialog);
+    calculation->addRow(showAdvanced);calculation->addRow(advanced);advanced->setVisible(false);
+    QObject::connect(showAdvanced,&QCheckBox::toggled,advanced,&QWidget::setVisible);
+    navigation->setCurrentRow(std::clamp(page,0,pages->count()-1));
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
-    QObject::connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);
+    QObject::connect(buttons,&QDialogButtonBox::accepted,&dialog,[&](){
+        if(criteria[1].spin->value()<criteria[0].spin->value()) {
+            QMessageBox::warning(&dialog,tr("Convergence criteria"),tr("The minimum iterations must be at least the check interval."));return;
+        }
+        dialog.accept();
+    });
     QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     if(dialog.exec()!=QDialog::Accepted)return {};
     QJsonObject result;
     for(const auto& item:numbers){auto object=result.value(item.section).toObject();object.insert(item.key,item.spin->value());result.insert(item.section,object);}
     auto mat=result.value("material").toObject();mat.insert("turbulence",turbulence->currentData().toString());result.insert("material",mat);
+    QJsonObject convergenceResult;convergenceResult.insert("enabled",automatic->isChecked());
+    for(const auto& c:criteria)convergenceResult.insert(c.key,c.spin->value());
+    auto solverResult=result.value("solver").toObject();solverResult.insert("convergence",convergenceResult);result.insert("solver",solverResult);
     QJsonArray boundaries;
     for(int row=0;row<table->rowCount();++row){QJsonObject bc;
         bc.insert("name",static_cast<QLineEdit*>(table->cellWidget(row,1))->text().trimmed());
@@ -147,7 +208,7 @@ QString stageFlowBackend(const QString& caseDir) {
         return tr("Only a generated flow case can receive the bundled backend.");
     QCryptographicHash hash(QCryptographicHash::Sha256);
     std::vector<std::pair<QString,QByteArray>> files;
-    for(const auto& name:QStringList{"vortiaCentralFoam.C","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}) {
+    for(const auto& name:QStringList{"vortiaCentralFoam.C","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}) {
         QFile f(QString(":/vortia/openfoam/solver/")+name);
         if(!f.open(QIODevice::ReadOnly))return f.errorString();
         auto bytes=f.readAll();hash.addData(name.toUtf8());hash.addData(QByteArray(1,'\0'));hash.addData(bytes);
@@ -186,6 +247,21 @@ QString updateFlowRunControls(const QString& caseDir,const QJsonObject& solver,
        iterations<1||iterations>200000||std::floor(iterations)!=iterations||
        interval<1||interval>iterations||std::floor(interval)!=interval||courant<=0||courant>.5)
         return tr("Invalid iteration limit, output interval or Courant number.");
+    const auto c=solver.value("convergence").toObject();
+    if(solver.contains("convergence")&&!solver.value("convergence").isObject())return tr("Invalid convergence criteria.");
+    const std::vector<std::tuple<QString,double,double,double,bool>> defaults{
+        {"interval",50,1,10000,true},{"minimumIterations",500,1,200000,true},{"stableSamples",5,2,100,true},
+        {"massTolerance",.001,1e-8,.01,false},{"fieldTolerance",.001,1e-8,.01,false},
+        {"equationTolerance",1e-5,1e-8,1e-3,false},{"absoluteMassTolerance",1e-9,1e-15,1e-6,false}};
+    QString convergenceText="{ enabled "+QString(c.value("enabled").toBool(true)?"true":"false")+"; ";
+    for(const auto& [key,fallback,low,high,integer]:defaults) {
+        if(c.contains(key)&&!c.value(key).isDouble())return tr("Invalid convergence criteria.");
+        const auto v=c.value(key).toDouble(fallback);
+        if(!std::isfinite(v)||v<low||v>high||(integer&&std::floor(v)!=v))return tr("Invalid convergence criteria.");
+        convergenceText+=key+" "+QString::number(v,'g',16)+"; ";
+    }
+    if((c.contains("enabled")&&!c.value("enabled").isBool())||c.value("minimumIterations").toDouble(500)<c.value("interval").toDouble(50))return tr("Invalid convergence criteria.");
+    convergenceText+="}";
     QFile marker(caseDir+"/.vortia-flow-case");
     if(!marker.open(QIODevice::ReadOnly)||marker.readAll().trimmed()!="vortia-axisymmetric-flow-v1")
         return tr("Only a generated flow case can be resumed with these controls.");
@@ -199,10 +275,12 @@ QString updateFlowRunControls(const QString& caseDir,const QJsonObject& solver,
     if(!executable)return tr("OpenFOAM foamDictionary is required to update calculation controls.");
     QProcessEnvironment captured;
     for(const auto& [key,value]:environment)captured.insert(QString::fromStdString(key),QString::fromStdString(value));
-    for(const auto& entry:std::vector<std::pair<QString,double>>{{"endTime",iterations},{"writeInterval",interval},{"maxCo",courant}}) {
+    for(const auto& entry:std::vector<std::pair<QString,QString>>{
+        {"endTime",QString::number(iterations,'g',15)},{"writeInterval",QString::number(interval,'g',15)},
+        {"maxCo",QString::number(courant,'g',15)},{"vortiaConvergence",convergenceText}}) {
         QProcess command;command.setProcessEnvironment(captured);command.setWorkingDirectory(caseDir);
         command.start(QString::fromStdString(executable->string()),
-            {staged.fileName(),"-entry",entry.first,"-set",QString::number(entry.second,'g',15)});
+            {staged.fileName(),"-entry",entry.first,"-set",entry.second});
         if(!command.waitForFinished(10000)||command.exitStatus()!=QProcess::NormalExit||command.exitCode()!=0) {
             command.kill();command.waitForFinished(1000);
             return tr("Calculation controls could not be updated; the existing case was preserved.")+"\n"+QString::fromUtf8(command.readAllStandardError());
@@ -232,7 +310,7 @@ QString generateFlowCase(QWidget* parent,const QString& sketchPath,const QJsonOb
     for(const auto& name:{"prepare.py","boundaries.py"}){QFile f(QString(":/vortia/flow/")+name);if(!f.open(QIODevice::ReadOnly)||!write(name,f.readAll()))return {};}
     auto settings=cfg;settings.remove("activeCase");settings.remove("preparedHash");
     if(!write("settings.json",QJsonDocument(settings).toJson())||!QDir().mkpath(stage.filePath("solver/Make")))return {};
-    for(const auto& name:QStringList{"vortiaCentralFoam.C","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}){
+    for(const auto& name:QStringList{"vortiaCentralFoam.C","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}){
         QFile f(QString(":/vortia/openfoam/solver/")+name);if(!f.open(QIODevice::ReadOnly)||!write("solver/"+name,f.readAll()))return {};
     }
     QString python;

@@ -92,3 +92,14 @@ TEST(LogParser, FlushCapturesTrailingLineWithoutNewline) {
     parser.flush();
     EXPECT_DOUBLE_EQ(parser.progress().time, 0.5);
 }
+
+TEST(LogParser, ConvergenceMarkerRequiresCompleteValidCriteria) {
+    const std::string report=R"({"schema":1,"status":"converged","iteration":700,"checkedIteration":700,"sampled":true,"automatic":true,"equationError":0.000001,"equationTolerance":0.00001,"globalMass":0.0001,"localMass":0.0002,"fieldChange":0.0003,"massTolerance":0.001,"fieldTolerance":0.001,"stableSamples":5,"requiredSamples":5,"interval":50})";
+    vortia::openfoam::LogParser parser;
+    parser.feed("VORTIA_CONVER");parser.feed("GENCE "+report+"\n");
+    ASSERT_TRUE(parser.progress().convergence);EXPECT_EQ(parser.progress().convergence->status,"converged");
+    auto bad=report;bad.replace(bad.find("0.0002"),6,"0.5");
+    EXPECT_FALSE(vortia::openfoam::parseConvergenceReport(bad));
+    EXPECT_FALSE(vortia::openfoam::parseConvergenceReport("{}"));
+    parser.reset();EXPECT_FALSE(parser.progress().convergence);
+}

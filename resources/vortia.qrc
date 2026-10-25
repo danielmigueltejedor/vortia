@@ -8,6 +8,8 @@
   </qresource>
   <qresource prefix="/vortia/openfoam">
     <file alias="solver/vortiaCentralFoam.C">../examples/nozzle-video-2026/solver/vortiaCentralFoam.C</file>
+    <file alias="solver/ConvergencePolicy.H">../examples/nozzle-video-2026/solver/ConvergencePolicy.H</file>
+    <file alias="solver/ConvergenceMonitor.H">../examples/nozzle-video-2026/solver/ConvergenceMonitor.H</file>
     <file alias="solver/centralCourantNo.H">../examples/nozzle-video-2026/solver/centralCourantNo.H</file>
     <file alias="solver/createFieldRefs.H">../examples/nozzle-video-2026/solver/createFieldRefs.H</file>
     <file alias="solver/createFields.H">../examples/nozzle-video-2026/solver/createFields.H</file>

@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <optional>
 
 namespace vortia::openfoam {
 
@@ -13,8 +14,19 @@ struct ResidualSample {
     int iterations{0};
 };
 
+struct ConvergenceSample {
+    std::string status;
+    double iteration=0, checkedIteration=0, globalMass=0, localMass=0, fieldChange=0;
+    double massTolerance=0, fieldTolerance=0, equationError=0, equationTolerance=0;
+    int stableSamples=0, requiredSamples=0, interval=0;
+    bool sampled=false, automatic=false;
+};
+// Strict parsing shared by live progress and persisted assessment readers.
+std::optional<ConvergenceSample> parseConvergenceReport(std::string_view json);
+
 /// Incrementally-built view of a running solver's numerical state.
 struct SolverProgress {
+    std::optional<ConvergenceSample> convergence;
     double time{0.0};
     double courantMean{0.0};
     double courantMax{0.0};

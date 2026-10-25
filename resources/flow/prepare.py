@@ -22,6 +22,23 @@ def finite(value, positive=True):
     return value
 
 
+def convergence_controls(solver):
+    c=solver.get('convergence',{})
+    if not isinstance(c,dict) or type(c.get('enabled',True)) is not bool:
+        raise ValueError('Invalid convergence criteria')
+    limits={'interval':(50,1,10000,True),'minimumIterations':(500,1,200000,True),
+        'stableSamples':(5,2,100,True),'massTolerance':(.001,1e-8,.01,False),
+        'fieldTolerance':(.001,1e-8,.01,False),'equationTolerance':(1e-5,1e-8,1e-3,False),'absoluteMassTolerance':(1e-9,1e-15,1e-6,False)}
+    values={}
+    for key,(default,low,high,integer) in limits.items():
+        value=c.get(key,default)
+        finite(value)
+        if not low<=value<=high or (integer and int(value)!=value):raise ValueError('Invalid convergence criterion '+key)
+        values[key]=value
+    if values['minimumIterations']<values['interval']:raise ValueError('Minimum iterations must exceed the check interval')
+    return 'vortiaConvergence { enabled '+str(c.get('enabled',True)).lower()+'; '+''.join(f'{k} {v}; ' for k,v in values.items())+'}\n'
+
+
 def validate(sketch, cfg):
     pts = sketch['vertices']
     bulges = sketch.get('segmentBulges', [0]*len(pts))
@@ -69,6 +86,7 @@ def validate(sketch, cfg):
         raise ValueError('Use a wedge angle between 0.1 and 5 degrees and a wall size no larger than the global size')
     if not 1 <= finite(solver['iterations']) <= 200000 or not 1 <= finite(solver['writeInterval']) <= solver['iterations']:
         raise ValueError('Invalid iteration limit or output interval')
+    convergence_controls(solver)
     if not 0 < finite(solver['maxCo']) <= 0.5:
         raise ValueError('Use an acoustic Courant number in (0, 0.5]')
     if mat['turbulence'] not in ('laminar', 'SpalartAllmaras'):
@@ -241,6 +259,7 @@ adjustTimeStep no; maxCo {s['maxCo']}; maxDeltaT 1e-6; rDeltaTSmoothingCoeff 0.5
 writeControl timeStep; writeInterval {s['writeInterval']}; purgeWrite 0;
 writeFormat ascii; writePrecision 9; writeCompression off; timeFormat general; timePrecision 9; runTimeModifiable true;
 functions {{ {functions} }}
+{convergence_controls(s)}
 ''')
     (root/'.vortia-flow-case').write_text('vortia-axisymmetric-flow-v1\n')
     (root/'README.md').write_text('# General axisymmetric flow case\n\nGenerated from the saved sketch and flow-setup.json. Ideal gas, energy, adiabatic no-slip walls and optional Spalart–Allmaras. Pressures are absolute Pa. The initial field is a uniform starting guess, not a simulation result. The custom OpenFOAM v2606 helper enforces no swirl and includes viscous energy transport. CFD convergence, mass balance and mesh dependence must be checked. The numerical backend is experimental; no Fluent equivalence is asserted.\n')

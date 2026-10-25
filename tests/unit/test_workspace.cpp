@@ -11,6 +11,9 @@
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QLineEdit>
+#include <QCheckBox>
+#include <QListWidget>
+#include <QStackedWidget>
 
 #include <gtest/gtest.h>
 #include <algorithm>
@@ -572,7 +575,8 @@ TEST(WorkspaceFlow, RuntimeEditsKeepTheCaseAndMigrateLegacyFingerprints) {
     QTimer::singleShot(0,[](){
         auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);
         d->findChild<QDoubleSpinBox*>("flow-solver-iterations")->setValue(5000);
-        d->findChild<QDoubleSpinBox*>("flow-solver-processes")->setValue(2);d->accept();
+        d->findChild<QDoubleSpinBox*>("flow-solver-processes")->setValue(2);
+        d->findChild<QDoubleSpinBox*>("flow-convergence-fieldTolerance")->setValue(.0005);d->accept();
     });
     WorkspaceTestAccess::configure(window);
     EXPECT_EQ(WorkspaceTestAccess::flow(window).value("activeCase").toString(),"/saved/existing/case");
@@ -779,4 +783,47 @@ int main(int argc, char** argv) {
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings.path());
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+TEST(WorkspaceFlow, ModernSetupKeepsAutomaticCriteriaAndPageNavigation) {
+    QTimer::singleShot(0,[](){
+        auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);
+        auto* nav=d->findChild<QListWidget*>("flow-navigation");ASSERT_NE(nav,nullptr);EXPECT_EQ(nav->count(),4);
+        auto* pages=d->findChild<QStackedWidget*>("flow-pages");ASSERT_NE(pages,nullptr);EXPECT_EQ(pages->currentIndex(),3);
+        auto* enabled=d->findChild<QCheckBox*>("flow-convergence-enabled");ASSERT_NE(enabled,nullptr);EXPECT_TRUE(enabled->isChecked());
+        d->findChild<QDoubleSpinBox*>("flow-convergence-stableSamples")->setValue(7);d->accept();
+    });
+    const auto shape=makeRectangleSketch(300,50).value();
+    const auto cfg=editFlowSetup(nullptr,shape,{},3);
+    const auto c=cfg.value("solver").toObject().value("convergence").toObject();
+    EXPECT_TRUE(c.value("enabled").toBool());EXPECT_EQ(c.value("stableSamples").toInt(),7);
+    EXPECT_EQ(c.value("interval").toInt(),50);
+    QTimer::singleShot(0,[](){
+        auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        EXPECT_EQ(d->findChild<QDoubleSpinBox*>("flow-convergence-stableSamples")->value(),7);
+        d->reject();
+    });
+    EXPECT_TRUE(editFlowSetup(nullptr,shape,cfg).isEmpty());
+}
+
+TEST(FlowRunControls, NativeConvergencePipelineWhenExplicitlyRequested) {
+    const auto root=qEnvironmentVariable("VORTIA_CONVERGENCE_PIPELINE_CASE");
+    if(root.isEmpty())GTEST_SKIP()<<"Requires an explicit private equilibrium native case";
+    PosixProcessRunner processes;
+    auto installation=openfoam::Detector::probe(qEnvironmentVariable("VORTIA_NATIVE_OF_ROOT").toStdString());ASSERT_TRUE(installation);
+    auto env=openfoam::Detector::captureEnvironment(*installation,processes);ASSERT_TRUE(env);
+    const auto before=readFile(root+"/0/p");
+    ASSERT_TRUE(stageFlowBackend(root).isEmpty());
+    ASSERT_TRUE(updateFlowRunControls(root,{{"iterations",1000},{"writeInterval",1000},{"maxCo",.05}},*env).isEmpty());
+    openfoam::CaseRunner runner(processes,*env);const auto caps=openfoam::Detector::verifyCapabilities(*installation,*env);
+    std::optional<openfoam::ConvergenceSample> last;openfoam::RunCallbacks callbacks;
+    callbacks.onProgress=[&](const openfoam::SolverProgress& p){if(p.convergence)last=p.convergence;};
+    const auto mesh=runner.runMeshing(root.toStdString(),caps,{},nullptr);ASSERT_TRUE(mesh);ASSERT_TRUE(mesh->process.succeeded());
+    const auto result=runner.runSolver(root.toStdString(),{},caps,callbacks,nullptr,"vortiaCentralFoam",4);
+    ASSERT_TRUE(result);ASSERT_TRUE(result->process.succeeded());EXPECT_EQ(result->finalTime,700);
+    ASSERT_TRUE(last);EXPECT_EQ(last->status,"converged");
+    const auto bytes=readFile(root+"/vortia-convergence.json");
+    const auto assessment=openfoam::parseConvergenceReport(bytes.toStdString());
+    ASSERT_TRUE(assessment);EXPECT_EQ(assessment->status,"converged");EXPECT_EQ(assessment->iteration,700);
+    EXPECT_TRUE(QFileInfo::exists(root+"/700/p"));EXPECT_EQ(readFile(root+"/0/p"),before);
 }
