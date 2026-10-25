@@ -7,7 +7,7 @@ steady-seeking localEuler, ideal-gas, no-swirl wedge backend only.
 
 ## Interface and use
 
-Open **Modelo → Solver → Inicialización y cálculo**. Automatic stopping is on by
+Open **Cálculo → Ajustes de cálculo → Inicialización y cálculo**. Automatic stopping is on by
 default. Existing iteration/output/CPU controls are preserved; new configurations
 start with a safety cap of 50,000 iterations, not a target to run unconditionally.
 Geometry, mesh, material and boundaries remain general project tools. The sidebar
@@ -76,11 +76,11 @@ solution, turbulence choice, near-wall resolution, or mesh independence.
 ## Scope compared with Fluent
 
 This release does not implement the full industrial Fluent feature set. Current
-sketch flow supports ideal gas, energy, laminar viscosity or Spalart–Allmaras,
-adiabatic no-slip walls, inlet/outlet/reservoir/axis boundaries, wedge meshing,
+sketch flow supports ideal gas, energy, inviscid Euler with slip walls, laminar
+viscosity or Spalart–Allmaras with adiabatic no-slip walls, inlet/outlet/reservoir/axis boundaries, wedge meshing,
 parallel execution, checkpoint continuation, field viewing and line exports.
 
-Still outside this general sketch workflow: inviscid wall slip, the wider RANS/
+Still outside this general sketch workflow: the wider RANS/
 transition/LES family, arbitrary 3D flow generation, transient physical time,
 multiphase/cavitation, combustion/species, radiation, real gases, conjugate solid
 heat transfer, rotating/sliding/overset meshes, adjoint optimization and a GPU
@@ -88,3 +88,5 @@ solver. Importing a case or visualizing 3D data is not implementing these models
 No working-looking controls are supplied for unavailable physics.
 
 Reference for the comparison: [official Fluent capabilities](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/flu_ug/flu_gs_sec_gs_capabilities.html).
+
+See [workspace and performance changes](WORKSPACE_AND_PERFORMANCE.md) for preferences, CPU sizing, deferred visualization and the native A/B evidence.

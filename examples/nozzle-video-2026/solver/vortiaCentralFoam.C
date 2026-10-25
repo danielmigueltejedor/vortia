@@ -39,6 +39,7 @@ Description
 
 #include "fvCFD.H"
 #include <cmath>
+#include <chrono>
 #include "dynamicFvMesh.H"
 #include "psiThermo.H"
 #include "turbulentFluidThermoModel.H"
@@ -47,6 +48,7 @@ Description
 #include "localEulerDdtScheme.H"
 #include "fvcSmooth.H"
 #include "ConvergenceMonitor.H"
+#include "ConservativeUpdate.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -93,11 +95,28 @@ int main(int argc, char *argv[])
 
     Info<< "\nStarting time loop\n" << endl;
 
+    // Allocate old-time fields before the first direct update, also needed by
+    // the subsequent implicit viscous corrections. Boundaries remain unchanged.
+    rho.oldTime();rhoU.oldTime();rhoE.oldTime();
+    const bool directUpdates=runTime.controlDict().getOrDefault<Switch>("directConservativeUpdates",true);
+    const bool reuseSnapshots=runTime.controlDict().getOrDefault<Switch>("reuseStepSnapshots",false);
+    const label logInterval=runTime.controlDict().getOrDefault<label>("vortiaLogInterval",10);
+    if(logInterval<1||logInterval>1000)FatalErrorInFunction<<"Invalid diagnostic interval"<<exit(FatalError);
+    ConservativeSnapshot<scalar> snapshotrho("rhoStepStart",reuseSnapshots);
+    ConservativeSnapshot<vector> snapshotrhoU("rhoUStepStart",reuseSnapshots);
+    ConservativeSnapshot<scalar> snapshotrhoE("rhoEStepStart",reuseSnapshots);
+    ConservativeSnapshot<vector> snapshotU("UStepStart",reuseSnapshots);
+    ConservativeSnapshot<scalar> snapshote("eStepStart",reuseSnapshots);
+    ConservativeSnapshot<scalar> snapshotp("pStepStart",reuseSnapshots);
+    ConservativeSnapshot<scalar> snapshotT("TStepStart",reuseSnapshots);
     bool stoppedOnConvergence=false;
     VortiaConvergenceMonitor convergence(runTime,mesh,p,T,rho,U);
+    const auto computeStarted=std::chrono::steady_clock::now();
     while (runTime.run())
     {
         #include "readTimeControls.H"
+        const bool logThisIteration=(runTime.timeIndex()-runTime.startTimeIndex()+1)%logInterval==0
+            ||runTime.timeIndex()==runTime.startTimeIndex();
 
         if (!LTS)
         {
@@ -197,9 +216,10 @@ int main(int argc, char *argv[])
             ++runTime;
         }
 
-        #include "centralCourantNo.H"
-
-        Info<< "Time = " << runTime.timeName() << nl << endl;
+        if(logThisIteration) {
+            #include "centralCourantNo.H"
+            Info<< "Time = " << runTime.timeName() << nl << endl;
+        }
 
         phi = aphiv_pos*rho_pos + aphiv_neg*rho_neg;
 
@@ -232,13 +252,13 @@ int main(int argc, char *argv[])
         // Vortia: reject non-physical candidate updates instead of clipping
         // their temperature. Sensible energy may be negative because its
         // thermodynamic reference is arbitrary. Compare with he(p,T=0).
-        const volScalarField rhoStepStart("rhoStepStart", rho);
-        const volVectorField rhoUStepStart("rhoUStepStart", rhoU);
-        const volScalarField rhoEStepStart("rhoEStepStart", rhoE);
-        const volVectorField UStepStart("UStepStart", U);
-        const volScalarField eStepStart("eStepStart", e);
-        const volScalarField pStepStart("pStepStart", p);
-        const volScalarField TStepStart("TStepStart", T);
+        const auto& rhoStepStart=snapshotrho.capture(rho);
+        const auto& rhoUStepStart=snapshotrhoU.capture(rhoU);
+        const auto& rhoEStepStart=snapshotrhoE.capture(rhoE);
+        const auto& UStepStart=snapshotU.capture(U);
+        const auto& eStepStart=snapshote.capture(e);
+        const auto& pStepStart=snapshotp.capture(p);
+        const auto& TStepStart=snapshotT.capture(T);
         auto energyIsPhysical = [&]() {
             bool valid = true;
             forAll(e.primitiveField(),i)
@@ -283,13 +303,15 @@ int main(int argc, char *argv[])
             }
 
         // --- Solve density
-        solve(fvm::ddt(rho) + fvc::div(phi));
+        if(directUpdates&&!mesh.moving())directConservativeUpdate(rho,trDeltaT(),fvc::div(phi)());
+        else solve(fvm::ddt(rho) + fvc::div(phi));
 
         if (gMin(rho.primitiveField()) <= 1e-12)
         { rejectCandidate(); continue; }
 
         // --- Solve momentum
-        solve(fvm::ddt(rhoU) + fvc::div(phiUp));
+        if(directUpdates&&!mesh.moving())directConservativeUpdate(rhoU,trDeltaT(),fvc::div(phiUp)());
+        else solve(fvm::ddt(rhoU) + fvc::div(phiUp));
 
         U.ref() =
             rhoU()
@@ -323,7 +345,9 @@ int main(int argc, char *argv[])
           & (a_pos*U_pos + a_neg*U_neg)
         );
 
-        solve
+        if(directUpdates&&!mesh.moving())
+            directConservativeUpdate(rhoE,trDeltaT(),fvc::div(phiEp)(),fvc::div(sigmaDotU)());
+        else solve
         (
             fvm::ddt(rhoE)
           + fvc::div(phiEp)
@@ -369,17 +393,24 @@ int main(int argc, char *argv[])
         if (convergence.check(phi,pStepStart,TStepStart,rhoStepStart,UStepStart,trDeltaT(),c)) {
             stoppedOnConvergence=true;
             runTime.writeNow();
-            runTime.printExecutionTime(Info);
+            if(logThisIteration)runTime.printExecutionTime(Info);
             break;
         }
         runTime.write();
 
-        runTime.printExecutionTime(Info);
+        if(logThisIteration)runTime.printExecutionTime(Info);
     }
 
     // Retain the actual final state, including an endTime off the output interval.
     if(convergence.advanced()&&!stoppedOnConvergence)runTime.writeNow();
+    Info<< "Time = " << runTime.timeName() << nl;
     convergence.finish();
+    const scalar computeSeconds=returnReduce(
+        std::chrono::duration<scalar>(std::chrono::steady_clock::now()-computeStarted).count(),maxOp<scalar>());
+    if(Pstream::master()) {
+        std::ostringstream timing;timing<<std::setprecision(12)<<"{\"computeSeconds\":"<<computeSeconds<<"}";
+        Info<<"VORTIA_TIMING "<<timing.str().c_str()<<nl;
+    }
     Info<< "End\n" << endl;
 
     return 0;

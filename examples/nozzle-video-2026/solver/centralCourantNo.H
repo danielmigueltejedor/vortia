@@ -32,7 +32,8 @@ Description
 
 \*---------------------------------------------------------------------------*/
 
-if (mesh.nInternalFaces())
+// Diagnostics are collective even on ranks without internal faces.
+
 {
     scalarField sumAmaxSf(fvc::surfaceSum(amaxSf)().primitiveField());
 

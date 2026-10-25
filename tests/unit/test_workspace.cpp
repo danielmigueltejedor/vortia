@@ -12,6 +12,12 @@
 #include <QRegularExpression>
 #include <QLineEdit>
 #include <QCheckBox>
+#include <QSpinBox>
+#include <QButtonGroup>
+#include <QToolButton>
+#include <QMenu>
+#include <QSettings>
+#include <map>
 #include <QListWidget>
 #include <QStackedWidget>
 
@@ -788,7 +794,7 @@ int main(int argc, char** argv) {
 TEST(WorkspaceFlow, ModernSetupKeepsAutomaticCriteriaAndPageNavigation) {
     QTimer::singleShot(0,[](){
         auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);
-        auto* nav=d->findChild<QListWidget*>("flow-navigation");ASSERT_NE(nav,nullptr);EXPECT_EQ(nav->count(),4);
+        auto* nav=d->findChild<QButtonGroup*>("flow-navigation");ASSERT_NE(nav,nullptr);EXPECT_EQ(nav->buttons().size(),4);
         auto* pages=d->findChild<QStackedWidget*>("flow-pages");ASSERT_NE(pages,nullptr);EXPECT_EQ(pages->currentIndex(),3);
         auto* enabled=d->findChild<QCheckBox*>("flow-convergence-enabled");ASSERT_NE(enabled,nullptr);EXPECT_TRUE(enabled->isChecked());
         d->findChild<QDoubleSpinBox*>("flow-convergence-stableSamples")->setValue(7);d->accept();
@@ -826,4 +832,97 @@ TEST(FlowRunControls, NativeConvergencePipelineWhenExplicitlyRequested) {
     const auto assessment=openfoam::parseConvergenceReport(bytes.toStdString());
     ASSERT_TRUE(assessment);EXPECT_EQ(assessment->status,"converged");EXPECT_EQ(assessment->iteration,700);
     EXPECT_TRUE(QFileInfo::exists(root+"/700/p"));EXPECT_EQ(readFile(root+"/0/p"),before);
+}
+
+TEST(ApplicationPreferences, RoundTripAndInvalidValuesUseSafeDefaults) {
+    QTemporaryDir dir;QSettings settings(dir.filePath("preferences.ini"),QSettings::IniFormat);
+    auto p=ApplicationPreferences::load(settings);EXPECT_TRUE(p.snapToGrid);EXPECT_EQ(p.checkpointInterval,500);
+    p.defaultProcesses=3;p.snapSpacing=.25;p.zoomSensitivity=1.7;p.automaticPreview=false;p.density="compact";
+    p.save(settings);auto loaded=ApplicationPreferences::load(settings);
+    EXPECT_EQ(loaded.defaultProcesses,3);EXPECT_DOUBLE_EQ(loaded.snapSpacing,.25);EXPECT_FALSE(loaded.automaticPreview);
+    EXPECT_EQ(loaded.flowDefaults().value("solver").toObject().value("processes").toInt(),3);
+    settings.setValue("calculation/processes",9000);settings.setValue("sketch/zoomSensitivity",QString("nan"));
+    settings.setValue("sketch/snapSpacing",-1);settings.setValue("ui/density","unknown");
+    loaded=ApplicationPreferences::load(settings);EXPECT_EQ(loaded.defaultProcesses,0);
+    EXPECT_DOUBLE_EQ(loaded.zoomSensitivity,1);EXPECT_DOUBLE_EQ(loaded.snapSpacing,1);EXPECT_EQ(loaded.density,"comfortable");
+}
+TEST(ApplicationPreferences, DialogAppliesOnlyAcceptedValuesAndLocksEngineDuringRun) {
+    QTimer::singleShot(0,[](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);
+        EXPECT_EQ(d->findChild<QButtonGroup*>("preferences-navigation")->buttons().size(),4);
+        auto* navigation=d->findChild<QButtonGroup*>("preferences-navigation");
+        navigation->button(2)->setChecked(true);
+        EXPECT_EQ(d->findChild<QStackedWidget*>("preferences-pages")->currentIndex(),2);
+        EXPECT_FALSE(d->findChild<QLineEdit*>("preference-backend")->isEnabled());
+        d->findChild<QSpinBox*>("preference-processes")->setValue(2);
+        d->findChild<QCheckBox*>("preference-preview")->setChecked(false);d->accept();
+    });
+    const ApplicationPreferences original;
+    auto result=editApplicationPreferences(nullptr,original,true);ASSERT_TRUE(result);EXPECT_EQ(result->defaultProcesses,2);
+    EXPECT_FALSE(result->automaticPreview);EXPECT_TRUE(original.automaticPreview);
+    QTimer::singleShot(0,[](){qobject_cast<QDialog*>(QApplication::activeModalWidget())->reject();});
+    EXPECT_FALSE(editApplicationPreferences(nullptr,*result,false));
+}
+TEST(WorkspaceFlow, InjectedDefaultsNeverReplaceExistingProjectControls) {
+    const QJsonObject defaults{{"solver",QJsonObject{{"iterations",7000},{"writeInterval",500},{"processes",3}}}};
+    QTimer::singleShot(0,[](){qobject_cast<QDialog*>(QApplication::activeModalWidget())->accept();});
+    auto cfg=editFlowSetup(nullptr,makeRectangleSketch(300,50).value(),{},3,defaults);
+    EXPECT_EQ(cfg.value("solver").toObject().value("iterations").toInt(),7000);
+    EXPECT_EQ(cfg.value("solver").toObject().value("processes").toInt(),3);
+    auto solver=cfg.value("solver").toObject();solver.insert("iterations",2000);solver.insert("processes",1);cfg.insert("solver",solver);
+    QTimer::singleShot(0,[](){qobject_cast<QDialog*>(QApplication::activeModalWidget())->accept();});
+    const auto edited=editFlowSetup(nullptr,makeRectangleSketch(300,50).value(),cfg,3,defaults);
+    EXPECT_EQ(edited.value("solver").toObject().value("iterations").toInt(),2000);
+    EXPECT_EQ(edited.value("solver").toObject().value("processes").toInt(),1);
+}
+TEST(WorkspaceFlow, InviscidModelDisablesUnusedTransportInputsAndPersists) {
+    QTimer::singleShot(0,[](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        auto* model=d->findChild<QComboBox*>("flow-turbulence");ASSERT_NE(model,nullptr);
+        model->setCurrentIndex(model->findData("inviscid"));
+        EXPECT_FALSE(d->findChild<QDoubleSpinBox*>("flow-material-mu")->isEnabled());
+        EXPECT_FALSE(d->findChild<QDoubleSpinBox*>("flow-material-conductivity")->isEnabled());d->accept();
+    });
+    auto cfg=editFlowSetup(nullptr,makeRectangleSketch(300,50).value(),{},1);
+    EXPECT_EQ(cfg.value("material").toObject().value("turbulence").toString(),"inviscid");
+    EXPECT_GT(cfg.value("material").toObject().value("mu").toDouble(),0);
+}
+TEST(Workspace, WorkflowRibbonContainsEachToolOnlyOnceAndKeepsFileTools) {
+    MainWindow window;auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);
+    ASSERT_EQ(ribbon->count(),5);EXPECT_EQ(ribbon->tabText(1),MainWindow::tr("Geometry"));
+    EXPECT_EQ(ribbon->tabText(2),MainWindow::tr("Physics"));EXPECT_EQ(ribbon->tabText(3),MainWindow::tr("Calculation"));
+    std::map<QAction*,int> counts;
+    for(auto* button:ribbon->findChildren<QToolButton*>("vortia-ribbon-button"))++counts[button->defaultAction()];
+    for(auto [action,count]:counts){ASSERT_NE(action,nullptr);EXPECT_EQ(count,1)<<action->text().toStdString();}
+    EXPECT_NE(window.findChild<QAction*>("vortia-view-latest-result"),nullptr);
+    auto* save=window.findChild<QPushButton*>("vortia-sketch-save");ASSERT_NE(save,nullptr);EXPECT_TRUE(save->isHidden());
+}
+
+TEST(Workspace, ToolSearchFiltersPublishedCommandsWithoutDuplicates) {
+    MainWindow window;auto* action=window.findChild<QAction*>("vortia-find-tool");ASSERT_NE(action,nullptr);
+    QTimer::singleShot(0,[](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);
+        auto* query=d->findChild<QLineEdit*>("command-query");auto* list=d->findChild<QListWidget*>("command-results");
+        ASSERT_NE(query,nullptr);ASSERT_NE(list,nullptr);EXPECT_GT(list->count(),10);
+        query->setText(MainWindow::tr("Preferences…"));EXPECT_EQ(list->count(),1);d->reject();
+    });
+    action->trigger();
+}
+
+TEST(ResultFiles, OldVisualizationCannotMasqueradeAsLatestNativeCheckpoint) {
+    QTemporaryDir dir;QDir().mkpath(dir.filePath("100"));QDir().mkpath(dir.filePath("VTK"));
+    writeFile(dir.filePath("100/p"),"checkpoint");writeFile(dir.filePath("VTK/flow_5.vtm"),"vtk");
+    writeFile(dir.filePath("VTK/flow.vtm.series"),R"({"files":[{"name":"flow_5.vtm","time":100}]})");
+    EXPECT_FALSE(currentVtmFile(dir.path()).isEmpty());
+    QDir().mkpath(dir.filePath("200"));writeFile(dir.filePath("200/p"),"newer checkpoint");
+    EXPECT_TRUE(currentVtmFile(dir.path()).isEmpty());
+    EXPECT_FALSE(latestVtmFile(dir.filePath("VTK")).isEmpty()); // old snapshot still available explicitly
+    writeFile(dir.filePath("VTK/flow_6.vtm"),"new vtk");
+    writeFile(dir.filePath("VTK/flow.vtm.series"),R"({"files":[{"name":"flow_5.vtm","time":100},{"name":"flow_6.vtm","time":200}]})");
+    EXPECT_TRUE(currentVtmFile(dir.path()).endsWith("flow_6.vtm"));
+}
+
+TEST(FlowParallelism, AutomaticSelectionAvoidsSmallMeshOversubscription) {
+    EXPECT_EQ(recommendedFlowProcesses(0,8),1u);EXPECT_EQ(recommendedFlowProcesses(500,8),1u);
+    EXPECT_EQ(recommendedFlowProcesses(12580,8),4u);EXPECT_EQ(recommendedFlowProcesses(33786,8),8u);
+    EXPECT_EQ(recommendedFlowProcesses(100000,2),2u);EXPECT_EQ(recommendedFlowProcesses(100000,0),1u);
+    const auto defaults=ApplicationPreferences{}.flowDefaults().value("solver").toObject();
+    EXPECT_EQ(defaults.value("processes").toInt(-1),0);
 }

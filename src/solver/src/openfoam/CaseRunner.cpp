@@ -7,6 +7,7 @@
 #include <cmath>
 #include <chrono>
 #include <algorithm>
+#include <cctype>
 
 namespace vortia::openfoam {
 
@@ -196,7 +197,33 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
             } else if (processes>1) {
                 return Error::make(ErrorCode::InvalidData,"Parallel flow requires the current bundled solver revision");
             }
+            std::string runtimeKey,cacheRoot;
+            for(const auto& [key,value]:environment_) {
+                if(key=="VORTIA_SOLVER_RUNTIME_KEY")runtimeKey=value;
+                if(key=="VORTIA_SOLVER_CACHE_DIR")cacheRoot=value;
+            }
+            const auto digest=[](const std::string& value){return value.size()==64&&std::all_of(value.begin(),value.end(),[](char c){return (c>='0'&&c<='9')||(c>='a'&&c<='f');});};
+            if(!runtimeKey.empty()&&!digest(runtimeKey))return Error::make(ErrorCode::InvalidData,"Invalid flow runtime identity");
+            if(!runtimeKey.empty())binRelative/=runtimeKey;
             const auto bin=std::filesystem::absolute(caseDir/binRelative);
+            std::filesystem::path cached;
+            if(digest(revision)&&digest(runtimeKey)&&!cacheRoot.empty()&&std::filesystem::path(cacheRoot).is_absolute()
+                &&std::none_of(cacheRoot.begin(),cacheRoot.end(),[](unsigned char c){return std::isspace(c);}))
+                cached=std::filesystem::path(cacheRoot)/runtimeKey/revision/exe;
+            if(!std::filesystem::is_regular_file(bin/exe)&&!cached.empty()) {
+                std::error_code error;
+                if(std::filesystem::is_regular_file(cached,error)&&std::filesystem::file_size(cached,error)>0) {
+                    std::filesystem::create_directories(bin,error);
+                    const auto pending=bin/(exe+".cached");
+                    std::filesystem::copy_file(cached,pending,std::filesystem::copy_options::overwrite_existing,error);
+                    if(!error)std::filesystem::rename(pending,bin/exe,error);
+                    if(!error) {
+                        const std::string notice="Reusing compiled flow engine from the runtime cache.\n";
+                        LogFileSink logFile(caseDir/"log.vortia");logFile.write(notice);
+                        if(callbacks.onOutput)callbacks.onOutput(OutputStream::StdOut,notice);
+                    } else {std::error_code ignored;std::filesystem::remove(pending,ignored);}
+                }
+            }
             if (!std::filesystem::is_regular_file(bin/exe)) {
                 if (!std::filesystem::is_regular_file(caseDir/source/"vortiaCentralFoam.C"))
                     return Error::make(ErrorCode::InvalidData,"nozzle solver sources are missing");
@@ -209,6 +236,15 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
                 CaseRunner builder(processes_,std::move(buildEnvironment));
                 auto built=builder.execute("build nozzle backend","wmake",{source.string()},caseDir,callbacks,token);
                 if (!built || !built->process.succeeded()) return built;
+                if(!cached.empty()&&std::filesystem::is_regular_file(bin/exe)) {
+                    // Publish complete binaries atomically. A concurrent build
+                    // may publish the same key; cache failure never loses a run.
+                    std::error_code error;std::filesystem::create_directories(cached.parent_path(),error);
+                    const auto pending=cached.parent_path()/(exe+".pending_"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+                    if(!error)std::filesystem::copy_file(bin/exe,pending,std::filesystem::copy_options::none,error);
+                    if(!error)std::filesystem::rename(pending,cached,error);
+                    if(error){std::error_code ignored;std::filesystem::remove(pending,ignored);}
+                }
             }
             // Scope the case binary to this dedicated solver invocation. The
             // general executable resolver still accepts plain names only.

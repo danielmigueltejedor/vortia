@@ -127,7 +127,7 @@ QString createNozzlePractice(QWidget* parent) {
     if (!script.open(QIODevice::ReadOnly) || !write("prepare.py",script.readAll()) || !write("reference.json",reference)
         || !write("parameters.json",QJsonDocument(values).toJson())) return {};
     if (!QDir().mkpath(stage.filePath(QStringLiteral("solver/Make")))) return {};
-    const QStringList sources={"vortiaCentralFoam.C","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H",
+    const QStringList sources={"vortiaCentralFoam.C","ConservativeUpdate.H","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H",
         "createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H",
         "fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"};
     for (const auto& name : sources) {

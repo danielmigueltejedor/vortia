@@ -3,6 +3,41 @@
 <TS version="2.1" language="es_ES">
 <context>
     <name>vortia::MainWindow</name>
+    <message><source>Calculation engine</source><translation>Motor de cálculo</translation></message>
+    <message><source>The engine identity could not be saved; the new case was retained without activating it.</source><translation>No se ha podido guardar la identidad del motor; el nuevo caso se conserva sin activarlo.</translation></message>
+    <message><source>This case belongs to another OpenFOAM installation. Open its editable project and generate a new mesh revision; earlier results are retained.</source><translation>Este caso pertenece a otra instalación de OpenFOAM. Abre su proyecto editable y genera una nueva revisión de malla; los resultados anteriores se conservan.</translation></message>
+    <message><source>This older imported case has no engine identity. Use its editable project to generate a new revision with the selected engine.</source><translation>Este caso importado antiguo no tiene identidad del motor. Usa su proyecto editable para generar una nueva revisión con el motor seleccionado.</translation></message>
+
+    <message><source>Automatic CPU selection: %1 process(es) for %2 cells.
+</source><translation>Selección automática de CPU: %1 proceso(s) para %2 celdas.
+</translation></message>
+    <message><source>Find a tool…</source><translation>Buscar herramienta…</translation></message>
+    <message><source>Find a tool</source><translation>Buscar herramienta</translation></message>
+    <message><source>Search by tool name…</source><translation>Busca por nombre de herramienta…</translation></message>
+    <message><source>New</source><translation>Nuevo</translation></message>
+    <message><source>Open</source><translation>Abrir</translation></message>
+    <message><source>Save</source><translation>Guardar</translation></message>
+    <message><source>Fluent case</source><translation>Caso Fluent</translation></message>
+    <message><source>Edit sketch</source><translation>Editar croquis</translation></message>
+    <message><source>Generate mesh</source><translation>Generar malla</translation></message>
+    <message><source>Mesh controls</source><translation>Ajustes de malla</translation></message>
+    <message><source>Models</source><translation>Modelos</translation></message>
+    <message><source>Run controls</source><translation>Ajustes de cálculo</translation></message>
+    <message><source>Run</source><translation>Ejecutar</translation></message>
+    <message><source>Stop</source><translation>Detener</translation></message>
+    <message><source>Open results</source><translation>Abrir resultados</translation></message>
+    <message><source>View latest</source><translation>Ver último</translation></message>
+    <message><source>Cell edges</source><translation>Aristas de celdas</translation></message>
+
+    <message><source>Pressure · p</source><translation>Presión · p</translation></message>
+    <message><source>Speed · |U|</source><translation>Rapidez · |U|</translation></message>
+    <message><source>Velocity X</source><translation>Velocidad X</translation></message>
+    <message><source>Velocity Y</source><translation>Velocidad Y</translation></message>
+    <message><source>Velocity Z</source><translation>Velocidad Z</translation></message>
+    <message><source>Temperature · T</source><translation>Temperatura · T</translation></message>
+    <message><source>Mach number</source><translation>Número de Mach</translation></message>
+    <message><source>Turbulent viscosity · nut</source><translation>Viscosidad turbulenta · nut</translation></message>
+
     <message><source>Calculation did not finish</source><translation>El cálculo no ha terminado</translation></message>
     <message><source>Normalized update rate</source><translation>Tasa de variación normalizada</translation></message>
     <message><source>Run assessment</source><translation>Evaluación del cálculo</translation></message>
@@ -458,6 +493,27 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
             <source>Vortia will stop automatically when mass conservation and field stability meet their limits.</source>
             <translation>Vortia se detendrá automáticamente cuando la conservación de masa y la estabilidad de los campos cumplan los límites.</translation>
         </message>
+    <message><source>An OpenFOAM installation is required to export these results.</source><translation>Se necesita OpenFOAM para exportar estos resultados.</translation></message>
+    <message><source>Application</source><translation>Aplicación</translation></message>
+    <message><source>Calculation</source><translation>Cálculo</translation></message>
+    <message><source>Controls</source><translation>Controles</translation></message>
+    <message><source>Experimental CFD · numerical checks are automatic. Physical validation and mesh independence remain to be established.</source><translation>CFD experimental · comprobaciones numéricas automáticas. La validación física y la independencia de malla siguen pendientes.</translation></message>
+    <message><source>Export planar block mesh…</source><translation>Exportar malla plana de bloques…</translation></message>
+    <message><source>Export sketch…</source><translation>Exportar croquis…</translation></message>
+    <message><source>Export wedge block mesh…</source><translation>Exportar malla de bloques de sector…</translation></message>
+    <message><source>Files</source><translation>Archivos</translation></message>
+    <message><source>Generate and calculate a case before viewing its results.</source><translation>Genera un caso y ejecuta el cálculo antes de ver sus resultados.</translation></message>
+    <message><source>Import sketch…</source><translation>Importar croquis…</translation></message>
+    <message><source>Import/export CAD sketches or standalone block meshes. Generate mesh builds the CFD domain.</source><translation>Importa o exporta croquis CAD y mallas de bloques independientes. «Generar malla» construye el dominio CFD.</translation></message>
+    <message><source>Import…</source><translation>Importar…</translation></message>
+    <message><source>Numerical assessment</source><translation>Evaluación numérica</translation></message>
+    <message><source>Physical setup</source><translation>Configuración física</translation></message>
+    <message><source>Preparing result visualization…</source><translation>Preparando la visualización de resultados…</translation></message>
+    <message><source>Sketch</source><translation>Croquis</translation></message>
+    <message><source>Sketch files…</source><translation>Archivos de croquis…</translation></message>
+    <message><source>View latest result</source><translation>Ver último resultado</translation></message>
+    <message><source>Visualization export did not finish. The native calculation fields are retained.</source><translation>La exportación de la visualización no ha terminado. Los campos nativos del cálculo se conservan.</translation></message>
+    <message><source>foamToVTK is unavailable in the selected engine.</source><translation>foamToVTK no está disponible en el motor seleccionado.</translation></message>
 </context>
 <context>
     <name>vortia::PropertiesPanel</name>
@@ -503,6 +559,7 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>Boundary Conditions</source><translation>Condiciones de contorno</translation></message>
     <message><source>Solver</source><translation>Solucionador</translation></message>
     <message><source>Results</source><translation>Resultados</translation></message>
+    <message><source>Calculation</source><translation>Cálculo</translation></message>
 </context>
 <context>
     <name>vortia::ConsolePanel</name>
@@ -693,6 +750,11 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
         <name>vortia::FlowSetup</name>
+    <message><source>Models</source><translation>Modelos</translation></message>
+    <message><source>Boundaries</source><translation>Contornos</translation></message>
+    <message><source>Calculation</source><translation>Cálculo</translation></message>
+
+    <message><source>Automatic (mesh size)</source><translation>Automático (según la malla)</translation></message>
     <message><source>Normalized update rate limit</source><translation>Límite de tasa de variación normalizada</translation></message>
     <message><source>Safety iteration limit</source><translation>Límite de seguridad de iteraciones</translation></message>
         <message><source>CPU processes (1 = serial)</source><translation>Procesos de CPU (1 = secuencial)</translation></message>
@@ -930,6 +992,15 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
             <source>Vortia checks global and local mass conservation, pressure, temperature, density, velocity and turbulence stability. It saves and stops after consecutive successful checks. Reaching the safety limit is reported as not converged.</source>
             <translation>Vortia comprueba la conservación de masa global y local, y la estabilidad de presión, temperatura, densidad, velocidad y turbulencia. Guarda y se detiene tras varias comprobaciones correctas seguidas. Si alcanza el límite de seguridad, indica que no ha convergido.</translation>
         </message>
+    <message><source>Calculation storage</source><translation>Carpeta de cálculo</translation></message>
+    <message><source>Choose an absolute calculation path without spaces in Preferences.</source><translation>Elige una ruta absoluta de cálculo sin espacios en Preferencias.</translation></message>
+    <message><source>Diagnostic output every N iterations</source><translation>Diagnóstico cada N iteraciones</translation></message>
+    <message><source>Flow model</source><translation>Modelo de flujo</translation></message>
+    <message><source>Ideal gas · energy enabled · axisymmetric without swirl · adiabatic walls</source><translation>Gas ideal · energía activada · axisimetría sin giro · paredes adiabáticas</translation></message>
+    <message><source>Invalid diagnostic output interval.</source><translation>Intervalo de diagnóstico no válido.</translation></message>
+    <message><source>Inviscid (Euler · slip walls)</source><translation>Inviscido (Euler · paredes deslizantes)</translation></message>
+    <message><source>Inviscid solves Euler flow with slip walls and zero viscous or thermal diffusion. Laminar and Spalart–Allmaras retain viscosity and no-slip walls. Transport inputs are retained but inactive in inviscid mode.</source><translation>El modo inviscido resuelve Euler con paredes deslizantes, sin difusión viscosa ni térmica. Laminar y Spalart–Allmaras mantienen viscosidad y paredes sin deslizamiento. Los datos de transporte se conservan, pero permanecen inactivos en modo inviscido.</translation></message>
+    <message><source>The calculation storage folder could not be created. Check its location and permissions.</source><translation>No se ha podido crear la carpeta de cálculo. Revisa su ubicación y sus permisos.</translation></message>
 </context>
 
 <context>
@@ -953,6 +1024,9 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
             <source>Stopped at iteration %1 without numerical convergence. Results are provisional; continue the calculation or revise the setup.</source>
             <translation>Cálculo detenido en la iteración %1 sin convergencia numérica. Los resultados son provisionales; continúa el cálculo o revisa la configuración.</translation>
         </message>
+    <message><source>Native results saved. Use View latest result to prepare visualization.
+</source><translation>Resultados nativos guardados. Usa «Ver último resultado» para preparar la visualización.
+</translation></message>
 </context>
 
 <context>
@@ -1067,4 +1141,59 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
         </message>
     </context>
 
+<context>
+    <name>vortia::ApplicationPreferences</name>
+    <message><source>Appearance</source><translation>Apariencia</translation></message>
+    <message><source>Sketch</source><translation>Croquis</translation></message>
+    <message><source>Calculation</source><translation>Cálculo</translation></message>
+    <message><source>Engine and storage</source><translation>Motor y archivos</translation></message>
+
+    <message><source>Appearance and navigation changes apply immediately. Language changes apply after restarting.</source><translation>Los cambios de apariencia y navegación se aplican al momento. El idioma cambia al reiniciar.</translation></message>
+    <message><source>Appearance and workspace</source><translation>Apariencia y espacio de trabajo</translation></message>
+    <message><source>Automatic</source><translation>Automático</translation></message>
+    <message><source>Automatic (recommended)</source><translation>Automático (recomendado)</translation></message>
+    <message><source>CPU and checkpoint defaults apply only to new flow configurations. Existing projects keep their own controls. A longer checkpoint interval reduces disk writes but can lose more progress after cancellation.</source><translation>Los valores de CPU y guardado se aplican a configuraciones nuevas. Los proyectos existentes conservan sus controles. Un intervalo mayor reduce las escrituras en disco, pero permite recuperar menos avance tras cancelar.</translation></message>
+    <message><source>Calculation and results</source><translation>Cálculo y resultados</translation></message>
+    <message><source>Calculation defaults</source><translation>Valores de cálculo</translation></message>
+    <message><source>Choose an absolute calculation path without spaces.</source><translation>Elige una ruta absoluta de cálculo sin espacios.</translation></message>
+    <message><source>Choose folder</source><translation>Elegir carpeta</translation></message>
+    <message><source>Choose…</source><translation>Elegir…</translation></message>
+    <message><source>Comfortable</source><translation>Cómoda</translation></message>
+    <message><source>Compact</source><translation>Compacta</translation></message>
+    <message><source>Console history (lines)</source><translation>Historial de consola (líneas)</translation></message>
+    <message><source>Dark</source><translation>Oscuro</translation></message>
+    <message><source>Default CPU processes</source><translation>Procesos de CPU predeterminados</translation></message>
+    <message><source>Default checkpoint interval</source><translation>Intervalo de guardado predeterminado</translation></message>
+    <message><source>Default safety iteration limit</source><translation>Límite de seguridad predeterminado</translation></message>
+    <message><source>Find installed OpenFOAM</source><translation>Buscar OpenFOAM instalado</translation></message>
+    <message><source>Interface size (%)</source><translation>Tamaño de la interfaz (%)</translation></message>
+    <message><source>Language</source><translation>Idioma</translation></message>
+    <message><source>Leave paths empty for automatic locations. New storage does not move existing cases. OpenFOAM calculation folders must have absolute paths without spaces. Changing the engine or storage is disabled during a calculation.</source><translation>Deja las rutas vacías para usar ubicaciones automáticas. La nueva carpeta conserva los casos existentes en su ubicación original. OpenFOAM necesita rutas absolutas sin espacios. El motor y la carpeta no pueden cambiarse mientras se calcula.</translation></message>
+    <message><source>Light</source><translation>Claro</translation></message>
+    <message><source>Make Vortia yours</source><translation>Vortia a tu medida</translation></message>
+    <message><source>New calculation storage</source><translation>Carpeta de los nuevos cálculos</translation></message>
+    <message><source>No installation found. Choose its folder manually.</source><translation>No se ha encontrado una instalación. Selecciona su carpeta manualmente.</translation></message>
+    <message><source>Open numerical assessment when a run starts</source><translation>Abrir la evaluación numérica al iniciar el cálculo</translation></message>
+    <message><source>OpenFOAM</source><translation>OpenFOAM</translation></message>
+    <message><source>OpenFOAM installation</source><translation>Instalación de OpenFOAM</translation></message>
+    <message><source>Prepare result visualization automatically</source><translation>Preparar automáticamente la visualización de resultados</translation></message>
+    <message><source>Remember window and panel layout</source><translation>Recordar ventana y disposición de paneles</translation></message>
+    <message><source>Show construction grid</source><translation>Mostrar rejilla de construcción</translation></message>
+    <message><source>Show detailed console when a run starts</source><translation>Mostrar la consola detallada al iniciar el cálculo</translation></message>
+    <message><source>Show dimension annotations</source><translation>Mostrar anotaciones de cotas</translation></message>
+    <message><source>Sketch and navigation</source><translation>Croquis y navegación</translation></message>
+    <message><source>Snap drawing and dragging to grid</source><translation>Ajustar dibujo y arrastre a la rejilla</translation></message>
+    <message><source>Snap spacing (mm)</source><translation>Paso de ajuste (mm)</translation></message>
+    <message><source>Storage</source><translation>Almacenamiento</translation></message>
+    <message><source>Storage and OpenFOAM</source><translation>Almacenamiento y OpenFOAM</translation></message>
+    <message><source>System language</source><translation>Idioma del sistema</translation></message>
+    <message><source>The checkpoint interval cannot exceed the safety limit.</source><translation>El intervalo de guardado no puede superar el límite de seguridad.</translation></message>
+    <message><source>The selected folder is not a recognized OpenFOAM installation.</source><translation>La carpeta seleccionada no es una instalación reconocida de OpenFOAM.</translation></message>
+    <message><source>Theme</source><translation>Tema</translation></message>
+    <message><source>These options change interaction and display. They do not alter saved geometry or numerical units.</source><translation>Estas opciones cambian la interacción y la visualización. Conservan la geometría guardada y las unidades de cálculo.</translation></message>
+    <message><source>Tool density</source><translation>Densidad de herramientas</translation></message>
+    <message><source>Turn off automatic visualization to finish calculations sooner. Use View latest result when you need it; numerical checkpoints are always retained.</source><translation>Desactiva la visualización automática para terminar antes el cálculo. Usa «Ver último resultado» cuando lo necesites; los estados numéricos se conservan siempre.</translation></message>
+    <message><source>Vortia preferences</source><translation>Preferencias de Vortia</translation></message>
+    <message><source>Zoom sensitivity</source><translation>Sensibilidad del zoom</translation></message>
+</context>
 </TS>

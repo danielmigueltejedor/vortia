@@ -22,6 +22,29 @@ class GeneralFlowTest(unittest.TestCase):
                     {'enabled':'false'},{'massTolerance':float('nan')},{'interval':1.5}]:
             with self.subTest(bad=bad),self.assertRaises(ValueError):convergence_controls({'convergence':bad})
 
+    def test_inviscid_model_uses_euler_transport_and_slip_walls(self):
+        s,c=inputs();c['material']['turbulence']='inviscid'
+        import copy
+        original=copy.deepcopy(c)
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'0').mkdir();(root/'constant').mkdir()
+            fields(root,c,validate(s,c))
+            self.assertIn('wall { type slip;',(root/'0/U').read_text())
+            self.assertNotIn('noSlip',(root/'0/U').read_text())
+            self.assertIn('mu 0; Pr 0.7;',(root/'constant/thermophysicalProperties').read_text())
+            self.assertIn('simulationType laminar;',(root/'constant/turbulenceProperties').read_text())
+            self.assertNotIn('WallFunction',(root/'0/nut').read_text())
+        self.assertEqual(c,original)
+
+    def test_laminar_mode_retains_viscosity_and_no_slip(self):
+        s,c=inputs();c['material']['turbulence']='laminar'
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'0').mkdir();(root/'constant').mkdir()
+            fields(root,c,validate(s,c))
+            self.assertIn('wall { type noSlip;',(root/'0/U').read_text())
+            self.assertIn('mu 1.8e-05;',(root/'constant/thermophysicalProperties').read_text())
+            self.assertNotIn('type slip;',(root/'0/U').read_text())
+
     def test_general_dimensions_and_custom_material_are_accepted(self):
         sketch,cfg=inputs();cfg['material'].update(molecularWeight=24,Cp=1501)
         sketch['vertices'][1][0]=sketch['vertices'][2][0]=731

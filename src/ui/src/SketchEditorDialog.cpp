@@ -60,6 +60,10 @@ public:
         setToolTip(SketchEditorDialog::tr("Pinch to zoom; swipe with two fingers to pan. Drag empty space, or hold Space to pan. Esc selects; L draws; F fits the sketch."));
     }
     void setSketch(const Sketch2D* sketch) { dragVertex_ = -1; sketch_ = sketch; fitView(); }
+    void setInteractionPreferences(bool snap,double spacing,bool grid,bool dimensions,double zoom) {
+        snap_=snap;snapSpacing_=std::clamp(spacing,.001,1000.0);showGrid_=grid;showDimensions_=dimensions;
+        zoomSensitivity_=std::clamp(zoom,.25,3.0);update();
+    }
     void fitView() { fitPending_ = true; update(); }
     void setDrawMode(bool enabled) {
         dragVertex_ = -1;
@@ -91,11 +95,11 @@ protected:
         const double maxX = x0_ + width() / scale_;
         const double minY = std::floor(y0_ / gridMm) * gridMm;
         const double maxY = y0_ + height() / scale_;
-        for (double x = minX; x <= maxX; x += gridMm) {
+        if(showGrid_)for (double x = minX; x <= maxX; x += gridMm) {
             const double px = project({x, 0.0}).x();
             p.drawLine(QPointF(px, 0), QPointF(px, height()));
         }
-        for (double y = minY; y <= maxY; y += gridMm) {
+        if(showGrid_)for (double y = minY; y <= maxY; y += gridMm) {
             const double py = project({0.0, y}).y();
             p.drawLine(QPointF(0, py), QPointF(width(), py));
         }
@@ -127,6 +131,7 @@ protected:
         std::vector<QRectF> labels;
         const double outside = sketch_->closed() && sketch_->signedArea() < 0.0 ? -1.0 : 1.0;
         const auto labelSegment = [&](std::size_t i, bool selected) {
+            if(!showDimensions_)return;
             const QPointF a = project(sketch_->points()[i]);
             const QPointF b = project(sketch_->points()[(i + 1) % sketch_->points().size()]);
             const auto arc = sketch_->arc(i);
@@ -183,8 +188,8 @@ protected:
             // Pixels -> millimetres, snapped to a 1 mm engineering grid.
             SketchPoint2D world{x0_ + pos.x() / scale_,
                                 y0_ + (height() - pos.y()) / scale_};
-            world.xMm = std::round(world.xMm);
-            world.yMm = std::round(world.yMm);
+            if(snap_)world.xMm = std::round(world.xMm/snapSpacing_)*snapSpacing_;
+            if(snap_)world.yMm = std::round(world.yMm/snapSpacing_)*snapSpacing_;
             if (onCanvasClicked) onCanvasClicked(world);
             event->accept();
             return;
@@ -237,8 +242,8 @@ protected:
             const QPointF p = event->position();
             SketchPoint2D world{x0_ + p.x() / scale_,
                                 y0_ + (height() - p.y()) / scale_};
-            world.xMm = std::round(world.xMm);
-            world.yMm = std::round(world.yMm);
+            if(snap_)world.xMm = std::round(world.xMm/snapSpacing_)*snapSpacing_;
+            if(snap_)world.yMm = std::round(world.yMm/snapSpacing_)*snapSpacing_;
             if (onPointDragged) onPointDragged(dragVertex_, world);
             event->accept();
             return;
@@ -269,13 +274,13 @@ protected:
         if (event->modifiers() & Qt::ControlModifier) {
             const double amount = event->pixelDelta().isNull()
                 ? event->angleDelta().y() / 120.0 : event->pixelDelta().y() / 40.0;
-            zoomAt(event->position(), std::exp(amount * 0.18));
+            zoomAt(event->position(), std::exp(amount * 0.18 * zoomSensitivity_));
         } else if (!event->pixelDelta().isNull()) {
             panBy(event->pixelDelta());
         } else if (event->source() != Qt::MouseEventNotSynthesized || event->phase() != Qt::NoScrollPhase) {
             panBy(QPointF(event->angleDelta()) / 3.0);
         } else {
-            zoomAt(event->position(), std::exp(event->angleDelta().y() / 120.0 * 0.18));
+            zoomAt(event->position(), std::exp(event->angleDelta().y() / 120.0 * 0.18 * zoomSensitivity_));
         }
         event->accept();
     }
@@ -284,7 +289,7 @@ protected:
             auto* gesture = static_cast<QNativeGestureEvent*>(event);
             ensureCamera();
             if (gesture->gestureType() == Qt::ZoomNativeGesture)
-                zoomAt(gesture->position(), 1.0 + gesture->value());
+                zoomAt(gesture->position(), std::pow(1.0+gesture->value(),zoomSensitivity_));
             else if (gesture->gestureType() == Qt::PanNativeGesture)
                 panBy(gesture->delta());
             // Consume the entire native gesture sequence to avoid scrolling parents.
@@ -370,6 +375,8 @@ private:
     const Sketch2D* sketch_{nullptr};
     bool drawMode_{false};
     bool readOnly_{false};
+    bool snap_=true,showGrid_=true,showDimensions_=true;
+    double snapSpacing_=1,zoomSensitivity_=1;
     bool panMode_{false};
     bool panning_{false};
     bool spaceDown_{false};
@@ -572,14 +579,14 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     auto* bottom = new QHBoxLayout;
     auto* loadButton = new QPushButton(tr("Load sketch…"), this);
     loadButton->setObjectName(QStringLiteral("vortia-sketch-load"));
-    auto* saveButton = new QPushButton(tr("Save sketch…"), this);
+    auto* saveButton = new QPushButton(tr("Save sketch…"), this);saveButton->setObjectName("vortia-sketch-save");
     auto* clear = new QPushButton(tr("Clear sketch"), this);
     clear->setObjectName(QStringLiteral("vortia-sketch-clear"));
     bottom->addWidget(loadButton);
     bottom->addWidget(saveButton);
     bottom->addWidget(clear);
     bottom->addStretch();
-    auto* done = new QPushButton(tr("Close"), this);
+    auto* done = new QPushButton(tr("Close"), this);done->setObjectName("vortia-sketch-dismiss");
     bottom->addWidget(done);
     root->addLayout(bottom);
     status_ = new QLabel(this);
@@ -907,6 +914,17 @@ bool SketchEditorDialog::writeSketchFile(const QString& path) const {
     return file.open(QIODevice::WriteOnly)
         && file.write(contents) == contents.size()
         && file.commit();
+}
+
+void SketchEditorDialog::setEmbedded(bool embedded) {
+    for(const auto* name:{"vortia-sketch-load","vortia-sketch-save","vortia-sketch-dismiss","vortia-sketch-export","vortia-sketch-export-wedge"})
+        if(auto* widget=findChild<QWidget*>(name))widget->setVisible(!embedded);
+}
+
+void SketchEditorDialog::setInteractionPreferences(bool snap,double spacing,bool grid,bool dimensions,double zoom) {
+    canvas_->setInteractionPreferences(snap,spacing,grid,dimensions,zoom);
+    const double step=snap&&std::isfinite(spacing)?std::clamp(spacing,.001,1000.0):1;
+    x_->setSingleStep(step);y_->setSingleStep(step);
 }
 
 bool SketchEditorDialog::readSketchFile(const QString& path) {

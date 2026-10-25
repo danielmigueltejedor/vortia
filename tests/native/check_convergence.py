@@ -81,6 +81,15 @@ def main():
     ctrl=forced/'system/controlDict';ctrl.write_text(ctrl.read_text().replace('endTime 1000;','endTime 751;'))
     run(str(args.solver),[],forced);c=check(forced,'limit',751)
     assert c['sampled'] and (c['localMass']>c['massTolerance'] or c['fieldChange']>c['fieldTolerance']),c
-    (args.output/'summary.json').write_text(json.dumps(dict(equilibrium=a,parallel=b,forced=c),indent=2)+'\n')
+    # Nonzero uniform Euler flow must retain tangential wall velocity.
+    inviscid=args.output/'inviscid';make(inviscid)
+    thermo=inviscid/'constant/thermophysicalProperties';thermo.write_text(thermo.read_text().replace('mu 1.7894e-5;','mu 0;'))
+    velocity=inviscid/'0/U';velocity.write_text(velocity.read_text().replace('uniform (0 0 0)','uniform (100 0 0)').replace('wall { type noSlip;','wall { type slip;'))
+    run(str(args.solver),[],inviscid);d=check(inviscid,'converged',700)
+    text=(inviscid/'700/U').read_text();assert 'type            slip;' in text or 'type slip;' in text
+    from compare_conservative_updates import values
+    u=values(inviscid/'700/U');assert max(abs(x-100) for x in u[::3])<1e-7
+    assert max(abs(x) for x in u[1::3])<1e-7 and max(abs(x) for x in u[2::3])==0
+    (args.output/'summary.json').write_text(json.dumps(dict(equilibrium=a,parallel=b,forced=c,inviscid=d),indent=2)+'\n')
     print(args.output/'summary.json')
 if __name__=='__main__':main()

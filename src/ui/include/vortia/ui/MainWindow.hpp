@@ -4,6 +4,7 @@
 #include "vortia/physics/Physics.hpp"
 #include "vortia/solver/openfoam/Installation.hpp"
 #include "vortia/ui/ConsolePanel.hpp"
+#include "vortia/ui/ApplicationPreferences.hpp"
 #include "vortia/ui/JobController.hpp"
 #include "vortia/ui/ProjectExplorerPanel.hpp"
 #include "vortia/ui/PropertiesPanel.hpp"
@@ -47,6 +48,7 @@ private slots:
     bool ensureFlowEnvironment();
     QString flowFingerprint(bool includeRunControls = false) const;
     void onOpenResults();
+    void onViewLatestResult();
     void onNodeActivated(int nodeId);
     void onApplySetup(const CaseSetup& setup);
     void onValidationReport(const QString& text);
@@ -57,6 +59,7 @@ private slots:
     void onFieldChanged(int index);
     void onToggleTheme();
     void onPreferences();
+    void onFindTool();
     void onDetectOpenFoam();
     void onAbout();
 
@@ -78,6 +81,7 @@ private:
     void storeCurrentTab();
     void refreshProjectTabTitle();
     void loadSettings();
+    void applyPreferences();
     void saveSettings();
     void updateViewport();
     void setProjectState(const QString& statusText);
@@ -106,6 +110,7 @@ private:
     std::filesystem::path existingCaseDir_;
     bool useExistingCase_{false};
     CaseSetup setup_;
+    ApplicationPreferences preferences_;
     QJsonObject flowConfig_;
     std::vector<std::pair<std::string, std::string>> ofEnvironment_;
     openfoam::Capabilities ofCaps_{};

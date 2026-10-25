@@ -147,6 +147,7 @@ void JobController::runJob(JobSpec spec) {
                         : tr("Stopped at iteration %1 without numerical convergence. Results are provisional; continue the calculation or revise the setup."))
                     : tr("Finished at t=%1")).arg(finalT, 0, 'g', 6);
                 // Convert results to VTK for visualization (best-effort).
+                if(spec.automaticPreview) {
                 ProcessRequest vtkReq;
                 vtkReq.executable = "foamToVTK";
                 vtkReq.arguments = {"-latestTime"};
@@ -177,6 +178,10 @@ void JobController::runJob(JobSpec spec) {
                         }, Qt::QueuedConnection);
                     }
                 }
+                } else {
+                    QMetaObject::invokeMethod(this,[this](){emit outputReceived(tr("Native results saved. Use View latest result to prepare visualization.\n"));},Qt::QueuedConnection);
+                }
+
             }
         }
     }

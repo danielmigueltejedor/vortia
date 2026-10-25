@@ -51,6 +51,7 @@
         rDeltaT.correctBoundaryConditions();
     }
 
+    if(logThisIteration)
     {
         auto limits = gMinMax(rDeltaT.primitiveField());
         limits.reset(1/(limits.max()+VSMALL), 1/(limits.min()+VSMALL));

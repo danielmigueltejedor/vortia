@@ -37,3 +37,9 @@ Compare balances, fields and wall quantities when selecting a decomposition;
 software timing and reconstruction checks do not establish RANS convergence or
 partition independence. No Courant limits, physical models, stopping criteria
 or spatial accuracy were relaxed for these performance changes.
+
+The general sketch workflow also supports inviscid Euler calculations through
+zero transport viscosity and slip walls. The tutorial's original presets remain
+viscous. Direct localEuler conservative updates and sampled diagnostics retain
+the same fluxes and acceptance guards. See docs/WORKSPACE_AND_PERFORMANCE.md in
+the repository for controls, A/B evidence and remaining validation limits.
