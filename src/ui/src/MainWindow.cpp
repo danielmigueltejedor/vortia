@@ -1146,6 +1146,12 @@ void MainWindow::onRun() {
                                         .arg(QString::fromStdString(caseDir.string())));
     }
 
+    // Opt only recognized generated flow cases into the current immutable
+    // backend. Arbitrary imported cases and their dictionaries remain untouched.
+    if(useExistingCase_&&detectedSolver=="vortiaCentralFoam"&&std::filesystem::exists(caseDir/".vortia-flow-case")) {
+        const auto error=stageFlowBackend(QString::fromStdString(caseDir.string()));
+        if(!error.isEmpty()){QMessageBox::warning(this,tr("Run failed"),error);return;}
+    }
     setJobUiRunning(true);
 
     JobController::JobSpec spec;
@@ -1275,7 +1281,7 @@ bool MainWindow::projectSwitchLocked() const {
 }
 
 void MainWindow::setJobUiRunning(bool running) {
-    if(running&&!flowConfig_.isEmpty()) {
+    if(running&&(!flowConfig_.isEmpty()||propertiesTabs_->isTabVisible(1))) {
         showFlowAssessment(QJsonObject{{"status","warming"}});
         if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->show();
     }

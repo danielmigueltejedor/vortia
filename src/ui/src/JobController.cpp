@@ -97,7 +97,8 @@ void JobController::runJob(JobSpec spec) {
             std::optional<openfoam::ConvergenceSample> lastConvergence;
             callbacks.onProgress = [&](const openfoam::SolverProgress& p) {
                 last = p;
-                if(p.convergence) {
+                if(p.convergence && (!lastConvergence || p.convergence->iteration!=lastConvergence->iteration ||
+                    p.convergence->status!=lastConvergence->status)) {
                     lastConvergence=p.convergence;
                     const auto& c=*p.convergence;
                     const QString report=QString::fromUtf8(QJsonDocument(QJsonObject{
