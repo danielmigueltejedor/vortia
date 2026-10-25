@@ -47,7 +47,7 @@ void ProjectExplorerPanel::buildTree() {
         0, toolIcon(QStringLiteral("material"), QStyle::SP_DriveHDIcon));
     addNode(tr("Boundary Conditions"), BoundaryConditionsNode)->setIcon(
         0, toolIcon(QStringLiteral("boundary"), QStyle::SP_DirLinkIcon));
-    addNode(tr("Solver"), SolverNode)->setIcon(
+    addNode(tr("Calculation"), SolverNode)->setIcon(
         0, toolIcon(QStringLiteral("solver"), QStyle::SP_ComputerIcon));
     resultsItem_ = addNode(tr("Results"), ResultsNode);
     resultsItem_->setIcon(

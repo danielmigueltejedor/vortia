@@ -6,6 +6,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <cmath>
+#include <algorithm>
+#include <QDateTime>
 #include <limits>
 
 namespace vortia {
@@ -36,4 +38,28 @@ inline QString latestVtmFile(const QString& directory) {
     }
     return latest;
 }
+// Avoid silently displaying an old export after a native-only continuation.
+inline QString currentVtmFile(const QString& caseDirectory) {
+    if(caseDirectory.isEmpty())return {};
+    const auto selected=latestVtmFile(QDir(caseDirectory).filePath("VTK"));
+    if(selected.isEmpty())return {};
+    double native=-std::numeric_limits<double>::infinity();QFileInfo checkpoint;
+    QDir root(caseDirectory);
+    for(const auto& entry:root.entryList(QDir::Dirs|QDir::NoDotAndDotDot)) {
+        bool ok=false;const double t=entry.toDouble(&ok);QFileInfo field(root.filePath(entry+"/p"));
+        if(ok&&std::isfinite(t)&&field.isFile()&&t>native){native=t;checkpoint=field;}
+    }
+    if(!std::isfinite(native))return selected;
+    QDir vtk(root.filePath("VTK"));
+    for(const auto& name:vtk.entryList({"*.vtm.series"},QDir::Files)) {
+        QFile series(vtk.filePath(name));if(!series.open(QIODevice::ReadOnly)||series.size()>8*1024*1024)continue;
+        for(const auto& item:QJsonDocument::fromJson(series.readAll()).object().value("files").toArray()) {
+            const auto obj=item.toObject();if(obj.value("name").toString()!=QFileInfo(selected).fileName())continue;
+            const double time=obj.value("time").toDouble(std::numeric_limits<double>::quiet_NaN());
+            return std::isfinite(time)&&std::abs(time-native)<=1e-9*std::max(1.0,std::abs(native))?selected:QString{};
+        }
+    }
+    return QFileInfo(selected).lastModified()>=checkpoint.lastModified()?selected:QString{};
+}
+
 }

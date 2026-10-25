@@ -22,7 +22,11 @@ class SketchEditorDialog final : public QDialog {
 public:
     explicit SketchEditorDialog(QWidget* parent = nullptr);
     void setSketch(const Sketch2D& shape);
+    void setInteractionPreferences(bool snap,double spacing,bool grid,bool dimensions,double zoom);
     void setReadOnly(bool readOnly);
+    void setEmbedded(bool embedded);
+    void loadSketch() { if(!readOnly_)load(); }
+    void saveSketch() { save(); }
     [[nodiscard]] bool isReadOnly() const noexcept { return readOnly_; }
     [[nodiscard]] const Sketch2D& sketch() const noexcept { return sketch_; }
     [[nodiscard]] const NozzleDimensions& nozzleDimensions() const noexcept { return nozzleDims_; }

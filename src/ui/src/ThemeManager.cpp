@@ -144,6 +144,7 @@ QTabWidget#vortia-editor-tabs QTabBar::tab:selected { color: #123e5c; background
 QTabWidget#vortia-editor-tabs QTabBar::tab:hover { background: #d7e7f4; }
 )QSS");
     app.setStyleSheet(theme == Theme::Dark ? darkSheet : lightSheet);
+    app.setStyleSheet(app.styleSheet()+QStringLiteral("\nQComboBox::down-arrow { image:url(:/vortia/icons/chevron-down.svg); width:12px; height:12px; } QToolButton::menu-indicator { image:url(:/vortia/icons/chevron-down.svg); width:10px; height:10px; }"));
 }
 
 ThemeManager::Theme ThemeManager::fromName(const QString& name) {

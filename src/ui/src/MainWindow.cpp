@@ -44,6 +44,15 @@
 #include <QApplication>
 #include <QDockWidget>
 #include <QScrollArea>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QProgressDialog>
+#include <QEventLoop>
+#include <QDateTime>
+#include <QListWidget>
+#include <QSet>
+#include <QThread>
+#include <QStandardPaths>
 #include <QFileDialog>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -174,6 +183,7 @@ void MainWindow::buildMenusAndToolbar() {
     fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
 
     auto* simMenu = menuBar()->addMenu(tr("Simulation"));
+    fileMenu->removeAction(flowSetup);simMenu->addAction(flowSetup);simMenu->addSeparator();
     auto* detectBackend = simMenu->addAction(tr("Detect OpenFOAM"), this, &MainWindow::onDetectOpenFoam);
     runAction_ = simMenu->addAction(tr("Run Simulation"), this, &MainWindow::onRun, QKeySequence(tr("Ctrl+R")));
     cancelAction_ = simMenu->addAction(tr("Cancel Simulation"), this, &MainWindow::onCancel);
@@ -183,7 +193,12 @@ void MainWindow::buildMenusAndToolbar() {
     preferences->setMenuRole(QAction::PreferencesRole);
     connect(preferences, &QAction::triggered, this, &MainWindow::onPreferences);
     auto* toolsMenu = menuBar()->addMenu(tr("Tools"));
-    toolsMenu->addAction(preferences);
+    toolsMenu->addAction(preferences);toolsMenu->addAction(detectBackend);
+    auto* searchTool=new QAction(tr("Find a tool…"),this);searchTool->setObjectName("vortia-find-tool");
+    searchTool->setShortcut(QKeySequence("Ctrl+K"));searchTool->setIcon(QIcon(":/vortia/icons/view.svg"));
+    toolsMenu->addAction(searchTool);connect(searchTool,&QAction::triggered,this,&MainWindow::onFindTool);
+    preferences->setObjectName("vortia-preferences-action");preferences->setShortcut(QKeySequence::Preferences);
+    preferences->setIcon(QIcon(":/vortia/icons/settings.svg"));
 
     auto* viewMenu = menuBar()->addMenu(tr("View"));
     viewMenu->setObjectName(QStringLiteral("vortia-view-menu"));
@@ -212,7 +227,7 @@ void MainWindow::buildMenusAndToolbar() {
     cancelAction_->setIcon(toolIcon(QStringLiteral("stop"), QStyle::SP_MediaStop));
     themeAction_->setIcon(toolIcon(QStringLiteral("settings"), QStyle::SP_DesktopIcon));
 
-    auto* geometryEditor = new QAction(toolIcon(QStringLiteral("geometry"), QStyle::SP_DirIcon), tr("Geometry"), this);
+
     auto* meshEditor = new QAction(toolIcon(QStringLiteral("mesh"), QStyle::SP_FileDialogDetailedView), tr("Mesh"), this);
     auto* materialsEditor = new QAction(toolIcon(QStringLiteral("material"), QStyle::SP_DriveHDIcon), tr("Materials"), this);
     auto* boundaryEditor = new QAction(toolIcon(QStringLiteral("boundary"), QStyle::SP_DirLinkIcon), tr("Boundaries"), this);
@@ -223,16 +238,15 @@ void MainWindow::buildMenusAndToolbar() {
         if (workspaceTabs_ && sketchEditor_)
             workspaceTabs_->setCurrentWidget(sketchEditor_);
     });
-    connect(geometryEditor, &QAction::triggered, this,
-            [this]() { onNodeActivated(ProjectExplorerPanel::GeometryNode); });
+
     connect(meshEditor, &QAction::triggered, this,
-            [this]() { if (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount()) configureFlow(0); else properties_->showNode(ProjectExplorerPanel::MeshNode); });
+            [this]() { onNodeActivated(ProjectExplorerPanel::MeshNode); });
     connect(materialsEditor, &QAction::triggered, this,
-            [this]() { if (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount()) configureFlow(1); else properties_->showNode(ProjectExplorerPanel::MaterialsNode); });
+            [this]() { onNodeActivated(ProjectExplorerPanel::MaterialsNode); });
     connect(boundaryEditor, &QAction::triggered, this,
-            [this]() { if (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount()) configureFlow(2); else properties_->showNode(ProjectExplorerPanel::BoundaryConditionsNode); });
+            [this]() { onNodeActivated(ProjectExplorerPanel::BoundaryConditionsNode); });
     connect(solverEditor, &QAction::triggered, this,
-            [this]() { if (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount()) configureFlow(3); else properties_->showNode(ProjectExplorerPanel::SolverNode); });
+            [this]() { onNodeActivated(ProjectExplorerPanel::SolverNode); });
 
     auto* viewXY = new QAction(icon(QStyle::SP_ArrowUp), tr("XY"), this);
     auto* viewXZ = new QAction(icon(QStyle::SP_ArrowRight), tr("XZ"), this);
@@ -277,10 +291,11 @@ void MainWindow::buildMenusAndToolbar() {
             auto* button = new QToolButton(group);
             button->setObjectName(QStringLiteral("vortia-ribbon-button"));
             button->setDefaultAction(action);
+            if(action->menu())button->setPopupMode(QToolButton::InstantPopup);
             button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
             button->setIconSize(QSize(28, 28));
             button->setMinimumSize(QSize(78, 69));
-            button->setMaximumWidth(110);
+            button->setMaximumWidth(144);
             button->setAccessibleName(action->text());
             buttons->addWidget(button);
         }
@@ -296,24 +311,50 @@ void MainWindow::buildMenusAndToolbar() {
         parent->addWidget(separator);
     };
 
+    newProject->setIconText(tr("New"));openProject->setIconText(tr("Open"));saveProject->setIconText(tr("Save"));
+    importFluent->setIconText(tr("Fluent case"));sketchEditor->setIconText(tr("Edit sketch"));
+    generateMesh->setIconText(tr("Generate mesh"));meshEditor->setIconText(tr("Mesh controls"));
+    materialsEditor->setIconText(tr("Models"));boundaryEditor->setIconText(tr("Boundaries"));
+    solverEditor->setIconText(tr("Run controls"));runAction_->setIconText(tr("Run"));cancelAction_->setIconText(tr("Stop"));
+    openResults->setIconText(tr("Open results"));searchTool->setIconText(tr("Find a tool"));
     auto* homePage = newPage(tr("Home"));
     addGroup(homePage, tr("Project"), {newProject, openProject, saveProject});
-    addGroup(homePage, tr("Import"), {openFoam, importStl, importFluent});
+    auto* importMenu=new QMenu(this);importMenu->addActions({openFoam,importStl,importFluent});
+    auto* importAction=new QAction(toolIcon("import",QStyle::SP_DialogOpenButton),tr("Import…"),this);
+    importAction->setObjectName("vortia-import-menu");importAction->setMenu(importMenu);
+    addGroup(homePage,tr("Files"),{importAction});addGroup(homePage,tr("Application"),{preferences,searchTool});
 
-    auto* modelPage = newPage(tr("Model"));
-    addGroup(modelPage, tr("Flow"), {flowSetup, generateMesh});
-    addGroup(modelPage, tr("Geometry & mesh"), {sketchEditor, geometryEditor, meshEditor});
-    addGroup(modelPage, tr("Physics"), {materialsEditor, boundaryEditor});
-    addGroup(modelPage, tr("Solver setup"), {solverEditor});
+    auto* geometryPage=newPage(tr("Geometry"));
+    auto* sketchFiles=new QMenu(this);
+    auto* loadSketch=sketchFiles->addAction(tr("Import sketch…"));
+    auto* saveSketch=sketchFiles->addAction(tr("Export sketch…"));sketchFiles->addSeparator();
+    auto* planar=sketchFiles->addAction(tr("Export planar block mesh…"));
+    auto* wedge=sketchFiles->addAction(tr("Export wedge block mesh…"));
+    connect(loadSketch,&QAction::triggered,this,[this](){if(!projectSwitchLocked()&&!useExistingCase_)sketchEditor_->loadSketch();});
+    connect(saveSketch,&QAction::triggered,this,[this](){sketchEditor_->saveSketch();});
+    connect(planar,&QAction::triggered,this,[this](){sketchEditor_->exportNozzleMesh();});
+    connect(wedge,&QAction::triggered,this,[this](){sketchEditor_->exportWedgeMesh();});
+    auto* sketchFilesAction=new QAction(toolIcon("save",QStyle::SP_DialogSaveButton),tr("Sketch files…"),this);
+    sketchFilesAction->setMenu(sketchFiles);sketchFilesAction->setToolTip(tr("Import/export CAD sketches or standalone block meshes. Generate mesh builds the CFD domain."));
+    addGroup(geometryPage,tr("Sketch"),{sketchEditor,sketchFilesAction});
+    addGroup(geometryPage,tr("Mesh"),{meshEditor,generateMesh});
 
-    auto* simPage = newPage(tr("Simulation"));
-    addGroup(simPage, tr("Backend"), {detectBackend});
-    addGroup(simPage, tr("Execution"), {runAction_, cancelAction_});
+    auto* physicsPage=newPage(tr("Physics"));
+    addGroup(physicsPage,tr("Physical setup"),{materialsEditor,boundaryEditor});
+
+    auto* simPage=newPage(tr("Calculation"));
+    addGroup(simPage,tr("Controls"),{solverEditor});
+    addGroup(simPage,tr("Execution"),{runAction_,cancelAction_});
+    auto* viewLatest=new QAction(toolIcon("view",QStyle::SP_DialogApplyButton),tr("View latest result"),this);
+    viewLatest->setIconText(tr("View latest"));
+    viewLatest->setObjectName("vortia-view-latest-result");
+    connect(viewLatest,&QAction::triggered,this,&MainWindow::onViewLatestResult);
 
     auto* resultsPage = newPage(tr("Results"));
     auto* profileAction=new QAction(QIcon(QStringLiteral(":/vortia/icons/view.svg")),tr("Line profile…"),this);
-    connect(profileAction,&QAction::triggered,this,[this](){showLineProfile(this,viewport_,fieldCombo_->currentText());});
+    connect(profileAction,&QAction::triggered,this,[this](){showLineProfile(this,viewport_,fieldCombo_->currentData().toString());});
     auto* edgeAction=new QAction(QIcon(QStringLiteral(":/vortia/icons/mesh.svg")),tr("Show cell edges"),this);
+    edgeAction->setIconText(tr("Cell edges"));
     edgeAction->setCheckable(true);
     connect(edgeAction,&QAction::toggled,this,[this](bool enabled){viewport_->showCellEdges(enabled);});
     addGroup(resultsPage,tr("Inspect"),{profileAction,edgeAction});
@@ -326,20 +367,21 @@ void MainWindow::buildMenusAndToolbar() {
     fv->addWidget(fieldTitle);
     fieldCombo_ = new QComboBox(fields);
     fieldCombo_->setObjectName(QStringLiteral("vortia-field-selector"));
-    fieldCombo_->setMinimumWidth(125);
-    fieldCombo_->addItems({QStringLiteral("p"), QStringLiteral("U"), QStringLiteral("|U|"),
-                           QStringLiteral("Ux"), QStringLiteral("Uy"), QStringLiteral("Uz"),
-                           QStringLiteral("T"), QStringLiteral("Mach"), QStringLiteral("nut")});
+    fieldCombo_->setMinimumWidth(160);fieldCombo_->setMaximumWidth(230);
+    fieldCombo_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);fieldCombo_->setMinimumContentsLength(14);
+    for(const auto& field:std::vector<std::pair<QString,QString>>{
+        {tr("Pressure · p"),"p"},{tr("Speed · |U|"),"|U|"},{tr("Velocity X"),"Ux"},
+        {tr("Velocity Y"),"Uy"},{tr("Velocity Z"),"Uz"},{tr("Temperature · T"),"T"},
+        {tr("Mach number"),"Mach"},{tr("Turbulent viscosity · nut"),"nut"}})fieldCombo_->addItem(field.first,field.second);
     fieldCombo_->setToolTip(tr("Choose a field from the current CFD result"));
     fv->addWidget(fieldCombo_);
     connect(fieldCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onFieldChanged);
     resultsPage->addWidget(fields);
-    addGroup(resultsPage, tr("Results"), {openResults});
-    addGroup(resultsPage, tr("Camera"), {viewXY, viewXZ, viewYZ, viewIso, viewReset});
-
-    auto* viewPage = newPage(tr("View"));
-    addGroup(viewPage, tr("Appearance"), {themeAction_, preferences, viewReset});
+    addGroup(resultsPage, tr("Results"), {viewLatest,openResults});
+    auto* cameraMenu=new QMenu(this);cameraMenu->addActions({viewXY,viewXZ,viewYZ,viewIso,viewReset});
+    auto* camera=new QAction(toolIcon("view",QStyle::SP_DesktopIcon),tr("Camera"),this);camera->setMenu(cameraMenu);
+    addGroup(resultsPage,tr("View"),{camera});
 
     toolbar->addWidget(tabs);
     statusLabel_ = new QLabel(this);
@@ -375,7 +417,7 @@ void MainWindow::buildDocks() {
     viewport_ = new VtkViewport(workspaceTabs_);
     workspaceTabs_->addTab(viewport_, tr("3D CFD"));
     sketchEditor_ = new SketchEditorDialog(workspaceTabs_);
-    sketchEditor_->setWindowFlags(Qt::Widget);
+    sketchEditor_->setWindowFlags(Qt::Widget);sketchEditor_->setEmbedded(true);
     workspaceTabs_->addTab(sketchEditor_, tr("2D Sketch"));
     connect(sketchEditor_, &SketchEditorDialog::closeRequested, this,
             [this]() { workspaceTabs_->setCurrentWidget(viewport_); });
@@ -419,6 +461,9 @@ void MainWindow::buildDocks() {
     propertiesLayout->addWidget(propertiesTabs_,1);
     propsDock->setWidget(propertiesContainer);
     addDockWidget(Qt::RightDockWidgetArea, propsDock);
+    connect(workspaceTabs_,&QTabWidget::currentChanged,this,[this,propsDock](int){
+        if(workspaceTabs_->currentWidget()==sketchEditor_&&!projectSwitchLocked())propsDock->hide();
+    });
 
     auto* consoleDock = new QDockWidget(tr("Simulation Console"), this);
     consoleDock->setObjectName(QStringLiteral("vortia-dock-console"));
@@ -446,6 +491,9 @@ void MainWindow::buildDocks() {
                     consoleDock->setFloating(false);
                     addDockWidget(Qt::LeftDockWidgetArea, explorerDock);
                     addDockWidget(Qt::RightDockWidgetArea, propsDock);
+    connect(workspaceTabs_,&QTabWidget::currentChanged,this,[this,propsDock](int){
+        if(workspaceTabs_->currentWidget()==sketchEditor_&&!projectSwitchLocked())propsDock->hide();
+    });
                     addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
                     explorerDock->show();
                     propsDock->show();
@@ -457,8 +505,8 @@ void MainWindow::buildDocks() {
 }
 
 void MainWindow::loadSettings() {
-    const QString theme = settings_->value(QStringLiteral("theme"), QStringLiteral("dark")).toString();
-    ThemeManager::apply(*qApp, ThemeManager::fromName(theme));
+    preferences_=ApplicationPreferences::load(*settings_);applyPreferences();
+    if(!preferences_.rememberLayout)return;
     const QByteArray geometry = settings_->value(QStringLiteral("window/geometry")).toByteArray();
     if (!geometry.isEmpty())
         restoreGeometry(geometry);
@@ -471,8 +519,10 @@ void MainWindow::saveSettings() {
     settings_->setValue(QStringLiteral("theme"),
                        ThemeManager::toName(ThemeManager::fromName(
                            settings_->value(QStringLiteral("theme"), QStringLiteral("dark")).toString())));
-    settings_->setValue(QStringLiteral("window/geometry"), saveGeometry());
-    settings_->setValue(QStringLiteral("window/state"), saveState());
+    if(preferences_.rememberLayout) {
+        settings_->setValue(QStringLiteral("window/geometry"), saveGeometry());
+        settings_->setValue(QStringLiteral("window/state"), saveState());
+    }
     settings_->sync();
 }
 
@@ -573,7 +623,7 @@ void MainWindow::activateProjectTab(int index) {
     if (!lastVtmPath_.isEmpty() && QFileInfo::exists(lastVtmPath_)) {
         try {
             viewport_->loadVtmFile(lastVtmPath_.toStdString(),
-                                   fieldCombo_->currentText().toStdString());
+                                   fieldCombo_->currentData().toString().toStdString());
         } catch (...) {
             // A stale VTM on disk must never crash project switching.
             lastVtmPath_.clear();
@@ -661,7 +711,7 @@ bool MainWindow::openProjectDirectory(const QString& dir) {
                           {}, std::filesystem::path(normalizedDir.toStdString()));
             sketchEditor_->setSketch(staged.sketch());
             storeCurrentTab();
-            const auto result=latestVtmFile(QDir(normalizedDir).filePath(QStringLiteral("VTK")));
+            const auto result=currentVtmFile(normalizedDir);
             if (!result.isEmpty()) onResultsReady(result);
             setProjectState(tr("Opened existing OpenFOAM case: %1").arg(dir));
             console_->appendSolverOutput(tr("Opened existing OpenFOAM case: %1\n").arg(dir));
@@ -701,6 +751,8 @@ bool MainWindow::openProjectDirectory(const QString& dir) {
             QMessageBox::warning(this,tr("Open failed"),tr("The saved flow configuration is invalid.")); return false;
         }
         openedFlow=flowDocument.object();
+        if(!openedFlow.contains("preparedEngine")&&!project->backendFingerprint().empty())
+            openedFlow.insert("preparedEngine",QString::fromStdString(project->backendFingerprint()));
     }
     addProjectTab(QString::fromStdString(project->name()), openedSetup,
                   project->rootDir());
@@ -708,7 +760,7 @@ bool MainWindow::openProjectDirectory(const QString& dir) {
     properties_->setEnabled(flowConfig_.isEmpty());
     updateViewport();
     updateNozzleNotice();
-    const auto flowResult=latestVtmFile(QDir(flowConfig_.value("activeCase").toString()).filePath("VTK"));
+    const auto flowResult=currentVtmFile(flowConfig_.value("activeCase").toString());
     if (!flowConfig_.isEmpty() && !flowResult.isEmpty()) onResultsReady(flowResult);
     sketchEditor_->setNozzleDimensions(staged.nozzleDimensions());
     sketchEditor_->setSketch(staged.sketch());
@@ -923,13 +975,25 @@ void MainWindow::onOpenExistingCase() {
 }
 
 void MainWindow::onNodeActivated(int nodeId) {
-    if (!useExistingCase_ && (!flowConfig_.isEmpty() || sketchEditor_->sketch().segmentCount())) {
+    if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon")) {
+        const int stage=nodeId==ProjectExplorerPanel::GeometryNode||nodeId==ProjectExplorerPanel::MeshNode?1:
+            nodeId==ProjectExplorerPanel::MaterialsNode||nodeId==ProjectExplorerPanel::BoundaryConditionsNode?2:
+            nodeId==ProjectExplorerPanel::SolverNode?3:4;
+        ribbon->setCurrentIndex(stage);
+    }
+    const bool sketchWorkflow=!useExistingCase_&&(!flowConfig_.isEmpty()||sketchEditor_->sketch().segmentCount()
+        ||projectRoot_.empty()||!std::filesystem::exists(projectRoot_/"case/system/controlDict"));
+    if (sketchWorkflow) {
         if (nodeId==ProjectExplorerPanel::MeshNode) { configureFlow(0);return; }
         if (nodeId==ProjectExplorerPanel::MaterialsNode) { configureFlow(1);return; }
         if (nodeId==ProjectExplorerPanel::BoundaryConditionsNode) { configureFlow(2);return; }
         if (nodeId==ProjectExplorerPanel::SolverNode) { configureFlow(3);return; }
     }
-    if (!useExistingCase_) properties_->showNode(nodeId);
+    if (!useExistingCase_) {
+        properties_->showNode(nodeId);
+        if(!sketchWorkflow&&nodeId!=ProjectExplorerPanel::GeometryNode)
+            if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->show();
+    }
     if (workspaceTabs_) {
         workspaceTabs_->setCurrentWidget(
             nodeId == ProjectExplorerPanel::GeometryNode ? static_cast<QWidget*>(sketchEditor_)
@@ -956,18 +1020,19 @@ void MainWindow::configureFlow(int page) {
         QMessageBox::information(this,tr("Imported case"),tr("Open the editable source project to change geometry and flow settings. Existing imported case files are preserved."));
         return;
     }
-    const auto edited=editFlowSetup(this,sketchEditor_->sketch(),flowConfig_,page);
+    const auto edited=editFlowSetup(this,sketchEditor_->sketch(),flowConfig_,page,preferences_.flowDefaults());
     if (edited.isEmpty()) return;
     // Migrate a verified pre-resume fingerprint before changing runtime controls.
     // Physics/geometry edits still invalidate it after the source project is saved.
     if(flowConfig_.value("preparedHash").toString()==flowFingerprint(true))
         flowConfig_.insert("preparedHash",flowFingerprint());
-    auto old=flowConfig_; old.remove("activeCase"); old.remove("preparedHash");
+    auto old=flowConfig_; old.remove("activeCase"); old.remove("preparedHash");old.remove("preparedEngine");
     if (old!=edited) {
-        const auto active=flowConfig_.value("activeCase"),prepared=flowConfig_.value("preparedHash");
+        const auto active=flowConfig_.value("activeCase"),prepared=flowConfig_.value("preparedHash"),engine=flowConfig_.value("preparedEngine");
         flowConfig_=edited;
         if(!active.isUndefined())flowConfig_.insert("activeCase",active);
         if(!prepared.isUndefined())flowConfig_.insert("preparedHash",prepared);
+        if(!engine.isUndefined())flowConfig_.insert("preparedEngine",engine);
     }
     dirty_=true;properties_->setEnabled(false);storeCurrentTab();refreshProjectTabTitle();updateNozzleNotice();
 }
@@ -994,10 +1059,10 @@ bool MainWindow::ensureFlowEnvironment() {
 }
 
 QString MainWindow::flowFingerprint(bool includeRunControls) const {
-    auto cfg=flowConfig_;cfg.remove("activeCase");cfg.remove("preparedHash");
+    auto cfg=flowConfig_;cfg.remove("activeCase");cfg.remove("preparedHash");cfg.remove("preparedEngine");
     if(!includeRunControls) {
         auto solver=cfg.value("solver").toObject();
-        for(const auto* key:{"iterations","writeInterval","maxCo","processes","convergence"})solver.remove(key);
+        for(const auto* key:{"iterations","writeInterval","maxCo","processes","convergence","logInterval"})solver.remove(key);
         if(solver.isEmpty())cfg.remove("solver");else cfg.insert("solver",solver);
     }
     QFile sketch(QString::fromStdString((projectRoot_/"geometry/working-sketch.vsketch.json").string()));
@@ -1015,7 +1080,8 @@ bool MainWindow::ensureFlowCase(bool force) {
     const auto fingerprint=flowFingerprint();
     const auto previous=flowConfig_.value("activeCase").toString();
     const auto prepared=flowConfig_.value("preparedHash").toString();
-    if (!force && !fingerprint.isEmpty() && (fingerprint==prepared || flowFingerprint(true)==prepared)
+    if (!force && flowConfig_.value("preparedEngine").toString()==QString::fromStdString(ofInstallation_.fingerprint())
+        && !fingerprint.isEmpty() && (fingerprint==prepared || flowFingerprint(true)==prepared)
         && QFileInfo::exists(previous+"/constant/polyMesh/boundary")) {
         const auto error=updateFlowRunControls(previous,flowConfig_.value("solver").toObject(),ofEnvironment_);
         if(!error.isEmpty()) {QMessageBox::warning(this,tr("Run failed"),error);return false;}
@@ -1027,8 +1093,14 @@ bool MainWindow::ensureFlowCase(bool force) {
     }
     const auto caseDir=generateFlowCase(this,
         QString::fromStdString((projectRoot_/"geometry/working-sketch.vsketch.json").string()),
-        flowConfig_,QString::fromStdString(projectRoot_.string()),ofEnvironment_);
+        flowConfig_,QString::fromStdString(projectRoot_.string()),ofEnvironment_,preferences_.caseStorage);
     if (caseDir.isEmpty()) return false;
+    QSaveFile engineMarker(caseDir+"/.vortia-engine");
+    const auto engine=QString::fromStdString(ofInstallation_.fingerprint());const auto bytes=engine.toUtf8()+"\n";
+    if(!engineMarker.open(QIODevice::WriteOnly)||engineMarker.write(bytes)!=bytes.size()||!engineMarker.commit()) {
+        QMessageBox::warning(this,tr("Calculation engine"),tr("The engine identity could not be saved; the new case was retained without activating it."));return false;
+    }
+    flowConfig_.insert("preparedEngine",engine);
     flowConfig_.insert("activeCase",caseDir);flowConfig_.insert("preparedHash",fingerprint);
     dirty_=true;storeCurrentTab();
     if (!saveProject()) return false;
@@ -1149,6 +1221,14 @@ void MainWindow::onRun() {
     // Opt only recognized generated flow cases into the current immutable
     // backend. Arbitrary imported cases and their dictionaries remain untouched.
     if(useExistingCase_&&detectedSolver=="vortiaCentralFoam"&&std::filesystem::exists(caseDir/".vortia-flow-case")) {
+        QFile identity(QString::fromStdString((caseDir/".vortia-engine").string()));
+        if(identity.open(QIODevice::ReadOnly)) {
+            if(QString::fromUtf8(identity.readAll()).trimmed()!=QString::fromStdString(ofInstallation_.fingerprint())) {
+                QMessageBox::warning(this,tr("Calculation engine"),tr("This case belongs to another OpenFOAM installation. Open its editable project and generate a new mesh revision; earlier results are retained."));return;
+            }
+        } else if(!preferences_.backendRoot.isEmpty()) {
+            QMessageBox::warning(this,tr("Calculation engine"),tr("This older imported case has no engine identity. Use its editable project to generate a new revision with the selected engine."));return;
+        }
         const auto error=stageFlowBackend(QString::fromStdString(caseDir.string()));
         if(!error.isEmpty()){QMessageBox::warning(this,tr("Run failed"),error);return;}
     }
@@ -1156,12 +1236,39 @@ void MainWindow::onRun() {
 
     JobController::JobSpec spec;
     spec.caseDir = caseDir;
+    spec.automaticPreview=preferences_.automaticPreview;
+    if(!spec.automaticPreview){lastVtmPath_.clear();viewport_->clearScene();storeCurrentTab();}
     spec.setup = setup_;
     spec.caps = ofCaps_;
     spec.environment = ofEnvironment_;
     spec.solverOverride = detectedSolver;
-    if(!useExistingCase_ && detectedSolver=="vortiaCentralFoam")
-        spec.processes=flowConfig_.value("solver").toObject().value("processes").toInt(1);
+    if(detectedSolver=="vortiaCentralFoam") {
+        QJsonObject runtime{{"installation",QString::fromStdString(ofInstallation_.fingerprint())}};
+        QString libraries;
+        for(const auto& [key,value]:ofEnvironment_) {
+            if(key=="WM_PROJECT_DIR"||key=="WM_PROJECT_VERSION"||key=="WM_OPTIONS"||key=="WM_CXX"||key=="WM_LABEL_SIZE"||key=="WM_PRECISION_OPTION"||key=="FOAM_LIBBIN")
+                runtime.insert(QString::fromStdString(key),QString::fromStdString(value));
+            if(key=="FOAM_LIBBIN")libraries=QString::fromStdString(value);
+        }
+        for(const auto* name:{"libOpenFOAM","libfiniteVolume","libfluidThermophysicalModels"})for(const auto* extension:{".dylib",".so"}) {
+            QFileInfo library(QDir(libraries).filePath(QString::fromLatin1(name)+extension));
+            if(library.exists())runtime.insert(library.fileName(),QString("%1:%2:%3").arg(library.canonicalFilePath()).arg(library.size()).arg(library.lastModified().toMSecsSinceEpoch()));
+        }
+        const auto key=QCryptographicHash::hash(QJsonDocument(runtime).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex();
+        const auto cache=QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("flow-engines");
+        spec.environment.emplace_back("VORTIA_SOLVER_RUNTIME_KEY",key.toStdString());
+        spec.environment.emplace_back("VORTIA_SOLVER_CACHE_DIR",cache.toStdString());
+    }
+    if(!useExistingCase_ && detectedSolver=="vortiaCentralFoam") {
+        const int selected=flowConfig_.value("solver").toObject().value("processes").toInt(1);
+        if(selected==0) {
+            QFile metadata(QString::fromStdString((caseDir/"mesh-report.json").string()));double cells=0;
+            if(metadata.open(QIODevice::ReadOnly)&&metadata.size()<65536)cells=QJsonDocument::fromJson(metadata.readAll()).object().value("cells").toDouble();
+            const auto count=std::isfinite(cells)&&cells>0&&cells<=1000000?static_cast<std::uint64_t>(cells):0;
+            spec.processes=recommendedFlowProcesses(count,static_cast<unsigned>(std::max(1,QThread::idealThreadCount())));
+            console_->appendSolverOutput(tr("Automatic CPU selection: %1 process(es) for %2 cells.\n").arg(spec.processes).arg(count));
+        } else spec.processes=static_cast<unsigned>(selected);
+    }
     if (!jobController_->start(spec)) setJobUiRunning(false);
     } catch (const std::exception& e) {
         setJobUiRunning(jobController_->isRunning());
@@ -1186,6 +1293,8 @@ void MainWindow::updateNozzleNotice() {
     const bool nozzle = !caseDir.empty() && openfoam::isNozzlePracticeCase(caseDir);
     nozzleNotice_->setVisible(nozzle || generic);
     flowAssessment_->setVisible(generic);propertiesTabs_->setTabVisible(1,generic);
+    propertiesTabs_->setTabVisible(0,!generic);propertiesTabs_->tabBar()->setVisible(!generic);
+    if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->setWindowTitle(generic?tr("Numerical assessment"):tr("Properties"));
     if (generic) {
         if(!jobController_ || !projectSwitchLocked()) {
             QJsonObject report;
@@ -1207,7 +1316,7 @@ void MainWindow::updateNozzleNotice() {
             }
             showFlowAssessment(report);
         }
-        QString text=tr("Experimental compressible flow. Vortia monitors numerical convergence automatically. Model suitability and mesh independence require separate validation. Geometry and settings remain editable; regenerating the mesh retains earlier results.");
+        QString text=tr("Experimental CFD · numerical checks are automatic. Physical validation and mesh independence remain to be established.");
         if (!useExistingCase_ && flowConfig_.value("activeCase").toString().isEmpty())
             text+=tr(" Generate a mesh from the sketch before calculating.");
         else if (!useExistingCase_ && (flowConfig_.value("preparedHash").toString().isEmpty() ||
@@ -1233,7 +1342,7 @@ void MainWindow::updateNozzleNotice() {
 
 void MainWindow::showFlowAssessment(const QJsonObject& r) {
     if(!flowAssessment_)return;
-    flowAssessment_->setVisible(true);propertiesTabs_->setTabVisible(1,true);propertiesTabs_->setCurrentIndex(1);
+    flowAssessment_->setVisible(true);propertiesTabs_->setTabVisible(1,true);
     const auto state=r.value("status").toString();
     QString title=tr("Automatic numerical checks"),detail;
     QString color="#559bb8";
@@ -1281,9 +1390,10 @@ bool MainWindow::projectSwitchLocked() const {
 }
 
 void MainWindow::setJobUiRunning(bool running) {
+    if(running)if(auto* console=findChild<QDockWidget*>("vortia-dock-console"))console->setVisible(preferences_.showConsoleOnRun);
     if(running&&(!flowConfig_.isEmpty()||propertiesTabs_->isTabVisible(1))) {
         showFlowAssessment(QJsonObject{{"status","warming"}});
-        if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->show();
+        if(preferences_.showAssessmentOnRun)if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->show();
     }
     runAction_->setEnabled(!running);
     cancelAction_->setEnabled(running);
@@ -1297,8 +1407,10 @@ void MainWindow::onResultsReady(const QString& vtmPath) {
     try {
         lastVtmPath_ = vtmPath;
         storeCurrentTab();
-        viewport_->loadVtmFile(vtmPath.toStdString(), fieldCombo_->currentText().toStdString());
+        viewport_->loadVtmFile(vtmPath.toStdString(), fieldCombo_->currentData().toString().toStdString());
         workspaceTabs_->setCurrentWidget(viewport_);
+        if(preferences_.showAssessmentOnRun&&propertiesTabs_->isTabVisible(1))
+            if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->show();
         console_->appendSolverOutput(tr("Loaded results: %1\n").arg(vtmPath));
         setProjectState(tr("Results loaded."));
         updateNozzleNotice();
@@ -1311,6 +1423,36 @@ void MainWindow::onResultsReady(const QString& vtmPath) {
 
 
 
+void MainWindow::onViewLatestResult() {
+    if(projectSwitchLocked())return;
+    const auto path=useExistingCase_?existingCaseDir_:!flowConfig_.isEmpty()
+        ?std::filesystem::path(flowConfig_.value("activeCase").toString().toStdString()):projectRoot_/"case";
+    if(path.empty()||!std::filesystem::is_regular_file(path/"system/controlDict")) {
+        QMessageBox::information(this,tr("Results"),tr("Generate and calculate a case before viewing its results."));return;
+    }
+    const auto root=QString::fromStdString(path.string());
+    const auto exported=currentVtmFile(root);
+    if(!exported.isEmpty()){onResultsReady(exported);return;}
+    ensureOpenFoamInstallation();if(!hasOfInstallation_) {QMessageBox::warning(this,tr("Results"),tr("An OpenFOAM installation is required to export these results."));return;}
+    if(ofEnvironment_.empty()) {
+        PosixProcessRunner runner;auto captured=openfoam::Detector::captureEnvironment(ofInstallation_,runner);
+        if(!captured){QMessageBox::warning(this,tr("Results"),QString::fromStdString(captured.error().describe()));return;}ofEnvironment_=*captured;
+    }
+    const auto tool=openfoam::Detector::resolveExecutable("foamToVTK",ofEnvironment_);
+    if(!tool){QMessageBox::warning(this,tr("Results"),tr("foamToVTK is unavailable in the selected engine."));return;}
+    QProcessEnvironment env;for(const auto& [key,value]:ofEnvironment_)env.insert(QString::fromStdString(key),QString::fromStdString(value));
+    QProcess convert;convert.setWorkingDirectory(root);convert.setProcessEnvironment(env);convert.setProcessChannelMode(QProcess::MergedChannels);
+    QProgressDialog progress(tr("Preparing result visualization…"),tr("Cancel"),0,0,this);progress.setWindowModality(Qt::WindowModal);progress.setMinimumDuration(0);
+    QEventLoop wait;connect(&convert,qOverload<int,QProcess::ExitStatus>(&QProcess::finished),&wait,&QEventLoop::quit);
+    connect(&convert,&QProcess::errorOccurred,&wait,&QEventLoop::quit);connect(&progress,&QProgressDialog::canceled,&convert,&QProcess::kill);
+    convert.start(QString::fromStdString(tool->string()),{"-latestTime"});wait.exec();progress.close();
+    if(convert.state()!=QProcess::NotRunning){convert.kill();convert.waitForFinished(1000);}
+    const auto diagnostic=convert.readAll();console_->appendSolverOutput(QString::fromUtf8(diagnostic));
+    const auto result=currentVtmFile(root);
+    if(convert.exitStatus()==QProcess::NormalExit&&convert.exitCode()==0&&!result.isEmpty())onResultsReady(result);
+    else QMessageBox::warning(this,tr("Results"),tr("Visualization export did not finish. The native calculation fields are retained."));
+}
+
 void MainWindow::onOpenResults() {
     if (projectSwitchLocked()) return;
     const QString path=QFileDialog::getOpenFileName(this,tr("Open CFD results"),QString(),tr("VTK multiblock (*.vtm)"));
@@ -1322,57 +1464,59 @@ void MainWindow::onFieldChanged(int /*index*/) {
         return;
     // Reuse the already loaded VTK dataset: repeated reads previously made
     // each field change much heavier and could leave stale legend artifacts.
-    viewport_->setColorField(fieldCombo_->currentText().toStdString());
+    viewport_->setColorField(fieldCombo_->currentData().toString().toStdString());
+}
+
+void MainWindow::onFindTool() {
+    QDialog dialog(this);dialog.setObjectName("vortia-command-search");dialog.setWindowTitle(tr("Find a tool"));dialog.resize(620,470);
+    auto* layout=new QVBoxLayout(&dialog);auto* search=new QLineEdit(&dialog);search->setObjectName("command-query");search->setPlaceholderText(tr("Search by tool name…"));layout->addWidget(search);
+    auto* list=new QListWidget(&dialog);list->setObjectName("command-results");list->setIconSize({24,24});layout->addWidget(list,1);
+    QSet<QAction*> actions;
+    for(auto* menu:findChildren<QMenu*>())for(auto* action:menu->actions())if(!action->isSeparator()&&!action->menu()&&!action->text().isEmpty())actions.insert(action);
+    for(auto* button:findChildren<QToolButton*>("vortia-ribbon-button"))if(auto* action=button->defaultAction())if(!action->menu())actions.insert(action);
+    auto refresh=[&](){
+        list->clear();const auto words=search->text().trimmed().split(' ',Qt::SkipEmptyParts);
+        QList<QAction*> sorted=actions.values();std::sort(sorted.begin(),sorted.end(),[](QAction* a,QAction* b){return a->text().localeAwareCompare(b->text())<0;});
+        for(auto* action:sorted) {
+            if(!action->isEnabled())continue;
+            QString label=action->text();label.remove('&');bool match=true;
+            for(const auto& word:words)if(!label.contains(word,Qt::CaseInsensitive))match=false;
+            if(!match)continue;
+            auto* item=new QListWidgetItem(action->icon(),label,list);item->setData(Qt::UserRole,QVariant::fromValue(action));
+            item->setToolTip(action->toolTip());
+        }
+        if(list->count())list->setCurrentRow(0);
+    };
+    QAction* chosen=nullptr;
+    auto choose=[&](){if(auto* item=list->currentItem()){chosen=item->data(Qt::UserRole).value<QAction*>();if(chosen&&chosen->isEnabled())dialog.accept();}};
+    connect(search,&QLineEdit::textChanged,&dialog,refresh);connect(search,&QLineEdit::returnPressed,&dialog,choose);
+    connect(list,&QListWidget::itemActivated,&dialog,[&](QListWidgetItem*){choose();});
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    refresh();search->setFocus();if(dialog.exec()==QDialog::Accepted&&chosen&&chosen->isEnabled())chosen->trigger();
 }
 
 void MainWindow::onPreferences() {
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Vortia Preferences"));
-    dialog.setMinimumWidth(410);
-    auto* layout = new QVBoxLayout(&dialog);
-    auto* form = new QFormLayout();
-    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+    const auto edited=editApplicationPreferences(this,preferences_,projectSwitchLocked());
+    if(!edited)return;
+    const bool languageChanged=edited->language!=preferences_.language;
+    const bool engineChanged=edited->backendRoot!=preferences_.backendRoot;
+    preferences_=*edited;preferences_.save(*settings_);
+    if(engineChanged){hasOfInstallation_=false;ofEnvironment_.clear();}
+    applyPreferences();updateViewport();
+    if(languageChanged)QMessageBox::information(this,tr("Language"),tr("Restart Vortia to apply the selected language."));
+}
 
-    auto* language = new QComboBox(&dialog);
-    language->addItem(tr("System language"), QStringLiteral("system"));
-    language->addItem(QStringLiteral("English"), QStringLiteral("en"));
-    language->addItem(QStringLiteral("Español"), QStringLiteral("es"));
-    const QString currentLanguage = settings_->value(
-        QStringLiteral("language"), QStringLiteral("system")).toString();
-    language->setCurrentIndex(std::max(0, language->findData(currentLanguage)));
-    language->setToolTip(tr("Choose the language used by Vortia after restarting."));
-
-    auto* theme = new QComboBox(&dialog);
-    theme->addItem(tr("Dark"), QStringLiteral("dark"));
-    theme->addItem(tr("Light"), QStringLiteral("light"));
-    const QString currentTheme = settings_->value(
-        QStringLiteral("theme"), QStringLiteral("dark")).toString();
-    theme->setCurrentIndex(std::max(0, theme->findData(currentTheme)));
-
-    form->addRow(tr("Application language"), language);
-    form->addRow(tr("Appearance"), theme);
-    layout->addLayout(form);
-    auto* info = new QLabel(tr("Language changes take effect after restarting Vortia. "
-                               "Appearance changes take effect immediately."), &dialog);
-    info->setWordWrap(true);
-    layout->addWidget(info);
-    auto* buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    if (dialog.exec() != QDialog::Accepted)
-        return;
-
-    const QString selectedLanguage = language->currentData().toString();
-    const QString selectedTheme = theme->currentData().toString();
-    settings_->setValue(QStringLiteral("language"), selectedLanguage);
-    settings_->setValue(QStringLiteral("theme"), selectedTheme);
-    settings_->sync();
-    ThemeManager::apply(*qApp, ThemeManager::fromName(selectedTheme));
-    updateViewport();
-    if (selectedLanguage != currentLanguage)
-        QMessageBox::information(this, tr("Language"), tr("Restart Vortia to apply the selected language."));
+void MainWindow::applyPreferences() {
+    ThemeManager::apply(*qApp,ThemeManager::fromName(preferences_.theme));
+    const bool compact=preferences_.density=="compact";
+    qApp->setStyleSheet(qApp->styleSheet()+QString("\nQWidget { font-size:%1px; }").arg(12*preferences_.interfaceScale/100));
+    if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setMinimumHeight(compact?100:126);
+    for(auto* button:findChildren<QToolButton*>("vortia-ribbon-button")) {
+        button->setIconSize(QSize(compact?22:28,compact?22:28));button->setMinimumSize(compact?QSize(74,52):QSize(78,69));
+    }
+    console_->setMaximumBlockCount(preferences_.consoleLines);
+    sketchEditor_->setInteractionPreferences(preferences_.snapToGrid,preferences_.snapSpacing,
+        preferences_.showGrid,preferences_.showDimensions,preferences_.zoomSensitivity);
 }
 
 void MainWindow::onToggleTheme() {
@@ -1380,7 +1524,7 @@ void MainWindow::onToggleTheme() {
     const QString next = current == QStringLiteral("dark") ? QStringLiteral("light")
                                                            : QStringLiteral("dark");
     settings_->setValue(QStringLiteral("theme"), next);
-    ThemeManager::apply(*qApp, ThemeManager::fromName(next));
+    preferences_.theme=next;applyPreferences();
     updateViewport();
 }
 
@@ -1405,6 +1549,11 @@ void MainWindow::onDetectOpenFoam() {
 void MainWindow::ensureOpenFoamInstallation() {
     if (hasOfInstallation_)
         return;
+    if(!preferences_.backendRoot.isEmpty()) {
+        auto installed=openfoam::Detector::probe(preferences_.backendRoot.toStdString());
+        if(installed){ofInstallation_=*installed;hasOfInstallation_=true;ofEnvironment_.clear();}
+        return;
+    }
     const auto installs = openfoam::Detector::scan();
     if (!installs.empty()) {
         ofInstallation_ = installs.front();

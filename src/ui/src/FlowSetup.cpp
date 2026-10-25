@@ -1,4 +1,5 @@
 #include "vortia/ui/FlowSetup.hpp"
+#include "vortia/ui/SettingsNavigation.hpp"
 #include <QCoreApplication>
 #include <QComboBox>
 #include <QDialog>
@@ -45,7 +46,7 @@ namespace {
 QString tr(const char* s) { return QCoreApplication::translate("vortia::FlowSetup", s); }
 }
 
-QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObject& previous, int page) {
+QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObject& previous, int page, const QJsonObject& defaults) {
     QDialog dialog(parent);
     dialog.setObjectName("vortia-flow-setup");
     dialog.setWindowTitle(tr("Flow configuration"));
@@ -64,14 +65,13 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     auto* intro = new QLabel(tr("Configure the fluid domain drawn in the sketch. The horizontal X axis is the rotation axis; Y is the radius. Boundary conditions belong to the numbered sketch segments."), &dialog);
     intro->setWordWrap(true); layout->addWidget(intro);
     auto* body=new QHBoxLayout;layout->addLayout(body,1);
-    auto* navigation=new QListWidget(&dialog);navigation->setObjectName("flow-navigation");
-    navigation->setFixedWidth(230);navigation->setIconSize(QSize(28,28));body->addWidget(navigation);
-    auto* pages=new QStackedWidget(&dialog);pages->setObjectName("flow-pages");body->addWidget(pages,1);
-    QObject::connect(navigation,&QListWidget::currentRowChanged,pages,&QStackedWidget::setCurrentIndex);
+    auto* pages=new QStackedWidget(&dialog);pages->setObjectName("flow-pages");
+    auto* navigation=new SettingsNavigation(&dialog,pages,"flow-navigation");body->addWidget(navigation);body->addWidget(pages,1);
     auto registerPage=[&](QWidget* widget,const char* text,const char* icon) {
         auto* scroll=new QScrollArea(pages);scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
         scroll->setWidget(widget);pages->addWidget(scroll);
-        navigation->addItem(new QListWidgetItem(QIcon(QString(":/vortia/icons/%1.svg").arg(icon)),tr(text)));
+        const QStringList labels{tr("Mesh"),tr("Models"),tr("Boundaries"),tr("Calculation")};
+        navigation->addPage(labels.at(pages->count()-1),QString(":/vortia/icons/%1.svg").arg(icon),tr(text));
     };
     struct Number { QString section, key; QDoubleSpinBox* spin; };
     std::vector<Number> numbers;
@@ -86,7 +86,7 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
         auto* spin = new QDoubleSpinBox(&dialog);
         spin->setObjectName(QString("flow-%1-%2").arg(section,key));
         spin->setDecimals(decimals); spin->setRange(low,high);
-        spin->setValue(previous.value(section).toObject().value(key).toDouble(fallback));
+        spin->setValue(previous.value(section).toObject().value(key).toDouble(defaults.value(section).toObject().value(key).toDouble(fallback)));
         form->addRow(tr(label),spin); numbers.push_back({section,key,spin}); return spin;
     };
     auto* mesh = addPage("Mesh","mesh");
@@ -96,15 +96,20 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     auto* meshInfo = new QLabel(tr("Generate a new mesh from the actual lines and circular arcs of the sketch. One closed fluid region above Y=0 is supported. Existing mesh and result revisions are retained."),&dialog);
     meshInfo->setWordWrap(true); mesh->addRow(meshInfo);
     auto* material = addPage("Models and material","material");
-    material->addRow(new QLabel(tr("Ideal gas · energy enabled · axisymmetric without swirl · adiabatic no-slip walls"), &dialog));
+    material->addRow(new QLabel(tr("Ideal gas · energy enabled · axisymmetric without swirl · adiabatic walls"), &dialog));
     auto* turbulence = new QComboBox(&dialog); turbulence->setObjectName("flow-turbulence");
-    turbulence->addItem(tr("Spalart–Allmaras"),"SpalartAllmaras"); turbulence->addItem(tr("Laminar"),"laminar");
+    turbulence->addItem(tr("Spalart–Allmaras"),"SpalartAllmaras");turbulence->addItem(tr("Laminar"),"laminar");
+    turbulence->addItem(tr("Inviscid (Euler · slip walls)"),"inviscid");
     turbulence->setCurrentIndex(std::max(0,turbulence->findData(previous.value("material").toObject().value("turbulence").toString("SpalartAllmaras"))));
-    material->addRow(tr("Turbulence model"),turbulence);
+    material->addRow(tr("Flow model"),turbulence);
     number(material,"material","molecularWeight","Molecular weight (kg/kmol)",28.966,0.01,10000,5);
     number(material,"material","Cp","Specific heat Cp (J/kg/K)",1005,0.01,1e7,3);
-    number(material,"material","mu","Dynamic viscosity (Pa s)",1.8e-5,1e-12,100,10);
-    number(material,"material","conductivity","Thermal conductivity (W/m/K)",0.025,1e-9,10000,7);
+    auto* viscosity=number(material,"material","mu","Dynamic viscosity (Pa s)",1.8e-5,1e-12,100,10);
+    auto* conductivity=number(material,"material","conductivity","Thermal conductivity (W/m/K)",0.025,1e-9,10000,7);
+    auto* modelInfo=new QLabel(tr("Inviscid solves Euler flow with slip walls and zero viscous or thermal diffusion. Laminar and Spalart–Allmaras retain viscosity and no-slip walls. Transport inputs are retained but inactive in inviscid mode."),&dialog);
+    modelInfo->setWordWrap(true);material->addRow(modelInfo);
+    auto transportState=[=](){const bool viscous=turbulence->currentData().toString()!="inviscid";viscosity->setEnabled(viscous);conductivity->setEnabled(viscous);};
+    QObject::connect(turbulence,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,transportState);transportState();
     auto* boundaryPage = new QWidget(pages); auto* boundaryLayout = new QVBoxLayout(boundaryPage);
     auto* hint = new QLabel(tr("Pressures are absolute Pa. Inlet pressure and temperature are total values. Outlet pressure is static; its temperature applies to backflow. Axis segments must lie on Y=0. Reuse a region name only when all its settings match."),boundaryPage);
     hint->setWordWrap(true); boundaryLayout->addWidget(hint);
@@ -152,7 +157,9 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     number(calculation,"solver","iterations","Safety iteration limit",50000,1,200000,0);
     number(calculation,"solver","writeInterval","Save every N iterations",100,1,200000,0);
     number(calculation,"solver","maxCo","Acoustic Courant limit",0.1,0.001,0.5,3);
-    number(calculation,"solver","processes","CPU processes (1 = serial)",std::clamp(QThread::idealThreadCount(),1,8),1,8,0);
+    number(calculation,"solver","logInterval","Diagnostic output every N iterations",10,1,1000,0);
+    auto* cpu=number(calculation,"solver","processes","CPU processes (1 = serial)",0,0,8,0);
+    cpu->setSpecialValueText(tr("Automatic (mesh size)"));
     auto* cpuInfo=new QLabel(tr("Parallel runs use an isolated working folder and retain recovery files. The latest complete checkpoint is reconstructed into this case. Small meshes may run faster with fewer processes."),&dialog);
     cpuInfo->setWordWrap(true);calculation->addRow(cpuInfo);
     auto* method = new QLabel(tr("Experimental compressible OpenFOAM v2606 backend. Automatic checks assess numerical convergence on this mesh. Model suitability and mesh independence require separate validation."),&dialog);
@@ -176,7 +183,7 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     auto* showAdvanced=new QCheckBox(tr("Show advanced criteria"),&dialog);
     calculation->addRow(showAdvanced);calculation->addRow(advanced);advanced->setVisible(false);
     QObject::connect(showAdvanced,&QCheckBox::toggled,advanced,&QWidget::setVisible);
-    navigation->setCurrentRow(std::clamp(page,0,pages->count()-1));
+    navigation->selectPage(std::clamp(page,0,pages->count()-1));
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
     QObject::connect(buttons,&QDialogButtonBox::accepted,&dialog,[&](){
         if(criteria[1].spin->value()<criteria[0].spin->value()) {
@@ -208,7 +215,7 @@ QString stageFlowBackend(const QString& caseDir) {
         return tr("Only a generated flow case can receive the bundled backend.");
     QCryptographicHash hash(QCryptographicHash::Sha256);
     std::vector<std::pair<QString,QByteArray>> files;
-    for(const auto& name:QStringList{"vortiaCentralFoam.C","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}) {
+    for(const auto& name:QStringList{"vortiaCentralFoam.C","ConservativeUpdate.H","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}) {
         QFile f(QString(":/vortia/openfoam/solver/")+name);
         if(!f.open(QIODevice::ReadOnly))return f.errorString();
         auto bytes=f.readAll();hash.addData(name.toUtf8());hash.addData(QByteArray(1,'\0'));hash.addData(bytes);
@@ -243,6 +250,8 @@ QString updateFlowRunControls(const QString& caseDir,const QJsonObject& solver,
     const double iterations=solver.value("iterations").toDouble(-1);
     const double interval=solver.value("writeInterval").toDouble(-1);
     const double courant=solver.value("maxCo").toDouble(-1);
+    const double diagnostic=solver.value("logInterval").toDouble(10);
+    if(!std::isfinite(diagnostic)||diagnostic<1||diagnostic>1000||std::floor(diagnostic)!=diagnostic)return tr("Invalid diagnostic output interval.");
     if(!std::isfinite(iterations)||!std::isfinite(interval)||!std::isfinite(courant)||
        iterations<1||iterations>200000||std::floor(iterations)!=iterations||
        interval<1||interval>iterations||std::floor(interval)!=interval||courant<=0||courant>.5)
@@ -277,7 +286,7 @@ QString updateFlowRunControls(const QString& caseDir,const QJsonObject& solver,
     for(const auto& [key,value]:environment)captured.insert(QString::fromStdString(key),QString::fromStdString(value));
     for(const auto& entry:std::vector<std::pair<QString,QString>>{
         {"endTime",QString::number(iterations,'g',15)},{"writeInterval",QString::number(interval,'g',15)},
-        {"maxCo",QString::number(courant,'g',15)},{"vortiaConvergence",convergenceText}}) {
+        {"maxCo",QString::number(courant,'g',15)},{"vortiaLogInterval",QString::number(diagnostic,'g',15)},{"vortiaConvergence",convergenceText}}) {
         QProcess command;command.setProcessEnvironment(captured);command.setWorkingDirectory(caseDir);
         command.start(QString::fromStdString(executable->string()),
             {staged.fileName(),"-entry",entry.first,"-set",entry.second});
@@ -295,22 +304,30 @@ QString updateFlowRunControls(const QString& caseDir,const QJsonObject& solver,
 }
 
 QString generateFlowCase(QWidget* parent,const QString& sketchPath,const QJsonObject& cfg,
-                         const QString& projectRoot,const std::vector<std::pair<std::string,std::string>>& environment){
+                         const QString& projectRoot,const std::vector<std::pair<std::string,std::string>>& environment,const QString& caseStorage){
     QString parentDir=QDir(projectRoot).filePath("cases");
 #ifdef Q_OS_MACOS
     // Keep solver writes/builds off iCloud-managed Documents/Desktop folders.
     // The small editable project retains the absolute reference to its results.
     parentDir=QDir::homePath()+"/Library/Vortia/cases";
 #endif
+    if(!caseStorage.isEmpty()) {
+        if(!QDir::isAbsolutePath(caseStorage)||std::any_of(caseStorage.begin(),caseStorage.end(),[](QChar c){return c.isSpace();})) {
+            QMessageBox::warning(parent,tr("Calculation storage"),tr("Choose an absolute calculation path without spaces in Preferences."));return {};
+        }
+        parentDir=caseStorage;
+    }
     if(std::any_of(parentDir.cbegin(),parentDir.cend(),[](QChar c){return c.isSpace();}))
         parentDir=QDir::homePath()+"/Library/Vortia/cases";
-    if(!QDir().mkpath(parentDir))return {};
+    if(!QDir().mkpath(parentDir)) {
+        QMessageBox::warning(parent,tr("Calculation storage"),tr("The calculation storage folder could not be created. Check its location and permissions."));return {};
+    }
     QTemporaryDir stage(parentDir+"/.build-XXXXXX");if(!stage.isValid())return {};
     auto write=[&](const QString& name,const QByteArray& bytes){QFile f(stage.filePath(name));return f.open(QIODevice::WriteOnly)&&f.write(bytes)==bytes.size();};
     for(const auto& name:{"prepare.py","boundaries.py"}){QFile f(QString(":/vortia/flow/")+name);if(!f.open(QIODevice::ReadOnly)||!write(name,f.readAll()))return {};}
-    auto settings=cfg;settings.remove("activeCase");settings.remove("preparedHash");
+    auto settings=cfg;settings.remove("activeCase");settings.remove("preparedHash");settings.remove("preparedEngine");
     if(!write("settings.json",QJsonDocument(settings).toJson())||!QDir().mkpath(stage.filePath("solver/Make")))return {};
-    for(const auto& name:QStringList{"vortiaCentralFoam.C","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}){
+    for(const auto& name:QStringList{"vortiaCentralFoam.C","ConservativeUpdate.H","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}){
         QFile f(QString(":/vortia/openfoam/solver/")+name);if(!f.open(QIODevice::ReadOnly)||!write("solver/"+name,f.readAll()))return {};
     }
     QString python;

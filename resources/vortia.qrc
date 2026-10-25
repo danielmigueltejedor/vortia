@@ -8,6 +8,7 @@
   </qresource>
   <qresource prefix="/vortia/openfoam">
     <file alias="solver/vortiaCentralFoam.C">../examples/nozzle-video-2026/solver/vortiaCentralFoam.C</file>
+    <file alias="solver/ConservativeUpdate.H">../examples/nozzle-video-2026/solver/ConservativeUpdate.H</file>
     <file alias="solver/ConvergencePolicy.H">../examples/nozzle-video-2026/solver/ConvergencePolicy.H</file>
     <file alias="solver/ConvergenceMonitor.H">../examples/nozzle-video-2026/solver/ConvergenceMonitor.H</file>
     <file alias="solver/centralCourantNo.H">../examples/nozzle-video-2026/solver/centralCourantNo.H</file>
@@ -23,6 +24,7 @@
     <file alias="solver/LICENSE.md">../examples/nozzle-video-2026/solver/LICENSE.md</file>
   </qresource>
   <qresource prefix="/vortia/icons">
+    <file alias="chevron-down.svg">icons/ui/chevron-down.svg</file>
     <file alias="new.svg">icons/ui/new.svg</file>
     <file alias="open.svg">icons/ui/open.svg</file>
     <file alias="save.svg">icons/ui/save.svg</file>

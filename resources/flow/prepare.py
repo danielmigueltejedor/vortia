@@ -86,10 +86,13 @@ def validate(sketch, cfg):
         raise ValueError('Use a wedge angle between 0.1 and 5 degrees and a wall size no larger than the global size')
     if not 1 <= finite(solver['iterations']) <= 200000 or not 1 <= finite(solver['writeInterval']) <= solver['iterations']:
         raise ValueError('Invalid iteration limit or output interval')
+    if not 1<=finite(solver.get('logInterval',10))<=1000 or int(solver.get('logInterval',10))!=solver.get('logInterval',10):raise ValueError('Invalid diagnostic interval')
     convergence_controls(solver)
+    processes=solver.get('processes',1)
+    if not 0<=finite(processes,False)<=8 or int(processes)!=processes:raise ValueError('Invalid CPU process count')
     if not 0 < finite(solver['maxCo']) <= 0.5:
         raise ValueError('Use an acoustic Courant number in (0, 0.5]')
-    if mat['turbulence'] not in ('laminar', 'SpalartAllmaras'):
+    if mat['turbulence'] not in ('laminar', 'SpalartAllmaras', 'inviscid'):
         raise ValueError('Unsupported turbulence model')
     finite(cfg['initial']['pressure']); finite(cfg['initial']['temperature'])
     return groups
@@ -164,6 +167,7 @@ def mesh_case(root, sketch, cfg):
 
 def fields(root, cfg, groups):
     mat = cfg['material']; gasr = 8314.462618/mat['molecularWeight']
+    inviscid=mat['turbulence']=='inviscid'
     gamma = mat['Cp']/(mat['Cp']-gasr)
     def field(name, dimensions, initial, bcs, vector=False):
         text = header(name, 'volVectorField' if vector else 'volScalarField')
@@ -182,7 +186,7 @@ def fields(root, cfg, groups):
         nu = chi*mat['mu']*gasr*t/p
         bcs['p'][name] = ('type zeroGradient;' if kind == 'wall' else pressure_outlet(local) if kind == 'outlet'
             else f'type totalPressure; p0 uniform {p}; U U; phi phi; rho rho; psi thermo:psi; gamma {gamma}; value uniform {p};')
-        bcs['U'][name] = ('type noSlip;' if kind == 'wall' else reservoir_velocity(local) if kind in ('reservoir','inlet')
+        bcs['U'][name] = (('type slip;' if inviscid else 'type noSlip;') if kind == 'wall' else reservoir_velocity(local) if kind in ('reservoir','inlet')
             else 'type pressureInletOutletVelocity; value uniform (0 0 0);')
         bcs['T'][name] = ('type zeroGradient;' if kind == 'wall' else
             f'type {"totalTemperature" if kind == "inlet" else "inletOutletTotalTemperature"}; T0 uniform {t}; U U; phi phi; psi thermo:psi; gamma {gamma}; value uniform {t};')
@@ -190,8 +194,8 @@ def fields(root, cfg, groups):
         for field_name in ('p','U','nuTilda'):
             for code_name in ('machAwarePressureOutlet','reservoirCharacteristicVelocity','viscosityRatioNuTilda'):
                 bcs[field_name][name]=bcs[field_name][name].replace('name '+code_name+';', 'name '+code_name+'_'+name+';')
-        bcs['nut'][name] = ('type nutUSpaldingWallFunction;' if kind == 'wall' and mat['turbulence'] != 'laminar' else 'type calculated;')+' value uniform 0;'
-        bcs['alphat'][name] = ('type compressible::alphatWallFunction; Prt 0.85;' if kind == 'wall' and mat['turbulence'] != 'laminar' else 'type calculated;')+' value uniform 0;'
+        bcs['nut'][name] = ('type nutUSpaldingWallFunction;' if kind == 'wall' and mat['turbulence'] == 'SpalartAllmaras' else 'type calculated;')+' value uniform 0;'
+        bcs['alphat'][name] = ('type compressible::alphatWallFunction; Prt 0.85;' if kind == 'wall' and mat['turbulence'] == 'SpalartAllmaras' else 'type calculated;')+' value uniform 0;'
     initial = cfg['initial']; rho = initial['pressure']/(gasr*initial['temperature'])
     for name, dims, value in [('p', '[1 -1 -2 0 0 0 0]', initial['pressure']),
                               ('T', '[0 0 0 1 0 0 0]', initial['temperature']),
@@ -203,9 +207,9 @@ def fields(root, cfg, groups):
 thermoType {{ type hePsiThermo; mixture pureMixture; transport const; thermo hConst;
  equationOfState perfectGas; specie specie; energy sensibleInternalEnergy; }}
 mixture {{ specie {{ molWeight {mat['molecularWeight']}; }} thermodynamics {{ Cp {mat['Cp']}; Hf 0; }}
- transport {{ mu {mat['mu']}; Pr {mat['mu']*mat['Cp']/mat['conductivity']}; }} }}
+ transport {{ mu {0 if inviscid else mat['mu']}; Pr {0.7 if inviscid else mat['mu']*mat['Cp']/mat['conductivity']}; }} }}
 ''')
-    turbulence = 'simulationType laminar;\n' if mat['turbulence'] == 'laminar' else 'simulationType RAS;\nRAS { RASModel SpalartAllmaras; turbulence on; printCoeffs on; }\n'
+    turbulence = 'simulationType laminar;\n' if mat['turbulence'] in ('laminar','inviscid') else 'simulationType RAS;\nRAS { RASModel SpalartAllmaras; turbulence on; printCoeffs on; }\n'
     (root/'constant/turbulenceProperties').write_text(header('turbulenceProperties')+turbulence)
 
 
@@ -244,16 +248,16 @@ snGradSchemes { default limited 0.5; } wallDist { method meshWave; }
 ''')
     (root/'system/fvSolution').write_text(header('fvSolution')+'''
 solvers { "(rho|rhoU|rhoE)" { solver diagonal; }
- "(U|e|nuTilda)" { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-9; relTol 0; } }
+ "(U|e|nuTilda)" { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-9; relTol 0; log 0; } }
 ''')
     functions = 'extrema { type fieldMinMax; libs (fieldFunctionObjects); fields (p T U); mode magnitude; writeControl timeStep; writeInterval 100; }\n'
     functions += 'Mach { type MachNo; libs (fieldFunctionObjects); result Mach; executeControl writeTime; writeControl writeTime; }\n'
-    functions += 'wallResolution { type yPlus; libs (fieldFunctionObjects); executeControl writeTime; writeControl writeTime; }\n'
+    if cfg['material']['turbulence']!='inviscid':functions += 'wallResolution { type yPlus; libs (fieldFunctionObjects); executeControl writeTime; writeControl writeTime; }\n'
     for name, bc in groups.items():
         if bc['type'] not in ('wall', 'axis'):
             functions += f'mass_{name} {{ type surfaceFieldValue; libs (fieldFunctionObjects); regionType patch; name {name}; operation sum; fields (phi); writeFields false; writeControl timeStep; writeInterval 100; }}\n'
     (root/'system/controlDict').write_text(header('controlDict')+f'''
-application vortiaCentralFoam; noSwirl true;
+application vortiaCentralFoam; noSwirl true; vortiaLogInterval {s.get('logInterval',10)};
 startFrom latestTime; startTime 0; stopAt endTime; endTime {s['iterations']}; deltaT 1;
 adjustTimeStep no; maxCo {s['maxCo']}; maxDeltaT 1e-6; rDeltaTSmoothingCoeff 0.5; maxDiffusionCo 0.1;
 writeControl timeStep; writeInterval {s['writeInterval']}; purgeWrite 0;
@@ -262,7 +266,7 @@ functions {{ {functions} }}
 {convergence_controls(s)}
 ''')
     (root/'.vortia-flow-case').write_text('vortia-axisymmetric-flow-v1\n')
-    (root/'README.md').write_text('# General axisymmetric flow case\n\nGenerated from the saved sketch and flow-setup.json. Ideal gas, energy, adiabatic no-slip walls and optional Spalart–Allmaras. Pressures are absolute Pa. The initial field is a uniform starting guess, not a simulation result. The custom OpenFOAM v2606 helper enforces no swirl and includes viscous energy transport. CFD convergence, mass balance and mesh dependence must be checked. The numerical backend is experimental; no Fluent equivalence is asserted.\n')
+    (root/'README.md').write_text('# General axisymmetric flow case\n\nGenerated from the saved sketch and flow-setup.json. Ideal gas and energy. Inviscid mode uses Euler equations, slip walls and zero transport diffusion; laminar/Spalart-Allmaras modes use viscosity and adiabatic no-slip walls. Pressures are absolute Pa. The initial field is a uniform starting guess, not a simulation result. The custom OpenFOAM v2606 helper enforces no swirl and includes viscous energy transport. CFD convergence, mass balance and mesh dependence must be checked. The numerical backend is experimental; no Fluent equivalence is asserted.\n')
 
 
 if __name__ == '__main__':

@@ -316,3 +316,29 @@ TEST_F(FakeBackendTest, DivergenceIsDetected) {
 } // namespace
 
 #endif // !_WIN32
+
+#ifndef _WIN32
+
+TEST_F(FakeBackendTest, CompiledFlowCacheReusesAcrossCasesAndSeparatesRuntimes) {
+    namespace fs=std::filesystem;const std::string revision(64,'d');
+    environment_.emplace_back("WM_PROJECT_VERSION","v2606");
+    environment_.emplace_back("VORTIA_SOLVER_CACHE_DIR",(dir_/"shared-cache").string());
+    environment_.emplace_back("VORTIA_SOLVER_RUNTIME_KEY",std::string(64,'e'));
+    const auto count=dir_/"build-count";
+    makeFakeTool("wmake","echo build >> '"+count.string()+"'\nprintf '#!/bin/sh\\necho \"Time = 100\"\\n' > \"$VORTIA_NOZZLE_OUTPUT\"\n/bin/chmod +x \"$VORTIA_NOZZLE_OUTPUT\"\n");
+    auto makeCase=[&](const char* name){const auto root=dir_/name;fs::create_directories(root/"solver-backends"/revision);
+        std::ofstream(root/".vortia-flow-case")<<"vortia-axisymmetric-flow-v1\n";
+        std::ofstream(root/".vortia-solver-revision")<<revision<<'\n';std::ofstream(root/"solver-backends"/revision/"vortiaCentralFoam.C")<<"source fixture";return root;};
+    PosixProcessRunner processes;CaseRunner runner(processes,environment_);
+    for(const auto* name:{"first-cache-case","second-cache-case"}) {
+        const auto result=runner.runSolver(makeCase(name),minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
+        ASSERT_TRUE(result);ASSERT_TRUE(result->process.succeeded())<<result->process.stdErr;
+    }
+    auto builds=[&](){std::ifstream f(count);return std::count(std::istreambuf_iterator<char>(f),std::istreambuf_iterator<char>(),'\n');};
+    EXPECT_EQ(builds(),1);
+    for(auto& [key,value]:environment_)if(key=="VORTIA_SOLVER_RUNTIME_KEY")value=std::string(64,'f');
+    CaseRunner another(processes,environment_);const auto third=another.runSolver(makeCase("different-runtime-case"),minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
+    ASSERT_TRUE(third);ASSERT_TRUE(third->process.succeeded());EXPECT_EQ(builds(),2);
+}
+
+#endif
