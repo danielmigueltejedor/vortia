@@ -408,6 +408,7 @@ void MainWindow::buildDocks() {
     propertiesLayout->setContentsMargins(8,8,8,8);
     flowAssessment_=new QLabel(propertiesContainer);flowAssessment_->setObjectName("vortia-flow-assessment");
     flowAssessment_->setWordWrap(true);flowAssessment_->setTextFormat(Qt::RichText);
+    flowAssessment_->setAlignment(Qt::AlignLeft|Qt::AlignTop);
     flowAssessment_->setStyleSheet("QLabel { border: 1px solid palette(mid); border-radius: 12px; padding: 14px; }");
     flowAssessment_->setMinimumWidth(250);flowAssessment_->hide();
     propertiesTabs_=new QTabWidget(propertiesContainer);
