@@ -491,9 +491,6 @@ void MainWindow::buildDocks() {
                     consoleDock->setFloating(false);
                     addDockWidget(Qt::LeftDockWidgetArea, explorerDock);
                     addDockWidget(Qt::RightDockWidgetArea, propsDock);
-    connect(workspaceTabs_,&QTabWidget::currentChanged,this,[this,propsDock](int){
-        if(workspaceTabs_->currentWidget()==sketchEditor_&&!projectSwitchLocked())propsDock->hide();
-    });
                     addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
                     explorerDock->show();
                     propsDock->show();
