@@ -286,7 +286,15 @@ Expected<StepOutcome> CaseRunner::runParallelFlow(const std::filesystem::path& c
             fs::copy(stage/"dynamicCode",pending,fs::copy_options::recursive);
             fs::rename(pending,caseDir/"dynamicCode");
         }
-        auto solved=execute("parallel flow","mpirun",{"-np",std::to_string(processes),"vortiaCentralFoam","-parallel"},stage,callbacks,token);
+        auto mpiEnvironment=environment_;
+        // A desktop can host several independent MPI jobs. Each launcher sees
+        // all cores and otherwise busy-spins as if it owned the whole machine.
+        // Yield only while waiting inside MPI; preserve an explicit user choice.
+        if(std::none_of(mpiEnvironment.begin(),mpiEnvironment.end(),[](const auto& entry) {
+            return entry.first=="OMPI_MCA_mpi_yield_when_idle";
+        })) mpiEnvironment.emplace_back("OMPI_MCA_mpi_yield_when_idle","1");
+        CaseRunner mpi(processes_,std::move(mpiEnvironment));
+        auto solved=mpi.execute("parallel flow","mpirun",{"-np",std::to_string(processes),"vortiaCentralFoam","-parallel"},stage,callbacks,token);
         if(!solved||(!solved->process.succeeded()&&!solved->process.cancelled)) {finishLog();return solved;}
         // A cancelled solver may have completed a checkpoint. Reconstruction
         // gets its own uncancelled invocation; failed/partial writes never
