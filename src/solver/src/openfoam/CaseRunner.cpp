@@ -318,6 +318,17 @@ Expected<StepOutcome> CaseRunner::runParallelFlow(const std::filesystem::path& c
             fs::create_directories(caseDir/"postProcessing");
             fs::copy(stage/"postProcessing",caseDir/"postProcessing"/("parallel_"+stage.filename().string()),fs::copy_options::recursive);
         }
+        if(fs::is_regular_file(stage/"vortia-convergence.json")) {
+            // Publish an assessment only alongside the exact reconstructed checkpoint.
+            std::ifstream f(stage/"vortia-convergence.json");
+            const std::string text((std::istreambuf_iterator<char>(f)),{});
+            const auto assessment=parseConvergenceReport(text);
+            if(assessment && assessment->iteration==latest.first && latest.first>initial.first) {
+                const auto pending=caseDir/".vortia-convergence.json.tmp";
+                fs::copy_file(stage/"vortia-convergence.json",pending,fs::copy_options::overwrite_existing);
+                fs::rename(pending,caseDir/"vortia-convergence.json");
+            }
+        }
         return solved;
     } catch(const std::exception& e) {
         return Error::make(ErrorCode::Internal,std::string("Parallel flow: ")+e.what());

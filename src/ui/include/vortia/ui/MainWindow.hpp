@@ -69,6 +69,7 @@ private:
     void buildMenusAndToolbar();
     void buildDocks();
     void updateNozzleNotice();
+    void showFlowAssessment(const QJsonObject& report);
     void addProjectTab(const QString& name, CaseSetup setup,
                        const std::filesystem::path& root = {},
                        const std::filesystem::path& caseDir = {});
@@ -130,6 +131,8 @@ private:
     QAction* themeAction_{nullptr};
     QComboBox* fieldCombo_{nullptr};
     QLabel* statusLabel_{nullptr};
+    QTabWidget* propertiesTabs_{nullptr};
+    QLabel* flowAssessment_{nullptr};
     QLabel* nozzleNotice_{nullptr};
     QString lastVtmPath_;
     std::unique_ptr<QSettings> settings_;

@@ -46,6 +46,7 @@ Description
 #include "directionInterpolate.H"
 #include "localEulerDdtScheme.H"
 #include "fvcSmooth.H"
+#include "ConvergenceMonitor.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -92,6 +93,8 @@ int main(int argc, char *argv[])
 
     Info<< "\nStarting time loop\n" << endl;
 
+    bool stoppedOnConvergence=false;
+    VortiaConvergenceMonitor convergence(runTime,mesh,p,T,rho,U);
     while (runTime.run())
     {
         #include "readTimeControls.H"
@@ -363,11 +366,20 @@ int main(int argc, char *argv[])
         break;
         }
 
+        if (convergence.check(phi,pStepStart,TStepStart,rhoStepStart,UStepStart,trDeltaT(),c)) {
+            stoppedOnConvergence=true;
+            runTime.writeNow();
+            runTime.printExecutionTime(Info);
+            break;
+        }
         runTime.write();
 
         runTime.printExecutionTime(Info);
     }
 
+    // Retain the actual final state, including an endTime off the output interval.
+    if(convergence.advanced()&&!stoppedOnConvergence)runTime.writeNow();
+    convergence.finish();
     Info<< "End\n" << endl;
 
     return 0;

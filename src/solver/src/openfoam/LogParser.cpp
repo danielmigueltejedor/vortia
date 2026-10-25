@@ -2,6 +2,9 @@
 
 #include <cmath>
 #include <regex>
+#include <nlohmann/json.hpp>
+#include <algorithm>
+#include <array>
 
 namespace vortia::openfoam {
 
@@ -25,6 +28,34 @@ const std::regex kCentralCourant(R"(Courant Numbers: min = [0-9.eE+\-nanif]+, av
 [[nodiscard]] bool isBadNumber(double v) { return std::isnan(v) || std::isinf(v); }
 
 } // namespace
+
+std::optional<ConvergenceSample> parseConvergenceReport(std::string_view text) {
+    try {
+        if(text.size()>8192)return {};
+        const auto j=nlohmann::json::parse(text);
+        if(j.at("schema")!=1)return {};
+        ConvergenceSample s;
+        s.status=j.at("status").get<std::string>();
+        const std::array<std::string_view,7> states{"warming","checking","stabilizing","converged","invalid","limit","interrupted"};
+        if(std::find(states.begin(),states.end(),s.status)==states.end())return {};
+        s.iteration=j.at("iteration").get<double>();s.checkedIteration=j.at("checkedIteration").get<double>();s.sampled=j.at("sampled").get<bool>();
+        s.automatic=j.at("automatic").get<bool>();
+        s.globalMass=j.at("globalMass").get<double>();s.localMass=j.at("localMass").get<double>();
+        s.fieldChange=j.at("fieldChange").get<double>();
+        s.equationError=j.at("equationError").get<double>();s.equationTolerance=j.at("equationTolerance").get<double>();
+        s.massTolerance=j.at("massTolerance").get<double>();s.fieldTolerance=j.at("fieldTolerance").get<double>();
+        s.stableSamples=j.at("stableSamples").get<int>();s.requiredSamples=j.at("requiredSamples").get<int>();
+        s.interval=j.at("interval").get<int>();
+        for(double v:{s.iteration,s.checkedIteration,s.globalMass,s.localMass,s.fieldChange,s.equationError,s.equationTolerance,s.massTolerance,s.fieldTolerance})
+            if(!std::isfinite(v)||v<0)return {};
+        if(s.massTolerance<1e-8||s.massTolerance>.01||s.fieldTolerance<1e-8||s.fieldTolerance>.01||s.equationTolerance<1e-8||s.equationTolerance>1e-3||
+           s.stableSamples<0||s.requiredSamples<2||s.requiredSamples>100||s.interval<1||s.interval>10000)return {};
+        if(s.checkedIteration>s.iteration)return {};
+        if(s.status=="converged"&&(!s.sampled||s.checkedIteration!=s.iteration||s.stableSamples<s.requiredSamples||
+            s.globalMass>s.massTolerance||s.localMass>s.massTolerance||s.fieldChange>s.fieldTolerance||s.equationError>s.equationTolerance))return {};
+        return s;
+    } catch(...) {return {};}
+}
 
 void LogParser::feed(std::string_view chunk) {
     pending_.append(chunk);
@@ -54,6 +85,12 @@ void LogParser::reset() {
 }
 
 void LogParser::processLine(const std::string& line) {
+    constexpr std::string_view marker="VORTIA_CONVERGENCE ";
+    if(line.rfind(marker,0)==0) {
+        if(auto sample=parseConvergenceReport(std::string_view(line).substr(marker.size())))
+            progress_.convergence=std::move(sample);
+        return;
+    }
     if (looksFatal(line)) {
         progress_.diverged = true;
         progress_.divergenceReason = line;

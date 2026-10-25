@@ -40,6 +40,7 @@ public:
 signals:
     void outputReceived(const QString& text);
     void progressUpdated(double time, double courantMax, const QString& residuals);
+    void assessmentUpdated(const QString& report);
     void resultsReady(const QString& vtmPath);
     void jobFinished(bool success, const QString& summary);
 

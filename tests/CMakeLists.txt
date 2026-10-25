@@ -39,7 +39,8 @@ add_executable(test_solver
     unit/test_installation.cpp
     unit/test_detector.cpp
     unit/test_case_writer.cpp
-    unit/test_log_parser.cpp)
+    unit/test_log_parser.cpp
+    unit/test_convergence_policy.cpp)
 target_sources(test_solver PRIVATE unit/test_mass_balance.cpp)
 target_link_libraries(test_solver PRIVATE vortia::solver GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_solver)

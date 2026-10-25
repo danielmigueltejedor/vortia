@@ -3,6 +3,11 @@
 <TS version="2.1" language="es_ES">
 <context>
     <name>vortia::MainWindow</name>
+    <message><source>Calculation did not finish</source><translation>El cálculo no ha terminado</translation></message>
+    <message><source>Normalized update rate</source><translation>Tasa de variación normalizada</translation></message>
+    <message><source>Run assessment</source><translation>Evaluación del cálculo</translation></message>
+    <message><source>Calculating · iteration %1 · numerical checks active</source><translation>Calculando · iteración %1 · comprobaciones numéricas activas</translation></message>
+    <message><source>Automatic stopping is off. Vortia continues to monitor the flow until the safety limit.</source><translation>La parada automática está desactivada. Vortia sigue supervisando el flujo hasta el límite de seguridad.</translation></message>
     <message>
             <source>Vortia — Engineering the Flow</source>
             <translation>Vortia — Engineering the Flow</translation>
@@ -357,6 +362,102 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
       <message><source>Reusing mesh and saved fields: %1. Continuing to iteration %2.
 </source><translation>Se reutilizan la malla y los campos guardados: %1. Se continúa hasta la iteración %2.
 </translation></message>
+    <message>
+            <source>A non-finite or non-positive field was detected. This run cannot be accepted.</source>
+            <translation>Se ha detectado un campo no finito o no positivo. Este cálculo no se puede aceptar.</translation>
+        </message>
+    <message>
+            <source>Automatic checks are active. Acceptance starts after the minimum iteration window.</source>
+            <translation>Las comprobaciones automáticas están activas. La aceptación comienza después del periodo mínimo de iteraciones.</translation>
+        </message>
+    <message>
+            <source>Automatic numerical checks</source>
+            <translation>Comprobaciones numéricas automáticas</translation>
+        </message>
+    <message>
+            <source>Check interval</source>
+            <translation>Intervalo de comprobación</translation>
+        </message>
+    <message>
+            <source>Consecutive checks</source>
+            <translation>Comprobaciones consecutivas</translation>
+        </message>
+    <message>
+            <source>Establishing the initial flow</source>
+            <translation>Estableciendo el flujo inicial</translation>
+        </message>
+    <message>
+            <source>Experimental compressible flow. Vortia monitors numerical convergence automatically. Model suitability and mesh independence require separate validation. Geometry and settings remain editable; regenerating the mesh retains earlier results.</source>
+            <translation>Flujo compresible experimental. Vortia supervisa automáticamente la convergencia numérica. La adecuación del modelo y la independencia de malla requieren validación adicional. Puedes editar la geometría y la configuración; al regenerar la malla se conservan los resultados anteriores.</translation>
+        </message>
+    <message>
+            <source>Flow stabilizing</source>
+            <translation>El flujo se está estabilizando</translation>
+        </message>
+    <message>
+            <source>Flow still evolving</source>
+            <translation>El flujo sigue evolucionando</translation>
+        </message>
+    <message>
+            <source>Global mass balance</source>
+            <translation>Balance global de masa</translation>
+        </message>
+    <message>
+            <source>Invalid numerical state</source>
+            <translation>Estado numérico no válido</translation>
+        </message>
+    <message>
+            <source>Iteration</source>
+            <translation>Iteración</translation>
+        </message>
+    <message>
+            <source>Local mass conservation</source>
+            <translation>Conservación local de masa</translation>
+        </message>
+    <message>
+            <source>Maximum field change</source>
+            <translation>Variación máxima de los campos</translation>
+        </message>
+    <message>
+            <source>NOT CONVERGED: </source>
+            <translation>SIN CONVERGENCIA: </translation>
+        </message>
+    <message>
+            <source>Numerical convergence reached</source>
+            <translation>Convergencia numérica alcanzada</translation>
+        </message>
+    <message>
+            <source>Pass · limit</source>
+            <translation>Correcto · límite</translation>
+        </message>
+    <message>
+            <source>Pending · limit</source>
+            <translation>Pendiente · límite</translation>
+        </message>
+    <message>
+            <source>Results remain provisional. Continue with a higher safety limit, or revise the mesh, boundaries and physical model if progress stalls.</source>
+            <translation>Los resultados siguen siendo provisionales. Continúa con un límite mayor o revisa la malla, las condiciones de contorno y el modelo físico si el avance se estanca.</translation>
+        </message>
+    <message>
+            <source>Run the calculation to obtain an assessment. Previous results without a matching saved assessment remain unassessed.</source>
+            <translation>Ejecuta el cálculo para obtener una evaluación. Los resultados anteriores sin una evaluación guardada correspondiente permanecen sin evaluar.</translation>
+        </message>
+    <message>
+            <source>Safety limit reached · not converged</source>
+            <translation>Límite de seguridad alcanzado · sin convergencia</translation>
+        </message>
+    <message>
+            <source>The flow met all numerical criteria for consecutive checks. The final state was saved.</source>
+            <translation>El flujo ha cumplido todos los criterios numéricos en varias comprobaciones consecutivas. Se ha guardado el estado final.</translation>
+        </message>
+    <message>
+            <source>The latest check passed. Vortia is waiting for consecutive successful checks.</source>
+            <translation>La última comprobación es correcta. Vortia espera varias comprobaciones correctas consecutivas.</translation>
+        </message>
+    <message>
+            <source>Vortia will stop automatically when mass conservation and field stability meet their limits.</source>
+            <translation>Vortia se detendrá automáticamente cuando la conservación de masa y la estabilidad de los campos cumplan los límites.</translation>
+        </message>
 </context>
 <context>
     <name>vortia::PropertiesPanel</name>
@@ -592,6 +693,8 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
         <name>vortia::FlowSetup</name>
+    <message><source>Normalized update rate limit</source><translation>Límite de tasa de variación normalizada</translation></message>
+    <message><source>Safety iteration limit</source><translation>Límite de seguridad de iteraciones</translation></message>
         <message><source>CPU processes (1 = serial)</source><translation>Procesos de CPU (1 = secuencial)</translation></message>
         <message><source>Parallel runs use an isolated working folder and retain recovery files. The latest complete checkpoint is reconstructed into this case. Small meshes may run faster with fewer processes.</source><translation>El cálculo paralelo usa una carpeta de trabajo independiente y conserva archivos de recuperación. El último estado completo se reconstruye en este caso. En mallas pequeñas puede ser más rápido usar menos procesos.</translation></message>
         <message><source>Only a generated flow case can receive the bundled backend.</source><translation>Solo se puede actualizar el motor de un caso de flujo generado por Vortia.</translation></message>
@@ -767,6 +870,66 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>OpenFOAM foamDictionary is required to update calculation controls.</source><translation>Se necesita foamDictionary de OpenFOAM para actualizar los controles de cálculo.</translation></message>
     <message><source>Calculation controls could not be updated; the existing case was preserved.</source><translation>No se pudieron actualizar los controles de cálculo; se ha conservado el caso existente.</translation></message>
     <message><source>The updated calculation dictionary is empty.</source><translation>El archivo de controles de cálculo actualizado está vacío.</translation></message>
+    <message>
+            <source>Absolute mass floor (kg/s)</source>
+            <translation>Umbral absoluto de masa (kg/s)</translation>
+        </message>
+    <message>
+            <source>Advanced convergence criteria</source>
+            <translation>Criterios avanzados de convergencia</translation>
+        </message>
+    <message>
+            <source>Check every N iterations</source>
+            <translation>Comprobar cada N iteraciones</translation>
+        </message>
+    <message>
+            <source>Consecutive successful checks</source>
+            <translation>Comprobaciones correctas consecutivas</translation>
+        </message>
+    <message>
+            <source>Convergence criteria</source>
+            <translation>Criterios de convergencia</translation>
+        </message>
+    <message>
+            <source>Experimental compressible OpenFOAM v2606 backend. Automatic checks assess numerical convergence on this mesh. Model suitability and mesh independence require separate validation.</source>
+            <translation>Motor compresible experimental OpenFOAM v2606. Las comprobaciones automáticas evalúan la convergencia numérica en esta malla. La adecuación del modelo y la independencia de malla requieren validación adicional.</translation>
+        </message>
+    <message>
+            <source>Invalid convergence criteria.</source>
+            <translation>Criterios de convergencia no válidos.</translation>
+        </message>
+    <message>
+            <source>Minimum iterations before acceptance</source>
+            <translation>Iteraciones mínimas antes de aceptar</translation>
+        </message>
+    <message>
+            <source>Relative field change limit</source>
+            <translation>Límite de variación relativa de los campos</translation>
+        </message>
+    <message>
+            <source>Relative mass error limit</source>
+            <translation>Límite de error relativo de masa</translation>
+        </message>
+    <message>
+            <source>Set up your flow</source>
+            <translation>Configura tu flujo</translation>
+        </message>
+    <message>
+            <source>Show advanced criteria</source>
+            <translation>Mostrar criterios avanzados</translation>
+        </message>
+    <message>
+            <source>Stop automatically when the flow stabilizes</source>
+            <translation>Detener automáticamente cuando el flujo se estabilice</translation>
+        </message>
+    <message>
+            <source>The minimum iterations must be at least the check interval.</source>
+            <translation>Las iteraciones mínimas deben ser al menos iguales al intervalo de comprobación.</translation>
+        </message>
+    <message>
+            <source>Vortia checks global and local mass conservation, pressure, temperature, density, velocity and turbulence stability. It saves and stops after consecutive successful checks. Reaching the safety limit is reported as not converged.</source>
+            <translation>Vortia comprueba la conservación de masa global y local, y la estabilidad de presión, temperatura, densidad, velocidad y turbulencia. Guarda y se detiene tras varias comprobaciones correctas seguidas. Si alcanza el límite de seguridad, indica que no ha convergido.</translation>
+        </message>
 </context>
 
 <context>
@@ -782,7 +945,15 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
         </message>
         <message><source>Finished at iteration %1; check convergence.</source><translation>Cálculo finalizado en la iteración %1; comprueba la convergencia.</translation></message>
         <message><source>Finished at t=%1</source><translation>Cálculo finalizado en t=%1</translation></message>
-    </context>
+        <message>
+            <source>Numerical convergence reached at iteration %1. Results saved.</source>
+            <translation>Convergencia numérica alcanzada en la iteración %1. Resultados guardados.</translation>
+        </message>
+    <message>
+            <source>Stopped at iteration %1 without numerical convergence. Results are provisional; continue the calculation or revise the setup.</source>
+            <translation>Cálculo detenido en la iteración %1 sin convergencia numérica. Los resultados son provisionales; continúa el cálculo o revisa la configuración.</translation>
+        </message>
+</context>
 
 <context>
         <name>vortia::LineProfile</name>

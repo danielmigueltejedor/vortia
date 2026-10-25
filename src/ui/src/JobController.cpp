@@ -6,6 +6,8 @@
 
 #include <filesystem>
 #include <chrono>
+#include <QJsonObject>
+#include <QJsonDocument>
 
 #include <QMetaObject>
 
@@ -91,8 +93,25 @@ void JobController::runJob(JobSpec spec) {
                     emit outputReceived(text);
                 }, Qt::QueuedConnection);
             };
+            QString lastAssessment;
+            std::optional<openfoam::ConvergenceSample> lastConvergence;
             callbacks.onProgress = [&](const openfoam::SolverProgress& p) {
                 last = p;
+                if(p.convergence && (!lastConvergence || p.convergence->iteration!=lastConvergence->iteration ||
+                    p.convergence->status!=lastConvergence->status)) {
+                    lastConvergence=p.convergence;
+                    const auto& c=*p.convergence;
+                    const QString report=QString::fromUtf8(QJsonDocument(QJsonObject{
+                        {"status",QString::fromStdString(c.status)},{"iteration",c.iteration},{"checkedIteration",c.checkedIteration},{"sampled",c.sampled},{"automatic",c.automatic},
+                        {"globalMass",c.globalMass},{"localMass",c.localMass},{"fieldChange",c.fieldChange},
+                        {"equationError",c.equationError},{"equationTolerance",c.equationTolerance},{"massTolerance",c.massTolerance},{"fieldTolerance",c.fieldTolerance},
+                        {"stableSamples",c.stableSamples},{"requiredSamples",c.requiredSamples},{"interval",c.interval}
+                    }).toJson(QJsonDocument::Compact));
+                    if(report!=lastAssessment) {
+                        lastAssessment=report;
+                        QMetaObject::invokeMethod(this,[this,report](){emit assessmentUpdated(report);},Qt::QueuedConnection);
+                    }
+                }
                 const auto now=std::chrono::steady_clock::now();
                 if(!p.diverged && now-lastProgress<std::chrono::milliseconds(100))return;
                 lastProgress=now;
@@ -123,7 +142,9 @@ void JobController::runJob(JobSpec spec) {
             } else {
                 double finalT = solverStep->finalTime > 0 ? solverStep->finalTime : last.time;
                 summary = (spec.solverOverride=="vortiaCentralFoam"
-                    ? tr("Finished at iteration %1; check convergence.")
+                    ? (lastConvergence && lastConvergence->status=="converged"
+                        ? tr("Numerical convergence reached at iteration %1. Results saved.")
+                        : tr("Stopped at iteration %1 without numerical convergence. Results are provisional; continue the calculation or revise the setup."))
                     : tr("Finished at t=%1")).arg(finalT, 0, 'g', 6);
                 // Convert results to VTK for visualization (best-effort).
                 ProcessRequest vtkReq;

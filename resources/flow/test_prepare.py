@@ -1,6 +1,6 @@
 import copy
 import unittest
-from prepare import validate, fields
+from prepare import validate, fields, convergence_controls
 from pathlib import Path
 import tempfile
 
@@ -14,6 +14,14 @@ def inputs():
     return sketch,config
 
 class GeneralFlowTest(unittest.TestCase):
+    def test_convergence_controls_default_and_validation(self):
+        self.assertIn('enabled true;',convergence_controls({}))
+        self.assertIn('stableSamples 5;',convergence_controls({}))
+        self.assertIn('enabled false;',convergence_controls({'convergence':{'enabled':False}}))
+        for bad in [{'stableSamples':1},{'fieldTolerance':.5},{'interval':0},{'minimumIterations':2},
+                    {'enabled':'false'},{'massTolerance':float('nan')},{'interval':1.5}]:
+            with self.subTest(bad=bad),self.assertRaises(ValueError):convergence_controls({'convergence':bad})
+
     def test_general_dimensions_and_custom_material_are_accepted(self):
         sketch,cfg=inputs();cfg['material'].update(molecularWeight=24,Cp=1501)
         sketch['vertices'][1][0]=sketch['vertices'][2][0]=731
