@@ -1408,6 +1408,8 @@ Valor: %4</translation></message>
     <message><source>Required samples</source><translation>Muestras necesarias</translation></message>
 </context>
 <context><name>vortia::MeshRegionsWidget</name>
+    <message><source>Technical details</source><translation>Detalles técnicos</translation></message>
+    <message><source>Preview failed. Your cuts and settings were retained. You can edit the cuts and try again; see Technical details for the error.</source><translation>No se ha podido generar la previsualización. Se conservan tus cortes y ajustes. Puedes editar los cortes y volver a intentarlo; el error está en Detalles técnicos.</translation></message>
     <message><source>Close the fluid contour before previewing the mesh.</source><translation>Cierra el contorno fluido antes de previsualizar la malla.</translation></message>
     <message><source>Recover saved region settings</source><translation>Recuperar ajustes de región guardados</translation></message>
     <message><source>Select a detected region before applying saved settings.</source><translation>Selecciona una región detectada antes de aplicar los ajustes guardados.</translation></message>

@@ -1136,6 +1136,19 @@ TEST(MeshRegions, NativePreviewRunsAsynchronouslyAndPersistsRegionsWhenExplicitl
     const auto saved=editFlowSetup(nullptr,loader.sketch(),cfg,0);EXPECT_EQ(saved.value("mesh").toObject().value("regions").toArray().size(),3);EXPECT_EQ(saved.value("mesh").toObject().value("partitions"),cfg.value("mesh").toObject().value("partitions"));EXPECT_EQ(saved.value("boundaries"),normalizedBoundaryNames(cfg.value("boundaries").toArray()));qApp->removeTranslator(&translator);
 }
 
+TEST(MeshRegions, NativeFailureKeepsCutsEditableAndDetailsCollapsed){
+    if(qEnvironmentVariable("VORTIA_GMSH_RUNTIME").isEmpty())GTEST_SKIP()<<"Optional native Gmsh failure and recovery QA";
+    auto shape=boundaryExample();const QJsonArray cuts{QJsonObject{{"from",QJsonArray{100,0}},{"to",QJsonArray{100,10}}}};
+    MeshRegionsWidget widget(shape,QJsonObject{{"sizeMm",2},{"wallSizeMm",1},{"wedgeAngle",5},{"partitions",cuts}});widget.show();
+    bool finished=false,ok=true;QObject::connect(&widget,&MeshRegionsWidget::previewFinished,&widget,[&](bool success){finished=true;ok=success;});
+    const auto wait=[&](){QElapsedTimer timer;timer.start();while(!finished&&timer.elapsed()<30000){QApplication::processEvents();QThread::msleep(1);}EXPECT_TRUE(finished);};
+    widget.requestPreview();wait();EXPECT_FALSE(ok);EXPECT_EQ(widget.meshSettings().value("partitions"),cuts);
+    auto* status=widget.findChild<QLabel*>("mesh-preview-status");auto* details=widget.findChild<QPlainTextEdit*>("mesh-preview-details");auto* toggle=widget.findChild<QToolButton*>("mesh-preview-details-toggle");ASSERT_NE(details,nullptr);ASSERT_NE(toggle,nullptr);EXPECT_LT(status->text().size(),250);EXPECT_FALSE(status->text().contains("Info"));EXPECT_FALSE(details->isVisible());EXPECT_TRUE(toggle->isVisible());toggle->click();EXPECT_TRUE(details->isVisible());EXPECT_TRUE(details->toPlainText().contains("ERROR:"));
+    const auto buttons=widget.findChildren<QToolButton*>();auto edit=std::find_if(buttons.begin(),buttons.end(),[](auto* b){return b->text()=="Edit cut…";});ASSERT_NE(edit,buttons.end());
+    QTimer::singleShot(0,[](){auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(dialog,nullptr);const auto fields=dialog->findChildren<QDoubleSpinBox*>();ASSERT_EQ(fields.size(),4);fields[0]->setValue(20);fields[1]->setValue(0);fields[2]->setValue(20);fields[3]->setValue(5);dialog->accept();});(*edit)->click();
+    finished=ok=false;widget.requestPreview();wait();EXPECT_TRUE(ok)<<status->text().toStdString();EXPECT_FALSE(toggle->isVisible());EXPECT_FALSE(details->isVisible());EXPECT_EQ(widget.findChild<QTableWidget*>("mesh-regions-table")->rowCount(),2);EXPECT_FALSE(widget.findChild<QToolButton*>("mesh-draw-cut")->isChecked());
+}
+
 TEST(MeshRegions, AnOpenSketchCannotStartTheMesher){Sketch2D shape;ASSERT_TRUE(shape.addPoint({0,0}));ASSERT_TRUE(shape.addPoint({10,0}));MeshRegionsWidget widget(shape,QJsonObject{{"sizeMm",10},{"wallSizeMm",1},{"wedgeAngle",5}});widget.requestPreview();EXPECT_FALSE(widget.busy());EXPECT_TRUE(widget.findChild<QLabel*>("mesh-preview-status")->text().contains("Close the fluid contour"));}
 
 TEST(MeshRegions, ProjectSaveAndReopenRetainIndependentZoneControls){

@@ -184,13 +184,21 @@ def build(gmsh, root, sketch, cfg, preview=False):
     angle = math.radians(mesh['wedgeAngle'])
     # Revolve all faces together so shared curves become shared volume faces.
     # Keep CAD coordinates planar until meshing: OCC transforms can renumber edges.
-    extruded = occ.revolve([(2, f) for f in faces], 0, 0, 0, 1, 0, 0, angle, [1], [], True)
+    occ.revolve([(2, f) for f in faces], 0, 0, 0, 1, 0, 0, angle, [1], [], True)
     occ.synchronize()
-    volumes = sorted({tag for dim, tag in extruded if dim == 3})
+    # OCC can omit already-shared swept volumes from the returned dimTags when
+    # several cuts meet at a vertex ("extrusion layer cycle"). The synchronized
+    # model contains the complete topology; this fresh model has no other solids.
+    volumes = sorted(tag for _, tag in gmsh.model.getEntities(3))
+    if len(volumes) != len(faces):
+        raise ValueError('The partition sweep did not create one volume per region')
     physical = {'wedgeFront': faces, 'wedgeBack': []}; top_for = {}; volume_for = {}; internal = set()
     for volume in volumes:
         borders = [tag for _, tag in gmsh.model.getBoundary([(3, volume)], oriented=False)]
-        front = next(f for f in faces if f in borders)
+        fronts = [f for f in faces if f in borders]
+        if len(fronts) != 1 or fronts[0] in volume_for:
+            raise ValueError('The partition sweep has ambiguous region boundaries')
+        front = fronts[0]
         volume_for[front] = volume
         for tag in borders:
             if tag in faces: continue

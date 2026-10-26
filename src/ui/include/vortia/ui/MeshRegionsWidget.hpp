@@ -4,7 +4,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <memory>
-class QTableWidget;class QComboBox;class QLabel;class QProcess;class QTemporaryDir;class QToolButton;
+class QTableWidget;class QComboBox;class QLabel;class QProcess;class QTemporaryDir;class QToolButton;class QPlainTextEdit;
 namespace vortia {
 class MeshPlanView;
 class MeshRegionsWidget final:public QWidget {
@@ -29,7 +29,8 @@ private:
     QTableWidget* table_;
     QComboBox* cutList_;
     QLabel* status_;
-    QToolButton *generate_,*cancel_,*draw_,*restore_;
+    QToolButton *generate_,*cancel_,*draw_,*restore_,*detailsToggle_;
+    QPlainTextEdit* details_;
     QProcess* process_;
     std::unique_ptr<QTemporaryDir> stage_;
     bool updating_=false,cancelled_=false,stale_=true;
