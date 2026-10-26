@@ -57,6 +57,8 @@
 #include <vtkRendererCollection.h>
 #include <vtkRenderWindow.h>
 #include <vtkActorCollection.h>
+#include <vtkCamera.h>
+#include "vortia/ui/FieldTools.hpp"
 
 namespace vortia {
 // Exercise document operations directly without native file-picker automation.
@@ -535,7 +537,12 @@ TEST(Workspace, ResultActorsAndSamplingNeverLeakIntoAnotherProject) {
     MainWindow window;WorkspaceTestAccess::result(window,path);
     EXPECT_NO_THROW(WorkspaceTestAccess::bounds(window));
     ASSERT_EQ(WorkspaceTestAccess::actors(window),1);
-    WorkspaceTestAccess::add(window,"Empty project");
+    auto* selector=window.findChild<QComboBox*>("vortia-field-selector");ASSERT_NE(selector,nullptr);
+    ASSERT_EQ(selector->count(),1);EXPECT_EQ(selector->currentData().toString(),"p");EXPECT_TRUE(selector->isEnabled());
+    auto* section=window.findChild<QAction*>("vortia-plane-section-action");ASSERT_NE(section,nullptr);EXPECT_TRUE(section->isEnabled());
+    for(auto* button:window.findChildren<QToolButton*>("vortia-ribbon-button"))if(button->defaultAction()&&button->defaultAction()->text()==MainWindow::tr("Sections")){EXPECT_TRUE(button->isEnabled());EXPECT_NE(button->menu(),nullptr);}
+    WorkspaceTestAccess::lock(window,true);EXPECT_FALSE(section->isEnabled());WorkspaceTestAccess::lock(window,false);EXPECT_TRUE(section->isEnabled());
+    WorkspaceTestAccess::add(window,"Empty project");EXPECT_EQ(selector->count(),0);EXPECT_FALSE(section->isEnabled());
     EXPECT_EQ(WorkspaceTestAccess::actors(window),1); // Only this project's domain outline.
     EXPECT_THROW(WorkspaceTestAccess::bounds(window),std::runtime_error);
     WorkspaceTestAccess::select(window,0);
@@ -837,13 +844,13 @@ TEST(FlowRunControls, NativeConvergencePipelineWhenExplicitlyRequested) {
 TEST(ApplicationPreferences, RoundTripAndInvalidValuesUseSafeDefaults) {
     QTemporaryDir dir;QSettings settings(dir.filePath("preferences.ini"),QSettings::IniFormat);
     auto p=ApplicationPreferences::load(settings);EXPECT_TRUE(p.snapToGrid);EXPECT_EQ(p.checkpointInterval,500);
-    p.defaultProcesses=3;p.snapSpacing=.25;p.zoomSensitivity=1.7;p.automaticPreview=false;p.density="compact";
+    p.cfdZoomSensitivity=1.8;p.cfdPanSensitivity=.7;p.defaultProcesses=3;p.snapSpacing=.25;p.zoomSensitivity=1.7;p.automaticPreview=false;p.density="compact";
     p.save(settings);auto loaded=ApplicationPreferences::load(settings);
-    EXPECT_EQ(loaded.defaultProcesses,3);EXPECT_DOUBLE_EQ(loaded.snapSpacing,.25);EXPECT_FALSE(loaded.automaticPreview);
+    EXPECT_DOUBLE_EQ(loaded.cfdZoomSensitivity,1.8);EXPECT_DOUBLE_EQ(loaded.cfdPanSensitivity,.7);EXPECT_EQ(loaded.defaultProcesses,3);EXPECT_DOUBLE_EQ(loaded.snapSpacing,.25);EXPECT_FALSE(loaded.automaticPreview);
     EXPECT_EQ(loaded.flowDefaults().value("solver").toObject().value("processes").toInt(),3);
-    settings.setValue("calculation/processes",9000);settings.setValue("sketch/zoomSensitivity",QString("nan"));
+    settings.setValue("viewport/zoomSensitivity",10);settings.setValue("viewport/panSensitivity",QString("nan"));settings.setValue("calculation/processes",9000);settings.setValue("sketch/zoomSensitivity",QString("nan"));
     settings.setValue("sketch/snapSpacing",-1);settings.setValue("ui/density","unknown");
-    loaded=ApplicationPreferences::load(settings);EXPECT_EQ(loaded.defaultProcesses,0);
+    loaded=ApplicationPreferences::load(settings);EXPECT_DOUBLE_EQ(loaded.cfdZoomSensitivity,1);EXPECT_DOUBLE_EQ(loaded.cfdPanSensitivity,1);EXPECT_EQ(loaded.defaultProcesses,0);
     EXPECT_DOUBLE_EQ(loaded.zoomSensitivity,1);EXPECT_DOUBLE_EQ(loaded.snapSpacing,1);EXPECT_EQ(loaded.density,"comfortable");
 }
 TEST(ApplicationPreferences, DialogAppliesOnlyAcceptedValuesAndLocksEngineDuringRun) {
@@ -925,4 +932,62 @@ TEST(FlowParallelism, AutomaticSelectionAvoidsSmallMeshOversubscription) {
     EXPECT_EQ(recommendedFlowProcesses(100000,2),2u);EXPECT_EQ(recommendedFlowProcesses(100000,0),1u);
     const auto defaults=ApplicationPreferences{}.flowDefaults().value("solver").toObject();
     EXPECT_EQ(defaults.value("processes").toInt(-1),0);
+}
+
+TEST(CfdNavigation, PinchPanAndDragModesMoveOnlyTheCamera) {
+    VtkViewport viewport;viewport.resize(800,600);viewport.show();QApplication::processEvents();
+    vtkNew<vtkImageData> grid;grid->SetDimensions(3,3,3);
+    vtkNew<vtkDoubleArray> field;field->SetName("p");field->SetNumberOfTuples(27);field->Fill(42);grid->GetPointData()->AddArray(field);
+    viewport.showDataSet(grid,"p");viewport.setViewXY();
+    auto initial=viewport.copyCamera();const QPointF center(344,300);
+    QNativeGestureEvent pinch(Qt::ZoomNativeGesture,QPointingDevice::primaryPointingDevice(),2,center,center,center,.5,{});
+    QApplication::sendEvent(&viewport,&pinch);auto zoomed=viewport.copyCamera();
+    EXPECT_NEAR(zoomed->GetParallelScale(),initial->GetParallelScale()/1.5,1e-8);
+    QWheelEvent swipe(center,center,QPoint(40,-20),{},Qt::NoButton,Qt::NoModifier,Qt::ScrollUpdate,false,Qt::MouseEventSynthesizedBySystem);
+    QApplication::sendEvent(&viewport,&swipe);auto panned=viewport.copyCamera();
+    EXPECT_DOUBLE_EQ(panned->GetParallelScale(),zoomed->GetParallelScale());
+    EXPECT_NE(panned->GetFocalPoint()[0],zoomed->GetFocalPoint()[0]);
+    for(int i=0;i<3;++i)EXPECT_NEAR(panned->GetDirectionOfProjection()[i],zoomed->GetDirectionOfProjection()[i],1e-10);
+    const auto mouse=[&](QEvent::Type type,QPointF at,Qt::MouseButton button,Qt::MouseButtons buttons,Qt::KeyboardModifiers modifiers=Qt::NoModifier){QMouseEvent event(type,at,at,at,button,buttons,modifiers);QApplication::sendEvent(&viewport,&event);};
+    viewport.setNavigationMode(VtkViewport::NavigationMode::Pan);
+    mouse(QEvent::MouseButtonPress,center,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseMove,center+QPointF(25,10),Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,center+QPointF(25,10),Qt::LeftButton,Qt::NoButton);
+    auto dragged=viewport.copyCamera();EXPECT_NE(dragged->GetFocalPoint()[0],panned->GetFocalPoint()[0]);
+    QEvent focusLost(QEvent::FocusOut);QApplication::sendEvent(&viewport,&focusLost);
+    mouse(QEvent::MouseMove,center+QPointF(100,100),Qt::NoButton,Qt::LeftButton);
+    auto disarmed=viewport.copyCamera();for(int i=0;i<3;++i)EXPECT_DOUBLE_EQ(disarmed->GetPosition()[i],dragged->GetPosition()[i]);
+    viewport.setNavigationMode(VtkViewport::NavigationMode::Zoom);
+    mouse(QEvent::MouseButtonPress,center,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseMove,center+QPointF(0,-20),Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,center,Qt::LeftButton,Qt::NoButton);
+    EXPECT_LT(viewport.copyCamera()->GetParallelScale(),dragged->GetParallelScale());
+    EXPECT_EQ(grid->GetNumberOfPoints(),27);EXPECT_DOUBLE_EQ(field->GetValue(0),42);
+}
+TEST(FieldTools, CancellingSectionRestoresPreviousPlaneAndCamera) {
+    VtkViewport viewport;vtkNew<vtkImageData> grid;grid->SetDimensions(3,3,3);
+    vtkNew<vtkDoubleArray> field;field->SetName("p");field->SetNumberOfTuples(27);field->Fill(42);grid->GetPointData()->AddArray(field);
+    viewport.showDataSet(grid,"p");viewport.setSlicePlane(0,.5);viewport.setViewYZ();auto original=viewport.copyCamera();
+    QTimer::singleShot(0,[&](){auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(dialog,nullptr);
+        auto* axis=dialog->findChild<QComboBox*>("section-axis");ASSERT_NE(axis,nullptr);axis->setCurrentIndex(1);
+        QTimer::singleShot(100,dialog,[&,dialog](){EXPECT_TRUE(viewport.sliceEnabled());EXPECT_EQ(viewport.slicePlaneState().axis,1);dialog->reject();});
+    });
+    showPlaneSection(nullptr,&viewport);auto restored=viewport.copyCamera();
+    EXPECT_TRUE(viewport.sliceEnabled());EXPECT_EQ(viewport.slicePlaneState().axis,0);EXPECT_DOUBLE_EQ(viewport.slicePlaneState().position,.5);
+    for(int i=0;i<3;++i){EXPECT_DOUBLE_EQ(restored->GetPosition()[i],original->GetPosition()[i]);EXPECT_DOUBLE_EQ(restored->GetFocalPoint()[i],original->GetFocalPoint()[i]);}
+    viewport.clearSlicePlane();EXPECT_FALSE(viewport.sliceEnabled());EXPECT_DOUBLE_EQ(viewport.probePoint({.5,.5,.5},"p").value,42);
+}
+
+TEST(Workspace, RibbonMenusExposeTheirCommandsAndFieldPopupContainsOnlyData) {
+    MainWindow window;
+    auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);ribbon->setCurrentIndex(4);
+    QToolButton* files=nullptr;
+    for(auto* button:ribbon->findChildren<QToolButton*>("vortia-ribbon-button")){
+        ASSERT_NE(button->defaultAction(),nullptr);
+        if(button->defaultAction()->text()==MainWindow::tr("Result files"))files=button;
+        if(button->defaultAction()->menu())EXPECT_EQ(button->menu(),button->defaultAction()->menu());
+    }
+    ASSERT_NE(files,nullptr);ASSERT_NE(files->menu(),nullptr);ASSERT_EQ(files->menu()->actions().size(),2);
+    window.show();QApplication::processEvents();
+    bool menuOpened=false;
+    QTimer::singleShot(0,[&](){menuOpened=files->menu()->isVisible();files->menu()->close();});
+    files->showMenu();EXPECT_TRUE(menuOpened);
+    auto* selector=window.findChild<QComboBox*>("vortia-field-selector");ASSERT_NE(selector,nullptr);
+    EXPECT_FALSE(selector->isEnabled());
 }

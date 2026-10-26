@@ -1,5 +1,7 @@
 #include "vortia/ui/FlowSetup.hpp"
 #include "vortia/ui/LineProfile.hpp"
+#include "vortia/ui/FieldTools.hpp"
+#include <QActionGroup>
 #include <QSaveFile>
 #include <QCryptographicHash>
 #include <QJsonDocument>
@@ -195,6 +197,7 @@ void MainWindow::buildMenusAndToolbar() {
     preferences->setMenuRole(QAction::PreferencesRole);
     connect(preferences, &QAction::triggered, this, &MainWindow::onPreferences);
     auto* toolsMenu = menuBar()->addMenu(tr("Tools"));
+    simMenu->removeAction(detectBackend);
     toolsMenu->addAction(preferences);toolsMenu->addAction(detectBackend);
     auto* searchTool=new QAction(tr("Find a tool…"),this);searchTool->setObjectName("vortia-find-tool");
     searchTool->setShortcut(QKeySequence("Ctrl+K"));searchTool->setIcon(QIcon(":/vortia/icons/view.svg"));
@@ -292,6 +295,7 @@ void MainWindow::buildMenusAndToolbar() {
         for (auto* action : actions) {
             auto* button = new QToolButton(group);
             button->setObjectName(QStringLiteral("vortia-ribbon-button"));
+            if(action->menu())button->setMenu(action->menu());
             button->setDefaultAction(action);
             if(action->menu())button->setPopupMode(QToolButton::InstantPopup);
             button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
@@ -353,13 +357,13 @@ void MainWindow::buildMenusAndToolbar() {
     connect(viewLatest,&QAction::triggered,this,&MainWindow::onViewLatestResult);
 
     auto* resultsPage = newPage(tr("Results"));
-    auto* profileAction=new QAction(QIcon(QStringLiteral(":/vortia/icons/view.svg")),tr("Line profile…"),this);
+    auto* profileAction=new QAction(QIcon(QStringLiteral(":/vortia/icons/chart.svg")),tr("Line profile…"),this);
     connect(profileAction,&QAction::triggered,this,[this](){showLineProfile(this,viewport_,fieldCombo_->currentData().toString());});
     auto* edgeAction=new QAction(QIcon(QStringLiteral(":/vortia/icons/mesh.svg")),tr("Show cell edges"),this);
     edgeAction->setIconText(tr("Cell edges"));
     edgeAction->setCheckable(true);
     connect(edgeAction,&QAction::toggled,this,[this](bool enabled){viewport_->showCellEdges(enabled);});
-    addGroup(resultsPage,tr("Inspect"),{profileAction,edgeAction});
+
     auto* fields = new QWidget(this);
     auto* fv = new QVBoxLayout(fields);
     fv->setContentsMargins(0, 0, 0, 0);
@@ -380,10 +384,40 @@ void MainWindow::buildMenusAndToolbar() {
     connect(fieldCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onFieldChanged);
     resultsPage->addWidget(fields);
-    addGroup(resultsPage, tr("Results"), {viewLatest,openResults});
-    auto* cameraMenu=new QMenu(this);cameraMenu->addActions({viewXY,viewXZ,viewYZ,viewIso,viewReset});
-    auto* camera=new QAction(toolIcon("view",QStyle::SP_DesktopIcon),tr("Camera"),this);camera->setMenu(cameraMenu);
-    addGroup(resultsPage,tr("View"),{camera});
+    fieldCombo_->setEnabled(false);
+    auto* resultMenu=menuBar()->addMenu(tr("Results"));resultMenu->setObjectName("vortia-results-menu");
+    fileMenu->removeAction(openResults);resultMenu->addActions({viewLatest,openResults});resultMenu->addSeparator();
+    const auto menuAction=[&](QMenu* menu,const QString& name,const QString& glyph){menu->setTitle(name);menu->setIcon(toolIcon(glyph,QStyle::SP_FileDialogDetailedView));auto* action=menu->menuAction();return action;};
+    auto* dataMenu=new QMenu(this);dataMenu->addActions({viewLatest,openResults});
+    addGroup(resultsPage,tr("Data"),{menuAction(dataMenu,tr("Result files"),"open")});
+    auto* section=new QAction(toolIcon("slice",QStyle::SP_FileDialogDetailedView),tr("Plane section…"),this);section->setObjectName("vortia-plane-section-action");
+    auto* full=new QAction(toolIcon("surface",QStyle::SP_FileDialogDetailedView),tr("Show full domain"),this);full->setObjectName("vortia-show-full-domain");
+    connect(section,&QAction::triggered,this,[this](){showPlaneSection(this,viewport_);});
+    connect(full,&QAction::triggered,this,[this](){viewport_->clearSlicePlane();viewport_->resetCamera();});
+    auto* point=new QAction(toolIcon("probe",QStyle::SP_FileDialogDetailedView),tr("Probe a point…"),this);point->setObjectName("vortia-probe-point-action");
+    connect(point,&QAction::triggered,this,[this](){showPointProbe(this,viewport_,fieldCombo_->currentData().toString());});
+    auto* sectionMenu=new QMenu(this);sectionMenu->addActions({section,full});
+    auto* queryMenu=new QMenu(this);queryMenu->addActions({point,profileAction});
+    auto* sections=menuAction(sectionMenu,tr("Sections"),"slice");auto* queries=menuAction(queryMenu,tr("Sample"),"probe");
+    fieldActions_={profileAction,point,section,full,sections,queries};
+    for(auto* action:fieldActions_)action->setEnabled(false);
+    addGroup(resultsPage,tr("Analyze"),{sections,queries});resultMenu->addMenu(sectionMenu);resultMenu->addMenu(queryMenu);
+    auto* displayMenu=new QMenu(this);auto* representation=new QActionGroup(this);
+    auto* surface=displayMenu->addAction(toolIcon("surface",QStyle::SP_FileIcon),tr("Surface"));surface->setCheckable(true);surface->setChecked(true);representation->addAction(surface);
+    auto* wire=displayMenu->addAction(toolIcon("wireframe",QStyle::SP_FileIcon),tr("Wireframe"));wire->setCheckable(true);representation->addAction(wire);
+    displayMenu->addSeparator();displayMenu->addAction(edgeAction);
+    connect(surface,&QAction::triggered,this,[this](){viewport_->setWireframe(false);});connect(wire,&QAction::triggered,this,[this](){viewport_->setWireframe(true);});
+    auto* cameraMenu=new QMenu(this);cameraMenu->setTitle(tr("Camera"));cameraMenu->setIcon(toolIcon("camera",QStyle::SP_DesktopIcon));
+    viewReset->setIcon(toolIcon("fit",QStyle::SP_DialogResetButton));cameraMenu->addActions({viewReset,viewXY,viewXZ,viewYZ,viewIso});cameraMenu->addSeparator();
+    auto* parallel=cameraMenu->addAction(tr("Parallel projection"));parallel->setCheckable(true);
+    connect(parallel,&QAction::triggered,this,[this](bool checked){viewport_->setParallelProjection(checked);});
+    connect(cameraMenu,&QMenu::aboutToShow,this,[this,parallel](){parallel->setChecked(viewport_->parallelProjection());});
+    auto* navigation=cameraMenu->addMenu(tr("Mouse navigation"));auto* navigationModes=new QActionGroup(this);
+    const std::array<std::tuple<QString,QString,VtkViewport::NavigationMode>,3> modes{{{tr("Orbit"),"orbit",VtkViewport::NavigationMode::Orbit},{tr("Pan"),"pan",VtkViewport::NavigationMode::Pan},{tr("Zoom"),"zoom",VtkViewport::NavigationMode::Zoom}}};
+    for(const auto& [label,glyph,mode]:modes){auto* action=navigation->addAction(toolIcon(glyph,QStyle::SP_ArrowUp),label);action->setCheckable(true);action->setChecked(mode==VtkViewport::NavigationMode::Orbit);navigationModes->addAction(action);connect(action,&QAction::triggered,this,[this,mode](){viewport_->setNavigationMode(mode);});}
+    addGroup(resultsPage,tr("View"),{menuAction(displayMenu,tr("Display"),"surface"),cameraMenu->menuAction()});viewMenu->addMenu(cameraMenu);viewMenu->addMenu(displayMenu);
+    auto* image=new QAction(toolIcon("export-image",QStyle::SP_DialogSaveButton),tr("Export view PNG…"),this);image->setIconText(tr("Save image"));image->setObjectName("vortia-export-view-image");
+    connect(image,&QAction::triggered,this,[this](){exportViewportImage(this,viewport_);});addGroup(resultsPage,tr("Export"),{image});resultMenu->addAction(image);
 
     toolbar->addWidget(tabs);
     statusLabel_ = new QLabel(this);
@@ -417,6 +451,7 @@ void MainWindow::buildDocks() {
     workspaceTabs_->setDocumentMode(true);
     workspaceTabs_->setObjectName(QStringLiteral("vortia-editor-tabs"));
     viewport_ = new VtkViewport(workspaceTabs_);
+    connect(viewport_,&VtkViewport::fieldDataChanged,this,[this](){refreshFieldTools();});
     workspaceTabs_->addTab(viewport_, tr("3D CFD"));
     sketchEditor_ = new SketchEditorDialog(workspaceTabs_);
     sketchEditor_->setWindowFlags(Qt::Widget);sketchEditor_->setEmbedded(true);
@@ -437,7 +472,8 @@ void MainWindow::buildDocks() {
     connect(projectTabs_, &QTabBar::tabCloseRequested,
             this, &MainWindow::closeProjectTab);
 
-    auto* explorerDock = new QDockWidget(tr("Project Explorer"), this);
+    auto* explorerDock = new QDockWidget(tr("Project"), this);
+    explorerDock->setAccessibleName(tr("Project Explorer"));
     explorerDock->setObjectName(QStringLiteral("vortia-dock-project"));
     explorerDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     explorer_ = new ProjectExplorerPanel(this);
@@ -1396,6 +1432,7 @@ void MainWindow::setJobUiRunning(bool running) {
     }
     runAction_->setEnabled(!running);
     cancelAction_->setEnabled(running);
+    for(auto* action:fieldActions_)action->setEnabled(!running&&!viewport_->availableFields().empty());
     projectTabs_->setEnabled(!running);
     newProjectAction_->setEnabled(!running);
     openProjectAction_->setEnabled(!running);
@@ -1408,6 +1445,7 @@ void MainWindow::onResultsReady(const QString& vtmPath) {
         storeCurrentTab();
         viewport_->loadVtmFile(vtmPath.toStdString(), fieldCombo_->currentData().toString().toStdString());
         workspaceTabs_->setCurrentWidget(viewport_);
+        if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(4);
         if(preferences_.showAssessmentOnRun&&propertiesTabs_->isTabVisible(1))
             if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->show();
         console_->appendSolverOutput(tr("Loaded results: %1\n").arg(vtmPath));
@@ -1458,6 +1496,16 @@ void MainWindow::onOpenResults() {
     if (!path.isEmpty()) onResultsReady(path);
 }
 
+void MainWindow::refreshFieldTools() {
+    const auto available=viewport_->availableFields();const auto selected=fieldCombo_->currentData().toString();
+    QSignalBlocker block(fieldCombo_);fieldCombo_->clear();
+    for(const auto* preferred:{"p","T","rho","|U|","Ux","Uy","Uz","Mach","nut","nuTilda","yPlus"})
+        if(std::find(available.begin(),available.end(),preferred)!=available.end())fieldCombo_->addItem(fieldDisplayName(preferred),preferred);
+    for(const auto& name:available)if(fieldCombo_->findData(QString::fromStdString(name))<0)fieldCombo_->addItem(fieldDisplayName(QString::fromStdString(name)),QString::fromStdString(name));
+    const int index=fieldCombo_->findData(selected);fieldCombo_->setCurrentIndex(index>=0?index:0);fieldCombo_->setEnabled(!available.empty());
+    for(auto* action:fieldActions_)action->setEnabled(!available.empty()&&!projectSwitchLocked());
+    if(!available.empty())viewport_->setColorField(fieldCombo_->currentData().toString().toStdString());
+}
 void MainWindow::onFieldChanged(int /*index*/) {
     if (lastVtmPath_.isEmpty())
         return;
@@ -1514,6 +1562,7 @@ void MainWindow::applyPreferences() {
         button->setIconSize(QSize(compact?22:28,compact?22:28));button->setMinimumSize(compact?QSize(74,52):QSize(78,69));
     }
     console_->setMaximumBlockCount(preferences_.consoleLines);
+    viewport_->setNavigationPreferences(preferences_.cfdZoomSensitivity,preferences_.cfdPanSensitivity);
     sketchEditor_->setInteractionPreferences(preferences_.snapToGrid,preferences_.snapSpacing,
         preferences_.showGrid,preferences_.showDimensions,preferences_.zoomSensitivity);
 }

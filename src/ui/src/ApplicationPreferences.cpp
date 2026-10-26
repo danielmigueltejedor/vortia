@@ -48,6 +48,8 @@ ApplicationPreferences ApplicationPreferences::load(QSettings& s) {
     p.checkpointInterval=std::min(p.checkpointInterval,p.iterationLimit);
     p.consoleLines=integer(s,"console/lines",10000,1000,100000);
     p.zoomSensitivity=number(s,"sketch/zoomSensitivity",1,.25,3);
+    p.cfdZoomSensitivity=number(s,"viewport/zoomSensitivity",1,.25,3);
+    p.cfdPanSensitivity=number(s,"viewport/panSensitivity",1,.25,3);
     p.snapSpacing=number(s,"sketch/snapSpacing",1,.001,1000);
     p.snapToGrid=s.value("sketch/snap",true).toBool();p.showGrid=s.value("sketch/showGrid",true).toBool();
     p.showDimensions=s.value("sketch/showDimensions",true).toBool();p.rememberLayout=s.value("window/rememberLayout",true).toBool();
@@ -62,6 +64,7 @@ void ApplicationPreferences::save(QSettings& s) const {
     s.setValue("calculation/processes",defaultProcesses);s.setValue("calculation/checkpointInterval",checkpointInterval);
     s.setValue("calculation/iterationLimit",iterationLimit);s.setValue("console/lines",consoleLines);
     s.setValue("sketch/zoomSensitivity",zoomSensitivity);s.setValue("sketch/snapSpacing",snapSpacing);
+    s.setValue("viewport/zoomSensitivity",cfdZoomSensitivity);s.setValue("viewport/panSensitivity",cfdPanSensitivity);
     s.setValue("sketch/snap",snapToGrid);s.setValue("sketch/showGrid",showGrid);s.setValue("sketch/showDimensions",showDimensions);
     s.setValue("window/rememberLayout",rememberLayout);s.setValue("calculation/showConsole",showConsoleOnRun);
     s.setValue("calculation/showAssessment",showAssessmentOnRun);s.setValue("results/automaticPreview",automaticPreview);
@@ -101,6 +104,8 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     auto* snap=check(sketch,"snap","Snap drawing and dragging to grid",previous.snapToGrid);
     auto* spacing=real(sketch,"snap-spacing","Snap spacing (mm)",previous.snapSpacing,.001,1000);
     auto* zoom=real(sketch,"zoom","Zoom sensitivity",previous.zoomSensitivity,.25,3);
+    auto* cfdZoom=real(sketch,"cfd-zoom","CFD zoom sensitivity",previous.cfdZoomSensitivity,.25,3);
+    auto* cfdPan=real(sketch,"cfd-pan","CFD pan sensitivity",previous.cfdPanSensitivity,.25,3);
     info(sketch,"These options change interaction and display. They do not alter saved geometry or numerical units.");
     auto* calculation=page("Calculation and results","solver","Calculation");
     auto* cpu=spin(calculation,"processes","Default CPU processes",previous.defaultProcesses,0,8);cpu->setSpecialValueText(tr("Automatic"));
@@ -134,6 +139,7 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     if(dialog.exec()!=QDialog::Accepted)return {};
     auto p=previous;p.language=language->currentData().toString();p.theme=theme->currentData().toString();p.density=density->currentData().toString();p.interfaceScale=scale->value();
     p.rememberLayout=remember->isChecked();p.showGrid=grid->isChecked();p.showDimensions=dimensions->isChecked();p.snapToGrid=snap->isChecked();p.snapSpacing=spacing->value();p.zoomSensitivity=zoom->value();
+    p.cfdZoomSensitivity=cfdZoom->value();p.cfdPanSensitivity=cfdPan->value();
     p.defaultProcesses=cpu->value();p.iterationLimit=limit->value();p.checkpointInterval=interval->value();p.consoleLines=lines->value();p.automaticPreview=preview->isChecked();p.showAssessmentOnRun=assessment->isChecked();p.showConsoleOnRun=console->isChecked();
     p.caseStorage=cases->text().trimmed();p.backendRoot=backend->text().trimmed();return p;
 }

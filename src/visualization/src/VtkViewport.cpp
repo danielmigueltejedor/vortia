@@ -21,6 +21,7 @@
 #include <vtkCellData.h>
 #include <vtkDataArray.h>
 #include <vtkFloatArray.h>
+#include <vtkDoubleArray.h>
 #include <vtkPointData.h>
 #include <vtkPoints.h>
 #include <vtkScalarBarActor.h>
@@ -42,6 +43,8 @@
 #include <QMouseEvent>
 #include <QEvent>
 #include <QWheelEvent>
+#include <QNativeGestureEvent>
+#include <QKeyEvent>
 #include <numbers>
 #include <QEvent>
 
@@ -104,18 +107,23 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     auto renderWindow = vtkSmartPointer<vtkGenericOpenGLRenderWindow>::New();
     setRenderWindow(renderWindow);
     setEnableTouchEventProcessing(false); // Avoid duplicate synthesized touch events.
+    // The VTK base registers recognizers that consume macOS native gestures
+    // before QWidget::event. Qt owns navigation, including pinch and pan.
+    ungrabGesture(Qt::PinchGesture);
+    ungrabGesture(Qt::PanGesture);
+    ungrabGesture(Qt::SwipeGesture);
 
     // Main scene renderer.
     renderer_ = vtkSmartPointer<vtkRenderer>::New();
     renderer_->SetBackground(0.13, 0.14, 0.16);
     // Reserve the right side for the scientific legend; never overlap CFD geometry.
-    renderer_->SetViewport(0.0, 0.0, 0.82, 1.0);
+    renderer_->SetViewport(0.0, 0.0, 0.86, 1.0);
     renderWindow->AddRenderer(renderer_);
 
     // The legend lives in its own non-interactive renderer. This avoids stale
     // OpenGL text/color-bar fragments when Qt+VTK switches arrays repeatedly.
     legendRenderer_ = vtkSmartPointer<vtkRenderer>::New();
-    legendRenderer_->SetViewport(0.82, 0.18, 1.0, 1.0);
+    legendRenderer_->SetViewport(0.86, 0.18, 1.0, 1.0);
     legendRenderer_->SetBackground(0.13, 0.14, 0.16);
     legendRenderer_->InteractiveOff();
     renderWindow->AddRenderer(legendRenderer_);
@@ -130,10 +138,15 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     scalarBar_->SetHeight(0.48);
     scalarBar_->SetMaximumWidthInPixels(140);
     scalarBar_->SetMaximumHeightInPixels(320);
-    scalarBar_->SetUnconstrainedFontSize(false);
+    scalarBar_->SetUnconstrainedFontSize(true);
+    scalarBar_->SetLabelFormat("%.4g");
     scalarBar_->GetTitleTextProperty()->SetFontSize(12);
+    scalarBar_->GetTitleTextProperty()->ItalicOff();
+    scalarBar_->GetTitleTextProperty()->ShadowOff();
     scalarBar_->GetTitleTextProperty()->BoldOff();
     scalarBar_->GetLabelTextProperty()->SetFontSize(10);
+    scalarBar_->GetLabelTextProperty()->ItalicOff();
+    scalarBar_->GetLabelTextProperty()->ShadowOff();
     scalarBar_->GetLabelTextProperty()->BoldOff();
     scalarBar_->SetVisibility(false);
     legendRenderer_->AddViewProp(scalarBar_);
@@ -143,7 +156,7 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     // axes never steal mouse events and never spin on hover.
     cornerRenderer_ = vtkSmartPointer<vtkRenderer>::New();
     cornerRenderer_->SetBackground(0.13, 0.14, 0.16);
-    cornerRenderer_->SetViewport(0.82, 0.0, 1.0, 0.18);
+    cornerRenderer_->SetViewport(0.86, 0.0, 1.0, 0.18);
     cornerRenderer_->InteractiveOff();
     auto cornerCamera = vtkSmartPointer<vtkCamera>::New();
     cornerCamera->SetPosition(1.5, 1.5, 1.5);
@@ -176,6 +189,7 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     }
 
     setFocusPolicy(Qt::StrongFocus);
+    setToolTip(tr("Pinch to zoom · two fingers to pan · drag to orbit · Shift/Space + drag to pan · F to fit"));
     setMinimumSize(320, 240);
 }
 
@@ -206,6 +220,7 @@ void VtkViewport::leaveEvent(QEvent* event) {
 }
 
 void VtkViewport::mousePressEvent(QMouseEvent* event) {
+    setFocus(Qt::MouseFocusReason);
     const auto button = event->button();
     if (button == Qt::LeftButton || button == Qt::MiddleButton || button == Qt::RightButton) {
         intentionalPointerDrag_ = true;
@@ -231,63 +246,71 @@ void VtkViewport::mouseMoveEvent(QMouseEvent* event) {
 
     const QPointF delta = event->position() - previousPointerPosition_;
     previousPointerPosition_ = event->position();
-    auto* camera = renderer_->GetActiveCamera();
-    if (camera && !delta.isNull()) {
-        if (draggedButton_ == Qt::LeftButton) {
-            // Only an explicit left-button drag can orbit.
-            const double degreesPerPixel = 180.0 / std::max(1, height());
-            camera->Azimuth(-delta.x() * degreesPerPixel);
-            camera->Elevation(delta.y() * degreesPerPixel);
-            camera->OrthogonalizeViewUp();
-        } else {
-            double direction[3], viewUp[3], right[3], up[3];
-            camera->GetDirectionOfProjection(direction);
-            camera->GetViewUp(viewUp);
-            vtkMath::Cross(direction, viewUp, right);
-            if (vtkMath::Normalize(right) > 1e-12) {
-                vtkMath::Cross(right, direction, up);
-                vtkMath::Normalize(up);
-                const double worldHeight = camera->GetParallelProjection()
-                    ? 2.0 * camera->GetParallelScale()
-                    : 2.0 * camera->GetDistance() *
-                          std::tan(camera->GetViewAngle() * std::numbers::pi / 360.0);
-                const double step = worldHeight / std::max(1, height());
-                double position[3], focal[3];
-                camera->GetPosition(position);
-                camera->GetFocalPoint(focal);
-                for (int i = 0; i < 3; ++i) {
-                    const double shift = (-delta.x() * right[i] + delta.y() * up[i]) * step;
-                    position[i] += shift;
-                    focal[i] += shift;
-                }
-                camera->SetPosition(position);
-                camera->SetFocalPoint(focal);
-            }
-        }
-        renderer_->ResetCameraClippingRange();
-        update();
+    if (!delta.isNull()) {
+        const bool pan=draggedButton_!=Qt::LeftButton || spaceDown_
+            || (event->modifiers()&Qt::ShiftModifier) || navigationMode_==NavigationMode::Pan;
+        if(pan)panCamera(delta);
+        else if(navigationMode_==NavigationMode::Zoom)zoomCamera(std::exp(-delta.y()*.012),previousPointerPosition_);
+        else orbitCamera(delta);
     }
     event->accept();
 }
 
+void VtkViewport::finishCameraChange() {
+    renderer_->ResetCameraClippingRange();update();
+}
+void VtkViewport::panCamera(QPointF pixels) {
+    if(!std::isfinite(pixels.x())||!std::isfinite(pixels.y()))return;
+    auto* camera=renderer_->GetActiveCamera();if(!camera)return;
+    double direction[3],viewUp[3],right[3],up[3];camera->GetDirectionOfProjection(direction);camera->GetViewUp(viewUp);
+    vtkMath::Cross(direction,viewUp,right);if(vtkMath::Normalize(right)<=1e-12)return;
+    vtkMath::Cross(right,direction,up);vtkMath::Normalize(up);
+    const double heightWorld=camera->GetParallelProjection()?2*camera->GetParallelScale()
+        :2*camera->GetDistance()*std::tan(camera->GetViewAngle()*std::numbers::pi/360);
+    double position[3],focal[3];camera->GetPosition(position);camera->GetFocalPoint(focal);
+    const double step=heightWorld/std::max(1,height());
+    for(int i=0;i<3;++i){const double shift=(-pixels.x()*right[i]+pixels.y()*up[i])*step;position[i]+=shift;focal[i]+=shift;}
+    camera->SetPosition(position);camera->SetFocalPoint(focal);finishCameraChange();
+}
+void VtkViewport::orbitCamera(QPointF pixels) {
+    if(!std::isfinite(pixels.x())||!std::isfinite(pixels.y()))return;
+    if(auto* camera=renderer_->GetActiveCamera()) {
+        const double step=180.0/std::max(1,height());camera->Azimuth(-pixels.x()*step);camera->Elevation(pixels.y()*step);
+        camera->OrthogonalizeViewUp();finishCameraChange();
+    }
+}
+void VtkViewport::zoomCamera(double factor,QPointF anchor) {
+    if(!std::isfinite(factor)||factor<=0)return;factor=std::clamp(factor,.2,5.0);
+    factor=std::clamp(std::pow(factor,zoomSensitivity_),.2,5.0);
+    auto* camera=renderer_->GetActiveCamera();if(!camera)return;
+    if(camera->GetParallelProjection())camera->SetParallelScale(std::clamp(camera->GetParallelScale()/factor,1e-10,1e12));
+    else camera->Dolly(factor);
+    const auto* viewport=renderer_->GetViewport();
+    const QPointF center((viewport[0]+viewport[2])*width()/2.0,(2-viewport[1]-viewport[3])*height()/2.0);
+    if(anchor.x()>=viewport[0]*width()&&anchor.x()<=viewport[2]*width())panCamera(-(anchor-center)*(factor-1));
+    finishCameraChange();
+}
+void VtkViewport::setNavigationPreferences(double zoom,double pan) {zoomSensitivity_=std::isfinite(zoom)?std::clamp(zoom,.25,3.0):1;panSensitivity_=std::isfinite(pan)?std::clamp(pan,.25,3.0):1;}
+void VtkViewport::setNavigationMode(NavigationMode mode) {cancelPointerDrag();navigationMode_=mode;}
 void VtkViewport::wheelEvent(QWheelEvent* event) {
-    const bool precisionScroll = !event->pixelDelta().isNull();
-    const auto mods = event->modifiers();
-    if (!precisionScroll || (mods & (Qt::ControlModifier | Qt::MetaModifier))) {
-        const double steps = precisionScroll
-            ? event->pixelDelta().y() / 100.0
-            : event->angleDelta().y() / 120.0;
-        if (auto* camera = renderer_->GetActiveCamera()) {
-            const double factor = std::pow(1.14, std::clamp(steps, -6.0, 6.0));
-            if (camera->GetParallelProjection())
-                camera->SetParallelScale(std::max(1e-9, camera->GetParallelScale() / factor));
-            else
-                camera->Dolly(factor);
-            renderer_->ResetCameraClippingRange();
-            update();
-        }
+    if(!event->pixelDelta().isNull() && !(event->modifiers()&(Qt::ControlModifier|Qt::MetaModifier))) {
+        if(event->modifiers()&Qt::AltModifier)orbitCamera(event->pixelDelta());
+        else panCamera(event->pixelDelta()*panSensitivity_);
+    } else {
+        const double steps=!event->pixelDelta().isNull()?event->pixelDelta().y()/100.0:event->angleDelta().y()/120.0;
+        zoomCamera(std::pow(1.14,std::clamp(steps,-6.0,6.0)),event->position());
     }
     event->accept();
+}
+void VtkViewport::keyPressEvent(QKeyEvent* event) {
+    if(event->key()==Qt::Key_Space){spaceDown_=true;setCursor(Qt::OpenHandCursor);event->accept();return;}
+    if(event->key()==Qt::Key_F){resetCamera();event->accept();return;}
+    if(event->key()==Qt::Key_Escape){cancelPointerDrag();event->accept();return;}
+    QVTKOpenGLNativeWidget::keyPressEvent(event);
+}
+void VtkViewport::keyReleaseEvent(QKeyEvent* event) {
+    if(event->key()==Qt::Key_Space&&!event->isAutoRepeat()){spaceDown_=false;unsetCursor();event->accept();return;}
+    QVTKOpenGLNativeWidget::keyReleaseEvent(event);
 }
 
 bool VtkViewport::event(QEvent* event) {
@@ -295,8 +318,9 @@ bool VtkViewport::event(QEvent* event) {
     // calling our mouseMoveEvent override. Intercept BEFORE the adapter so
     // bare hover can never reach VTK's native trackball event pipeline.
     switch (event->type()) {
-    case QEvent::MouseButtonPress:
     case QEvent::MouseButtonDblClick:
+        cancelPointerDrag();resetCamera();event->accept();return true;
+    case QEvent::MouseButtonPress:
         mousePressEvent(static_cast<QMouseEvent*>(event));
         return true;
     case QEvent::MouseButtonRelease:
@@ -308,7 +332,17 @@ bool VtkViewport::event(QEvent* event) {
     case QEvent::Wheel:
         wheelEvent(static_cast<QWheelEvent*>(event));
         return true;
-    case QEvent::NativeGesture:
+    case QEvent::NativeGesture: {
+        auto* gesture=static_cast<QNativeGestureEvent*>(event);
+        if(gesture->gestureType()==Qt::ZoomNativeGesture)zoomCamera(1+gesture->value(),gesture->position());
+        else if(gesture->gestureType()==Qt::PanNativeGesture)panCamera(gesture->delta()*panSensitivity_);
+        else if(gesture->gestureType()==Qt::RotateNativeGesture) {
+            renderer_->GetActiveCamera()->Roll(gesture->value());finishCameraChange();
+        }
+        event->accept();return true;
+    }
+    case QEvent::KeyPress:keyPressEvent(static_cast<QKeyEvent*>(event));return true;
+    case QEvent::KeyRelease:keyReleaseEvent(static_cast<QKeyEvent*>(event));return true;
     case QEvent::TouchBegin:
     case QEvent::TouchUpdate:
     case QEvent::TouchEnd:
@@ -318,7 +352,7 @@ bool VtkViewport::event(QEvent* event) {
     case QEvent::WindowDeactivate:
     case QEvent::Hide:
     case QEvent::Leave:
-        cancelPointerDrag();
+        spaceDown_=false;cancelPointerDrag();
         break;
     default:
         break;
@@ -351,6 +385,8 @@ void VtkViewport::syncCornerCamera() {
 
 void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
     currentData_ = nullptr;
+    sliceData_=nullptr;sliceEnabled_=false;
+    emit fieldDataChanged();
     loadedFile_.clear();
     if (scalarBar_) scalarBar_->SetVisibility(false);
     if (geometryActor_) {
@@ -364,6 +400,7 @@ void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
         geometryActor_ = vtkSmartPointer<vtkActor>::New();
         geometryActor_->SetMapper(mapper);
     geometryActor_->GetProperty()->SetEdgeVisibility(edgesVisible_);
+    if(wireframe_)geometryActor_->GetProperty()->SetRepresentationToWireframe();
         geometryActor_->GetProperty()->SetColor(0.62, 0.78, 0.9);
         renderer_->AddActor(geometryActor_);
     }
@@ -372,6 +409,8 @@ void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
 
 void VtkViewport::showBoxDomain(const BoxDomain* box) {
     currentData_ = nullptr;
+    sliceData_=nullptr;sliceEnabled_=false;
+    emit fieldDataChanged();
     loadedFile_.clear();
     if (scalarBar_) scalarBar_->SetVisibility(false);
     if (domainActor_) {
@@ -407,23 +446,27 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
     auto* asData = vtkDataObject::SafeDownCast(data);
     if (asData == nullptr)
         return;
+    const bool newData=asData!=currentData_.GetPointer();
+    if(newData){sliceEnabled_=false;sliceData_=nullptr;}
     currentData_ = asData;
+    auto* displayData=sliceEnabled_?sliceData_.GetPointer():asData;
     currentField_ = scalarField;
     if (scalarBar_) scalarBar_->SetVisibility(false);
 
-    std::vector<vtkUnstructuredGrid*> grids;
-    if (auto* mb = vtkMultiBlockDataSet::SafeDownCast(asData)) {
+    std::vector<vtkDataSet*> grids;
+    if (auto* mb = vtkMultiBlockDataSet::SafeDownCast(displayData)) {
         auto* it = mb->NewIterator();
         for (it->InitTraversal(); !it->IsDoneWithTraversal(); it->GoToNextItem()) {
             if (auto* g = vtkUnstructuredGrid::SafeDownCast(it->GetCurrentDataObject()))
                 grids.push_back(g);
         }
         it->Delete();
-    } else if (auto* g = vtkUnstructuredGrid::SafeDownCast(asData)) {
+    } else if (auto* g = vtkDataSet::SafeDownCast(displayData)) {
         grids.push_back(g);
     }
 
     if (grids.empty()) {
+        if(newData)emit fieldDataChanged();
         resetCamera();
         return;
     }
@@ -545,6 +588,9 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
         mapper->ScalarVisibilityOn();
         double rng[2];
         scalars->GetRange(rng);  // Range of the SELECTED field, not a stale active array.
+        const bool uniform=std::abs(rng[1]-rng[0])<=std::max(1e-12,std::max(std::abs(rng[0]),std::abs(rng[1]))*1e-6);
+        scalarBar_->SetUseCustomLabels(uniform);
+        if(uniform){vtkNew<vtkDoubleArray> labels;labels->InsertNextValue((rng[0]+rng[1])/2);scalarBar_->SetCustomLabels(labels);}
         if (rng[0] == rng[1]) {
             const double padding = std::max(1e-9, std::abs(rng[0]) * 1e-6);
             rng[0] -= padding;
@@ -559,7 +605,9 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
         scalarBar_->SetLookupTable(palette);
         const char* label = (lookupName == "Umag") ? "|U| (m/s)" :
                             (scalars->GetName() ? scalars->GetName() : "Field");
-        scalarBar_->SetTitle(label);
+        const QString title=lookupName=="p"?tr("Pressure (Pa)"):lookupName=="T"?tr("Temperature (K)")
+            :lookupName=="rho"?tr("Density (kg/m³)"):QString::fromUtf8(label);
+        const auto titleBytes=title.toUtf8();scalarBar_->SetTitle(titleBytes.constData());
         scalarBar_->SetVisibility(true);
     } else {
         // An unavailable field should never show a stale legend.
@@ -569,6 +617,7 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
     geometryActor_ = vtkSmartPointer<vtkActor>::New();
     geometryActor_->SetMapper(mapper);
     geometryActor_->GetProperty()->SetEdgeVisibility(edgesVisible_);
+    if(wireframe_)geometryActor_->GetProperty()->SetRepresentationToWireframe();
     renderer_->AddActor(geometryActor_);
     if (resetViewOnNextData_) {
         // Thin extruded 2D cases are best presented face-on, not at an
@@ -593,6 +642,7 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
     } else if (auto* window = renderWindow()) {
         window->Render();
     }
+    if(newData)emit fieldDataChanged();
 }
 
 void VtkViewport::loadVtmFile(const std::string& path, const std::string& scalarField) {
@@ -604,6 +654,7 @@ void VtkViewport::loadVtmFile(const std::string& path, const std::string& scalar
         reader->Update();
         if (reader->GetOutput() != nullptr) {
             resetViewOnNextData_ = (path != loadedFile_);
+            if(resetViewOnNextData_){sliceEnabled_=false;sliceData_=nullptr;}
             showDataSet(reader->GetOutput(), scalarField);
             loadedFile_ = path;
         }
@@ -621,6 +672,34 @@ void VtkViewport::showCellEdges(bool enabled) {
     }
 }
 
+void VtkViewport::setWireframe(bool enabled) {
+    wireframe_=enabled;
+    if(geometryActor_){if(enabled)geometryActor_->GetProperty()->SetRepresentationToWireframe();else geometryActor_->GetProperty()->SetRepresentationToSurface();}
+    update();
+}
+bool VtkViewport::parallelProjection() const {return renderer_->GetActiveCamera()->GetParallelProjection();}
+void VtkViewport::setParallelProjection(bool enabled) {
+    auto* camera=renderer_->GetActiveCamera();if(parallelProjection()==enabled)return;
+    const double tangent=std::tan(camera->GetViewAngle()*std::numbers::pi/360);
+    if(enabled)camera->SetParallelScale(camera->GetDistance()*tangent);
+    else {double focal[3],direction[3],position[3];camera->GetFocalPoint(focal);camera->GetDirectionOfProjection(direction);const double distance=camera->GetParallelScale()/tangent;for(int i=0;i<3;++i)position[i]=focal[i]-direction[i]*distance;camera->SetPosition(position);}
+    camera->SetParallelProjection(enabled);finishCameraChange();
+}
+vtkSmartPointer<vtkCamera> VtkViewport::copyCamera() const {auto copy=vtkSmartPointer<vtkCamera>::New();copy->DeepCopy(renderer_->GetActiveCamera());return copy;}
+void VtkViewport::restoreCamera(vtkCamera* camera) {if(camera){renderer_->GetActiveCamera()->DeepCopy(camera);finishCameraChange();}}
+void VtkViewport::setSlicePlane(int axis,double position) {
+    auto candidate=sliceField(currentData_,axis,position);sliceData_=candidate;sliceEnabled_=true;sliceAxis_=axis;slicePosition_=position;
+    resetViewOnNextData_=false;showDataSet(currentData_,currentField_);
+}
+void VtkViewport::clearSlicePlane() {
+    if(!sliceEnabled_)return;sliceEnabled_=false;sliceData_=nullptr;resetViewOnNextData_=false;showDataSet(currentData_,currentField_);
+}
+std::vector<std::string> VtkViewport::availableFields() const {
+    if(!currentData_)return {};try{return fieldNames(currentData_);}catch(const std::exception&){return {};}
+}
+LineSample VtkViewport::probePoint(Vec3 point,const std::string& field) const {return sampleFieldPoint(currentData_,point,field);}
+QImage VtkViewport::captureImage() {if(auto* window=renderWindow())window->Render();return grabFramebuffer();}
+
 void VtkViewport::setColorField(const std::string& fieldName) {
     if (currentData_ == nullptr)
         return;
@@ -630,6 +709,7 @@ void VtkViewport::setColorField(const std::string& fieldName) {
 }
 
 void VtkViewport::clearScene() {
+    sliceEnabled_=false;sliceData_=nullptr;
     showTriangleMesh(nullptr);
     showBoxDomain(nullptr);
 }
@@ -651,6 +731,7 @@ void VtkViewport::setViewXY() {
 }
 void VtkViewport::setViewXZ() {
     auto* cam = renderer_->GetActiveCamera();
+    cam->ParallelProjectionOn();
     cam->SetPosition(0, 1, 0);
     cam->SetFocalPoint(0, 0, 0);
     cam->SetViewUp(0, 0, 1);
@@ -659,6 +740,7 @@ void VtkViewport::setViewXZ() {
 }
 void VtkViewport::setViewYZ() {
     auto* cam = renderer_->GetActiveCamera();
+    cam->ParallelProjectionOn();
     cam->SetPosition(1, 0, 0);
     cam->SetFocalPoint(0, 0, 0);
     cam->SetViewUp(0, 1, 0);
@@ -675,6 +757,10 @@ void VtkViewport::setViewIsometric() {
 }
 
 void VtkViewport::setDarkTheme(bool dark) {
+    darkTheme_=dark;
+    const double ink=dark?.88:.17;
+    scalarBar_->GetTitleTextProperty()->SetColor(ink,ink,ink);
+    scalarBar_->GetLabelTextProperty()->SetColor(ink,ink,ink);
     if (dark) {
         renderer_->SetBackground(0.13, 0.14, 0.16);
         legendRenderer_->SetBackground(0.13, 0.14, 0.16);

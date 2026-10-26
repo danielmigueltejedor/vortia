@@ -134,6 +134,8 @@ private:
     QAction* openCaseAction_{nullptr};
     QAction* cancelAction_{nullptr};
     QAction* themeAction_{nullptr};
+    void refreshFieldTools();
+    std::vector<QAction*> fieldActions_;
     QComboBox* fieldCombo_{nullptr};
     QLabel* statusLabel_{nullptr};
     QTabWidget* propertiesTabs_{nullptr};

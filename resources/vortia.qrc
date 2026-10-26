@@ -24,6 +24,21 @@
     <file alias="solver/LICENSE.md">../examples/nozzle-video-2026/solver/LICENSE.md</file>
   </qresource>
   <qresource prefix="/vortia/icons">
+    <file alias="chart.svg">icons/ui/chart.svg</file>
+    <file alias="wireframe.svg">icons/ui/wireframe.svg</file>
+    <file alias="surface.svg">icons/ui/surface.svg</file>
+    <file alias="export-image.svg">icons/ui/export-image.svg</file>
+    <file alias="probe.svg">icons/ui/probe.svg</file>
+    <file alias="slice.svg">icons/ui/slice.svg</file>
+    <file alias="fit.svg">icons/ui/fit.svg</file>
+    <file alias="zoom.svg">icons/ui/zoom.svg</file>
+    <file alias="pan.svg">icons/ui/pan.svg</file>
+    <file alias="orbit.svg">icons/ui/orbit.svg</file>
+    <file alias="camera.svg">icons/ui/camera.svg</file>
+    <file alias="undock.svg">icons/ui/undock.svg</file>
+    <file alias="close.svg">icons/ui/close.svg</file>
+    <file alias="chevron-right.svg">icons/ui/chevron-right.svg</file>
+    <file alias="chevron-up.svg">icons/ui/chevron-up.svg</file>
     <file alias="chevron-down.svg">icons/ui/chevron-down.svg</file>
     <file alias="new.svg">icons/ui/new.svg</file>
     <file alias="open.svg">icons/ui/open.svg</file>

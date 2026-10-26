@@ -8,6 +8,12 @@
 #include <vtkLineSource.h>
 #include <vtkNew.h>
 #include <vtkPointData.h>
+#include <vtkCellData.h>
+#include <vtkPolyData.h>
+#include <vtkPoints.h>
+#include <vtkPlane.h>
+#include <vtkCutter.h>
+#include <set>
 #include <vtkProbeFilter.h>
 #include <vtkSmartPointer.h>
 #include <cmath>
@@ -40,6 +46,45 @@ vtkDataSet* volume(vtkDataObject* data) {
 }
 std::array<double,6> fieldBounds(vtkDataObject* data) {
     std::array<double,6> bounds{};volume(data)->GetBounds(bounds.data());return bounds;
+}
+std::vector<std::string> fieldNames(vtkDataObject* data) {
+    auto* source=volume(data);std::set<std::string> names;
+    const auto add=[&](vtkFieldData* fields){
+        for(int i=0;i<fields->GetNumberOfArrays();++i)if(auto* a=fields->GetArray(i)) {
+            if(!a->GetName())continue;const std::string name=a->GetName();
+            if(name=="vtkValidPointMask")continue;
+            if(name=="U"&&a->GetNumberOfComponents()==3)for(const auto* derived:{"|U|","Ux","Uy","Uz"})names.insert(derived);
+            else if(a->GetNumberOfComponents()==1)names.insert(name);
+        }
+    };
+    add(source->GetPointData());add(source->GetCellData());return {names.begin(),names.end()};
+}
+LineSample sampleFieldPoint(vtkDataObject* data,Vec3 point,const std::string& requested) {
+    for(int i=0;i<3;++i)if(!std::isfinite(point[i]))throw std::runtime_error("Invalid sample coordinates");
+    vtkNew<vtkCellDataToPointData> converted;converted->SetInputData(volume(data));converted->Update();
+    vtkNew<vtkPoints> points;points->SetDataTypeToDouble();points->InsertNextPoint(point.x,point.y,point.z);
+    vtkNew<vtkPolyData> input;input->SetPoints(points);
+    vtkNew<vtkProbeFilter> probe;probe->SetInputData(input);probe->SetSourceConnection(converted->GetOutputPort());probe->Update();
+    auto* output=probe->GetOutput();std::string field=requested;int component=-1;
+    if(field=="|U|"||field=="U")field="U";
+    else if(field=="Ux"||field=="Uy"||field=="Uz"){component=field[1]=='x'?0:field[1]=='y'?1:2;field="U";}
+    auto* values=output->GetPointData()->GetArray(field.c_str());auto* mask=output->GetPointData()->GetArray("vtkValidPointMask");
+    if(!values||!mask||component>=values->GetNumberOfComponents())throw std::runtime_error("The loaded result does not contain this field");
+    double value=0;
+    if(field=="U"&&component<0){for(int i=0;i<values->GetNumberOfComponents();++i)value+=std::pow(values->GetComponent(0,i),2);value=std::sqrt(value);}
+    else value=values->GetComponent(0,std::max(0,component));
+    return {point,0,value,mask->GetComponent(0,0)!=0&&std::isfinite(value)};
+}
+vtkSmartPointer<vtkPolyData> sliceField(vtkDataObject* data,int axis,double position) {
+    if(axis<0||axis>2||!std::isfinite(position))throw std::runtime_error("Invalid section plane");
+    auto* source=volume(data);double bounds[6];source->GetBounds(bounds);
+    double origin[3]={(bounds[0]+bounds[1])/2,(bounds[2]+bounds[3])/2,(bounds[4]+bounds[5])/2};
+    double normal[3]={0,0,0};normal[axis]=1;origin[axis]=position;
+    vtkNew<vtkPlane> plane;plane->SetNormal(normal);plane->SetOrigin(origin);
+    vtkNew<vtkCellDataToPointData> converted;converted->SetInputData(source);converted->PassCellDataOn();converted->Update();
+    vtkNew<vtkCutter> cut;cut->SetCutFunction(plane);cut->SetInputConnection(converted->GetOutputPort());cut->Update();
+    if(cut->GetOutput()->GetNumberOfCells()==0)throw std::runtime_error("The plane does not intersect the loaded fluid mesh");
+    auto result=vtkSmartPointer<vtkPolyData>::New();result->ShallowCopy(cut->GetOutput());return result;
 }
 std::vector<LineSample> sampleFieldLine(vtkDataObject* data,Vec3 start,Vec3 end,int points,const std::string& requested) {
     double length2=0;

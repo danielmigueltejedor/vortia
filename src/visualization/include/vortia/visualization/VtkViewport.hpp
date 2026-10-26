@@ -6,6 +6,7 @@
 
 #include <QVTKOpenGLNativeWidget.h>
 #include <QPointF>
+#include <QImage>
 
 #include <vtkDataObject.h>
 #include <vtkSmartPointer.h>
@@ -13,6 +14,7 @@
 #include <string>
 
 class vtkActor;
+class vtkCamera;
 class vtkScalarBarActor;
 class vtkOrientationMarkerWidget;
 class vtkRenderer;
@@ -21,13 +23,13 @@ namespace vortia {
 
 /// Interactive 3D viewport (VTK embedded in Qt).
 ///
-/// MVP capabilities: imported STL surfaces, box-domain outline, trackball
-/// camera, orientation axes, theme-aware background. Result fields (p, U)
-/// arrive in Phase 2 via foamToVTK conversion.
+/// Displays saved CFD fields, sections and imported geometry. Qt owns camera
+/// navigation so hover cannot move the scene. Analysis retains source fields.
 class VtkViewport : public QVTKOpenGLNativeWidget {
     Q_OBJECT
 
 public:
+    enum class NavigationMode { Orbit, Pan, Zoom };
     explicit VtkViewport(QWidget* parent = nullptr);
     ~VtkViewport() override;
 
@@ -37,7 +39,7 @@ public:
     void showBoxDomain(const BoxDomain* box);
 
     /// Displays an arbitrary VTK dataset (e.g. a Fluent CFF multiblock).
-    /// Ownership of the dataset is NOT taken; the caller keeps it alive.
+    /// Retains a VTK reference to the dataset while it is displayed.
     void showDataSet(vtkObject* data, const std::string& scalarField = {});
 
     /// Loads and displays a .vtm (VTK multiblock) file, e.g. from foamToVTK.
@@ -50,7 +52,27 @@ public:
         return sampleFieldLine(currentData_,start,end,points,field);
     }
     void showCellEdges(bool enabled);
+    void setNavigationMode(NavigationMode mode);
+    void setNavigationPreferences(double zoom,double pan);
+    NavigationMode navigationMode() const {return navigationMode_;}
+    void setParallelProjection(bool enabled);
+    bool parallelProjection() const;
+    void setWireframe(bool enabled);
+    struct SlicePlaneState {bool enabled;int axis;double position;};
+    SlicePlaneState slicePlaneState() const {return {sliceEnabled_,sliceAxis_,slicePosition_};}
+    vtkSmartPointer<vtkCamera> copyCamera() const;
+    void restoreCamera(vtkCamera* camera);
+    void setSlicePlane(int axis,double position);
+    void clearSlicePlane();
+    bool sliceEnabled() const {return sliceEnabled_;}
+    std::vector<std::string> availableFields() const;
+    LineSample probePoint(Vec3 point,const std::string& field) const;
+    QImage captureImage();
 
+signals:
+    void fieldDataChanged();
+
+public:
     void clearScene();
     void resetCamera();
     void setViewXY();
@@ -66,10 +88,16 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     bool event(QEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    void keyReleaseEvent(QKeyEvent* event) override;
 
 private:
     void syncCornerCamera();
     void cancelPointerDrag();
+    void panCamera(QPointF pixels);
+    void orbitCamera(QPointF pixels);
+    void zoomCamera(double factor,QPointF anchor);
+    void finishCameraChange();
 
 public slots:
     void setDarkTheme(bool dark);
@@ -82,10 +110,15 @@ private:
     vtkSmartPointer<vtkActor> geometryActor_;
     vtkSmartPointer<vtkActor> domainActor_;
     vtkSmartPointer<vtkDataObject> currentData_;
+    vtkSmartPointer<vtkDataObject> sliceData_;
     std::string currentField_;
     std::string loadedFile_;
     bool resetViewOnNextData_{true};
     bool edgesVisible_{false};
+    bool wireframe_{false},sliceEnabled_{false},spaceDown_{false},darkTheme_{true};
+    double zoomSensitivity_{1},panSensitivity_{1};
+    int sliceAxis_{2};double slicePosition_{0};
+    NavigationMode navigationMode_{NavigationMode::Orbit};
     // Authoritative Qt press state. Unlike a VTK interactor state, this
     // cannot be set by a stray vtkCommand::MouseMoveEvent.
     bool intentionalPointerDrag_{false};

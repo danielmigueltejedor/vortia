@@ -1,4 +1,5 @@
 #include "vortia/ui/LineProfile.hpp"
+#include "vortia/ui/FieldTools.hpp"
 #include "vortia/visualization/VtkViewport.hpp"
 #include <QCoreApplication>
 #include <QDialog>
@@ -75,7 +76,7 @@ void showLineProfile(QWidget* parent,VtkViewport* viewport,const QString& select
         const char* labels[]={"Start X (m)","Start Y (m)","Start Z (m)","End X (m)","End Y (m)","End Z (m)"};
         for(int i=0;i<6;++i){auto* spin=new QDoubleSpinBox(&input);spin->setDecimals(9);spin->setRange(-1e9,1e9);spin->setObjectName(QString("profile-coordinate-%1").arg(i));
             const int axis=i%3;spin->setValue(axis==0?(i<3?bounds[0]:bounds[1]):(bounds[2*axis]+bounds[2*axis+1])/2);form->addRow(profileTr(labels[i]),spin);coordinates[static_cast<std::size_t>(i)]=spin;}
-        auto* field=new QComboBox(&input);field->addItems({"p","T","Mach","U","Ux","Uy","Uz"});field->setCurrentText(selectedField=="|U|"?"U":selectedField);form->addRow(profileTr("Field"),field);
+        auto* field=new QComboBox(&input);for(const auto& raw:viewport->availableFields()){const auto key=QString::fromStdString(raw);field->addItem(fieldDisplayName(key),key);}field->setCurrentIndex(std::max(0,field->findData(selectedField)));form->addRow(profileTr("Field"),field);
         auto* points=new QSpinBox(&input);points->setRange(2,10000);points->setValue(161);form->addRow(profileTr("Sampling points"),points);
         auto* axis=new QComboBox(&input);axis->addItems({profileTr("Distance"),"X","Y","Z"});form->addRow(profileTr("Coordinate"),axis);
         auto* vertical=new QCheckBox(profileTr("Place the coordinate on the vertical axis"),&input);form->addRow(vertical);
@@ -84,10 +85,10 @@ void showLineProfile(QWidget* parent,VtkViewport* viewport,const QString& select
         if(input.exec()!=QDialog::Accepted)return;
         const Vec3 start{coordinates[0]->value(),coordinates[1]->value(),coordinates[2]->value()};
         const Vec3 end{coordinates[3]->value(),coordinates[4]->value(),coordinates[5]->value()};
-        auto samples=viewport->sampleLine(start,end,points->value(),field->currentText().toStdString());
+        auto samples=viewport->sampleLine(start,end,points->value(),field->currentData().toString().toStdString());
         QDialog output(parent);output.setWindowTitle(profileTr("Line profile"));output.resize(900,570);
         auto* layout=new QVBoxLayout(&output);
-        auto* plot=new ProfilePlot(&output);plot->samples=std::move(samples);plot->coordinate=axis->currentIndex();plot->verticalCoordinate=vertical->isChecked();plot->field=field->currentText()+(field->currentText()=="p"?" (Pa)":field->currentText()=="T"?" (K)":field->currentText().startsWith("U")?" (m/s)":"");layout->addWidget(plot,1);
+        auto* plot=new ProfilePlot(&output);plot->samples=std::move(samples);plot->coordinate=axis->currentIndex();plot->verticalCoordinate=vertical->isChecked();plot->field=field->currentText();layout->addWidget(plot,1);
         const auto valid=std::count_if(plot->samples.cbegin(),plot->samples.cend(),[](const auto& s){return s.valid;});
         auto* note=new QLabel(profileTr("%1 of %2 points are valid. This interpolated profile does not establish CFD convergence.").arg(static_cast<qlonglong>(valid)).arg(points->value()),&output);note->setWordWrap(true);layout->addWidget(note);
         auto* actions=new QHBoxLayout;layout->addLayout(actions);
@@ -96,7 +97,7 @@ void showLineProfile(QWidget* parent,VtkViewport* viewport,const QString& select
         QObject::connect(csv,&QPushButton::clicked,&output,[&](){
             const auto path=QFileDialog::getSaveFileName(&output,profileTr("Export profile"),{},"CSV (*.csv)");if(path.isEmpty())return;
             QSaveFile file(path);if(!file.open(QIODevice::WriteOnly))return;QTextStream stream(&file);stream.setLocale(QLocale::c());stream.setRealNumberPrecision(12);
-            stream<<"distance_m,x_m,y_m,z_m,"<<field->currentText()<<",valid\n";
+            stream<<"distance_m,x_m,y_m,z_m,"<<field->currentData().toString()<<",valid\n";
             for(const auto& s:plot->samples){stream<<s.distance<<','<<s.position.x<<','<<s.position.y<<','<<s.position.z<<',';if(s.valid)stream<<s.value;stream<<','<<(s.valid?1:0)<<'\n';}
             stream.flush();if(!file.commit())QMessageBox::warning(&output,profileTr("Export failed"),file.errorString());
         });

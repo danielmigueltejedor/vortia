@@ -1,0 +1,27 @@
+# CFD result workspace
+
+The Results ribbon groups file access, field selection, analysis, view controls and image export. Opening a result selects this ribbon and the CFD viewport. A field selector lists scalar arrays actually present in the loaded fluid block, plus speed/components when a three-component velocity array is available. It does not invent missing Mach or turbulence fields.
+
+## Camera navigation
+
+- Pinch on a macOS trackpad to zoom about the pointer; scroll with two fingers to pan.
+- Drag with the left mouse button to orbit. Shift or Space with a left drag pans; the middle/right button also pans.
+- Camera → Mouse navigation selects Orbit, Pan or Zoom for an ordinary left drag.
+- F or a double click fits the view. Camera also offers XY/XZ/YZ/isometric views and parallel projection.
+- Preferences → Sketch and navigation adjusts CFD pinch/zoom and pan sensitivity independently from sketch zoom.
+
+VTK's gesture recognizers are unregistered: Qt owns all navigation. Hover, a stray VTK event, or a drag after focus loss must not change the camera. Camera operations never modify solver fields.
+
+## Saved-field analysis
+
+Sections → Plane section previews a plane normal to X, Y or Z, at a position in metres. Position can be typed or adjusted with the slider. Accept retains the section, Cancel restores the previous section and camera, and Show full domain restores the volume surface. Sections are interpolated visualization surfaces, not new CFD meshes.
+
+Sample → Probe a point interpolates a scalar or velocity component at coordinates in metres and marks points outside the fluid invalid. Sample → Line profile retains the existing plot and CSV export, using the same available-field list. Analyses use the highest-dimensional, largest fluid block in a composite result; this is not a multi-region selector.
+
+Display offers Surface, Wireframe and Cell edges. Save image writes the current viewport and legend to a PNG using an atomic file save. It is an image of the current saved result, not a convergence certificate.
+
+These tools do not add new physical models or establish equivalence with Fluent. The compressible nozzle including its exterior and turbulence still requires solver/convergence and mesh-independence validation.
+
+## Verification
+
+Automated checks cover analytical point/plane values, invalid points and planes, preservation of source arrays, native pinch/pan and drag modes, focus-loss disarming, cancellation restoration, field/action availability across project tabs and running jobs, popup menu commands, and preference persistence. Existing geometry, solver orchestration and Spanish catalogue regressions also run.

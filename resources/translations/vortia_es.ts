@@ -3,6 +3,27 @@
 <TS version="2.1" language="es_ES">
 <context>
     <name>vortia::MainWindow</name>
+    <message><source>Analyze</source><translation>Análisis</translation></message>
+    <message><source>Data</source><translation>Datos</translation></message>
+    <message><source>Display</source><translation>Representación</translation></message>
+    <message><source>Export</source><translation>Exportación</translation></message>
+    <message><source>Export view PNG…</source><translation>Exportar vista PNG…</translation></message>
+    <message><source>Mouse navigation</source><translation>Navegación con ratón</translation></message>
+    <message><source>Orbit</source><translation>Orbitar</translation></message>
+    <message><source>Pan</source><translation>Desplazar</translation></message>
+    <message><source>Parallel projection</source><translation>Proyección paralela</translation></message>
+    <message><source>Plane section…</source><translation>Corte por plano…</translation></message>
+    <message><source>Probe a point…</source><translation>Consultar un punto…</translation></message>
+    <message><source>Result files</source><translation>Archivos de resultados</translation></message>
+    <message><source>Sample</source><translation>Consultar</translation></message>
+    <message><source>Save image</source><translation>Guardar imagen</translation></message>
+    <message><source>Sections</source><translation>Cortes</translation></message>
+    <message><source>Show full domain</source><translation>Mostrar dominio completo</translation></message>
+    <message><source>Surface</source><translation>Superficie</translation></message>
+    <message><source>Wireframe</source><translation>Estructura de alambre</translation></message>
+    <message><source>Zoom</source><translation>Acercar / alejar</translation></message>
+    <message><source>Cancel</source><translation>Cancelar</translation></message>
+    <message><source>Experimental nozzle: results remain provisional. Convergence and mesh dependence have not been established.</source><translation>Tobera experimental: los resultados son provisionales. No se han establecido la convergencia ni la independencia de la malla.</translation></message>
     <message><source>Calculation engine</source><translation>Motor de cálculo</translation></message>
     <message><source>The engine identity could not be saved; the new case was retained without activating it.</source><translation>No se ha podido guardar la identidad del motor; el nuevo caso se conserva sin activarlo.</translation></message>
     <message><source>This case belongs to another OpenFOAM installation. Open its editable project and generate a new mesh revision; earlier results are retained.</source><translation>Este caso pertenece a otra instalación de OpenFOAM. Abre su proyecto editable y genera una nueva revisión de malla; los resultados anteriores se conservan.</translation></message>
@@ -1143,6 +1164,8 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 
 <context>
     <name>vortia::ApplicationPreferences</name>
+    <message><source>CFD zoom sensitivity</source><translation>Sensibilidad del zoom CFD</translation></message>
+    <message><source>CFD pan sensitivity</source><translation>Sensibilidad del desplazamiento CFD</translation></message>
     <message><source>Appearance</source><translation>Apariencia</translation></message>
     <message><source>Sketch</source><translation>Croquis</translation></message>
     <message><source>Calculation</source><translation>Cálculo</translation></message>
@@ -1195,5 +1218,55 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>Turn off automatic visualization to finish calculations sooner. Use View latest result when you need it; numerical checkpoints are always retained.</source><translation>Desactiva la visualización automática para terminar antes el cálculo. Usa «Ver último resultado» cuando lo necesites; los estados numéricos se conservan siempre.</translation></message>
     <message><source>Vortia preferences</source><translation>Preferencias de Vortia</translation></message>
     <message><source>Zoom sensitivity</source><translation>Sensibilidad del zoom</translation></message>
+</context>
+<context>
+    <name>vortia::FieldTools</name>
+    <message><source>%1
+Value: %2</source><translation>%1
+Valor: %2</translation></message>
+    <message><source>Density · rho (kg/m³)</source><translation>Densidad · rho (kg/m³)</translation></message>
+    <message><source>Evaluate point</source><translation>Consultar valor</translation></message>
+    <message><source>Export CFD view</source><translation>Exportar vista CFD</translation></message>
+    <message><source>Export failed</source><translation>No se ha podido exportar</translation></message>
+    <message><source>Face the section plane</source><translation>Orientar la cámara hacia el corte</translation></message>
+    <message><source>Field</source><translation>Campo</translation></message>
+    <message><source>Interpolate a saved field at a point in metres. Points outside the fluid are marked invalid.</source><translation>Consulta por interpolación un campo guardado. Las coordenadas están en metros; los puntos fuera del fluido se marcan como no válidos.</translation></message>
+    <message><source>Invalid point · outside the loaded fluid mesh</source><translation>Punto no válido · fuera de la malla del fluido</translation></message>
+    <message><source>Mach number</source><translation>Número de Mach</translation></message>
+    <message><source>Normal to X · YZ plane</source><translation>Normal a X · plano YZ</translation></message>
+    <message><source>Normal to Y · XZ plane</source><translation>Normal a Y · plano XZ</translation></message>
+    <message><source>Normal to Z · XY plane</source><translation>Normal a Z · plano XY</translation></message>
+    <message><source>Orientation</source><translation>Orientación</translation></message>
+    <message><source>PNG image (*.png)</source><translation>Imagen PNG (*.png)</translation></message>
+    <message><source>Plane section</source><translation>Corte por plano</translation></message>
+    <message><source>Position</source><translation>Posición</translation></message>
+    <message><source>Pressure · p (Pa)</source><translation>Presión · p (Pa)</translation></message>
+    <message><source>Preview an interpolated section of the loaded fluid block. Coordinates are in metres; the original fields and mesh are retained.</source><translation>Previsualiza un corte interpolado del bloque de fluido cargado. Las coordenadas están en metros; se conservan la malla y los campos originales.</translation></message>
+    <message><source>Probe a point</source><translation>Consultar un punto</translation></message>
+    <message><source>Probe unavailable</source><translation>Consulta no disponible</translation></message>
+    <message><source>Section preview · original data retained</source><translation>Vista previa del corte · datos originales conservados</translation></message>
+    <message><source>Section unavailable</source><translation>Corte no disponible</translation></message>
+    <message><source>Show full domain</source><translation>Mostrar dominio completo</translation></message>
+    <message><source>Speed · |U| (m/s)</source><translation>Rapidez · |U| (m/s)</translation></message>
+    <message><source>Temperature · T (K)</source><translation>Temperatura · T (K)</translation></message>
+    <message><source>The view could not be saved. Choose a writable PNG file.</source><translation>No se ha podido guardar la vista. Elige un archivo PNG con permiso de escritura.</translation></message>
+    <message><source>Turbulence variable · nuTilda (m²/s)</source><translation>Variable turbulenta · nuTilda (m²/s)</translation></message>
+    <message><source>Turbulent viscosity · nut (m²/s)</source><translation>Viscosidad turbulenta · nut (m²/s)</translation></message>
+    <message><source>Velocity X (m/s)</source><translation>Velocidad X (m/s)</translation></message>
+    <message><source>Velocity Y (m/s)</source><translation>Velocidad Y (m/s)</translation></message>
+    <message><source>Velocity Z (m/s)</source><translation>Velocidad Z (m/s)</translation></message>
+    <message><source>Wall resolution · y+</source><translation>Resolución de pared · y+</translation></message>
+    <message><source>No field data is loaded</source><translation>No hay campos de resultados cargados</translation></message>
+    <message><source>Invalid sample coordinates</source><translation>Coordenadas de consulta no válidas</translation></message>
+    <message><source>The loaded result does not contain this field</source><translation>El resultado cargado no contiene este campo</translation></message>
+    <message><source>Invalid section plane</source><translation>Plano de corte no válido</translation></message>
+    <message><source>The plane does not intersect the loaded fluid mesh</source><translation>El plano no intersecta la malla del fluido cargada</translation></message>
+</context>
+<context>
+    <name>vortia::VtkViewport</name>
+    <message><source>Density (kg/m³)</source><translation>Densidad (kg/m³)</translation></message>
+    <message><source>Pinch to zoom · two fingers to pan · drag to orbit · Shift/Space + drag to pan · F to fit</source><translation>Pellizca para ampliar · dos dedos para desplazar · arrastra para orbitar · Mayús/Espacio + arrastre para desplazar · F para encuadrar</translation></message>
+    <message><source>Pressure (Pa)</source><translation>Presión (Pa)</translation></message>
+    <message><source>Temperature (K)</source><translation>Temperatura (K)</translation></message>
 </context>
 </TS>
