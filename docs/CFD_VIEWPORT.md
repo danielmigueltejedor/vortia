@@ -25,3 +25,7 @@ These tools do not add new physical models or establish equivalence with Fluent.
 ## Verification
 
 Automated checks cover analytical point/plane values, invalid points and planes, preservation of source arrays, native pinch/pan and drag modes, focus-loss disarming, cancellation restoration, field/action availability across project tabs and running jobs, popup menu commands, and preference persistence. Existing geometry, solver orchestration and Spanish catalogue regressions also run.
+
+Camera changes enqueue a VTK render on the Qt event loop, coalescing an input burst. A Qt repaint alone reuses the previous VTK framebuffer; it does not render the changed camera (see [QVTKOpenGLNativeWidget rendering contract](https://vtk.org/doc/nightly/html/classQVTKOpenGLNativeWidget.html)). Hidden or invalid OpenGL widgets are not rendered by this timer, and showing the viewport requests a fresh frame.
+
+`CfdNavigation.NativeGesturesUpdateDisplayedPixelsWithoutAnExplicitCaptureRender` requires `VORTIA_NATIVE_CFD_NAVIGATION=1` and a native OpenGL window. It compares displayed framebuffer pixels after pinch, pan, wheel and drag, observes actual VTK renders, verifies burst coalescing and checks that idle hover does not render or move the scene. It deliberately avoids `captureImage()`, whose explicit Render would mask this regression. Headless CI still covers camera state and hover/focus safety; native rendered-frame QA is run separately.

@@ -38,6 +38,7 @@
 #include <QMouseEvent>
 #include <QNativeGestureEvent>
 #include <QPointingDevice>
+#include <QSurfaceFormat>
 #include <QWheelEvent>
 #include <QMessageBox>
 #include <QPushButton>
@@ -59,6 +60,7 @@
 #include <vtkRenderWindow.h>
 #include <vtkActorCollection.h>
 #include <vtkCamera.h>
+#include <vtkCallbackCommand.h>
 #include "vortia/ui/FieldTools.hpp"
 #include "vortia/ui/RunMonitor.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
@@ -799,6 +801,7 @@ TEST(WorkspaceResources, RealTranslationContextsAndExplorerIcons) {
 } // namespace
 
 int main(int argc, char** argv) {
+    QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
     QApplication app(argc, argv);
     QTemporaryDir settings;
     QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -971,6 +974,27 @@ TEST(CfdNavigation, PinchPanAndDragModesMoveOnlyTheCamera) {
     EXPECT_LT(viewport.copyCamera()->GetParallelScale(),dragged->GetParallelScale());
     EXPECT_EQ(grid->GetNumberOfPoints(),27);EXPECT_DOUBLE_EQ(field->GetValue(0),42);
 }
+TEST(CfdNavigation, NativeGesturesUpdateDisplayedPixelsWithoutAnExplicitCaptureRender) {
+    if(!qEnvironmentVariableIsSet("VORTIA_NATIVE_CFD_NAVIGATION"))GTEST_SKIP()<<"Requires a real OpenGL window";
+    int renders=0;VtkViewport viewport;viewport.setWindowTitle("Vortia · comprobación visual de navegación CFD");viewport.resize(900,650);viewport.show();
+    const auto settle=[](int milliseconds){QElapsedTimer timer;timer.start();while(timer.elapsed()<milliseconds){QApplication::processEvents();QThread::msleep(1);}};
+    settle(150);ASSERT_TRUE(viewport.isValid());
+    vtkNew<vtkImageData> grid;grid->SetDimensions(3,3,3);vtkNew<vtkDoubleArray> field;field->SetName("p");field->SetNumberOfTuples(27);for(int i=0;i<27;++i)field->SetValue(i,100000+i*100);grid->GetPointData()->AddArray(field);viewport.showDataSet(grid,"p");viewport.setViewXY();settle(100);
+    vtkNew<vtkCallbackCommand> callback;callback->SetClientData(&renders);callback->SetCallback([](vtkObject*,unsigned long,void* data,void*){++*static_cast<int*>(data);});const auto observer=viewport.renderWindow()->AddObserver(vtkCommand::EndEvent,callback);
+    // grabFramebuffer reads the displayed FBO. captureImage() is deliberately
+    // excluded: it calls Render and would conceal a missing interaction render.
+    const auto pixels=[&](){const auto image=viewport.grabFramebuffer();return image.copy(0,0,static_cast<int>(image.width()*.86),image.height());};
+    const auto output=qEnvironmentVariable("VORTIA_UI_ARTIFACT_DIR");if(!output.isEmpty())EXPECT_TRUE(QDir().mkpath(output));
+    auto previous=pixels();EXPECT_FALSE(previous.isNull());if(!output.isEmpty())EXPECT_TRUE(previous.save(output+"/01-CFD-inicial.png"));const QPointF center(387,325);
+    const auto renderedChange=[&](const char* file){settle(100);const auto next=pixels();EXPECT_NE(next,previous);previous=next;if(!output.isEmpty())EXPECT_TRUE(next.save(output+"/"+file));};
+    const int beforePinch=renders;for(int i=0;i<10;++i){QNativeGestureEvent pinch(Qt::ZoomNativeGesture,QPointingDevice::primaryPointingDevice(),2,center,center,center,.025,{});QApplication::sendEvent(&viewport,&pinch);}renderedChange("02-CFD-pinza.png");EXPECT_GT(renders,beforePinch);EXPECT_LT(renders-beforePinch,10);
+    auto camera=viewport.copyCamera();const int beforePan=renders;QWheelEvent swipe(center,center,QPoint(80,-35),{},Qt::NoButton,Qt::NoModifier,Qt::ScrollUpdate,false,Qt::MouseEventSynthesizedBySystem);QApplication::sendEvent(&viewport,&swipe);renderedChange("03-CFD-desplazamiento.png");EXPECT_GT(renders,beforePan);EXPECT_DOUBLE_EQ(viewport.copyCamera()->GetParallelScale(),camera->GetParallelScale());
+    QWheelEvent wheel(center,center,{},QPoint(0,-120),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);QApplication::sendEvent(&viewport,&wheel);renderedChange("04-CFD-rueda.png");
+    const auto mouse=[&](QEvent::Type type,QPointF at,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent e(type,at,at,at,button,buttons,Qt::ShiftModifier);QApplication::sendEvent(&viewport,&e);};
+    mouse(QEvent::MouseButtonPress,center,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseMove,center+QPointF(-60,25),Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,center+QPointF(-60,25),Qt::LeftButton,Qt::NoButton);renderedChange("05-CFD-arrastre.png");
+    const int idle=renders;mouse(QEvent::MouseMove,center+QPointF(150,50),Qt::NoButton,Qt::NoButton);settle(60);EXPECT_EQ(renders,idle);EXPECT_EQ(pixels(),previous);EXPECT_DOUBLE_EQ(field->GetValue(0),100000);EXPECT_EQ(grid->GetNumberOfPoints(),27);viewport.renderWindow()->RemoveObserver(observer);
+}
+
 TEST(FieldTools, CancellingSectionRestoresPreviousPlaneAndCamera) {
     VtkViewport viewport;vtkNew<vtkImageData> grid;grid->SetDimensions(3,3,3);
     vtkNew<vtkDoubleArray> field;field->SetName("p");field->SetNumberOfTuples(27);field->Fill(42);grid->GetPointData()->AddArray(field);
