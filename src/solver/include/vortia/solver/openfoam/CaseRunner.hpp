@@ -15,6 +15,7 @@ struct StepOutcome {
     std::string name;
     ProcessResult process;
     bool diverged{false};
+    DivergenceKind divergenceKind{DivergenceKind::None};
     std::string divergenceReason;
     double finalTime{0.0}; ///< Last "Time = " parsed from the solver log.
 };

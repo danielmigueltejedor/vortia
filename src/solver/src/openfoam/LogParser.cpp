@@ -116,9 +116,13 @@ void LogParser::processLine(const std::string& line) {
         }
         return;
     }
+    if(line.find("No positive conservative update after 30 reductions")!=std::string::npos){
+        progress_.diverged=true;progress_.divergenceKind=DivergenceKind::NonPositiveUpdate;
+        progress_.divergenceReason="No positive conservative update after 30 reductions";return;
+    }
     if (looksFatal(line)) {
         progress_.diverged = true;
-        progress_.divergenceReason = line;
+        if(progress_.divergenceKind!=DivergenceKind::NonPositiveUpdate){progress_.divergenceKind=DivergenceKind::Fatal;progress_.divergenceReason=line;}
         return;
     }
 
@@ -143,7 +147,7 @@ void LogParser::processLine(const std::string& line) {
         else if(hasTime_){monitor("courant.mean",progress_.time,progress_.courantMean);monitor("courant.max",progress_.time,progress_.courantMax);}
         if (isBadNumber(progress_.courantMax)) {
             progress_.diverged = true;
-            progress_.divergenceReason = "Courant number became NaN/Inf";
+            if(progress_.divergenceKind!=DivergenceKind::NonPositiveUpdate){progress_.divergenceKind=DivergenceKind::NonFinite;progress_.divergenceReason = "Courant number became NaN/Inf";}
         }
         return;
     }
@@ -167,7 +171,7 @@ void LogParser::processLine(const std::string& line) {
         }
         if (isBadNumber(sample.initial) || isBadNumber(sample.final)) {
             progress_.diverged = true;
-            progress_.divergenceReason = "NaN/Inf residual for field " + sample.field;
+            if(progress_.divergenceKind!=DivergenceKind::NonPositiveUpdate){progress_.divergenceKind=DivergenceKind::NonFinite;progress_.divergenceReason = "NaN/Inf residual for field " + sample.field;}
         }
         if(hasTime_){monitor("residual.initial."+sample.field,progress_.time,sample.initial);monitor("residual.final."+sample.field,progress_.time,sample.final);}
         for (auto& existing : progress_.residuals) {

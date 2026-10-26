@@ -62,6 +62,7 @@
 #include "vortia/ui/FieldTools.hpp"
 #include "vortia/ui/RunMonitor.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
+#include "vortia/ui/BoundaryPreview.hpp"
 #include "vortia/ui/ThemeManager.hpp"
 #include <QClipboard>
 #include <QMimeData>
@@ -1077,6 +1078,25 @@ TEST(FlowBoundaryEditor, DisplaysNumberedGeometryAndRetainsAllBoundaryRows){
     const auto result=editFlowSetup(nullptr,edited,cfg,2);EXPECT_EQ(result.value("boundaries").toArray()[0].toObject().value("pressure"),3640000);EXPECT_TRUE(result.contains("boundaryGeometry"));
 }
 
+TEST(FlowBoundaryEditor, NavigationSelectsTinyArcsWithoutChangingAssignments){
+    const auto original=boundaryExample();auto shape=original;ASSERT_TRUE(shape.filletVertex(2,.005));auto cfg=reconcileFlowBoundaries(original,shape,assignedExample());
+    QTimer::singleShot(0,[&](){
+        auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(dialog,nullptr);auto* preview=dynamic_cast<BoundaryPreview*>(dialog->findChild<QWidget*>("flow-boundary-preview"));auto* table=dialog->findChild<QTableWidget*>("flow-boundaries");ASSERT_NE(preview,nullptr);ASSERT_NE(table,nullptr);QApplication::processEvents();
+        const auto fitted=preview->viewTransform();const auto v=shape.segmentPoint(2,.5);const QPointF world(v.xMm,v.yMm),anchor=fitted.map(world);
+        for(int i=0;i<7;++i){QNativeGestureEvent pinch(Qt::ZoomNativeGesture,QPointingDevice::primaryPointingDevice(),2,anchor,anchor,anchor,1,{});QApplication::sendEvent(preview,&pinch);}
+        const auto zoomed=preview->viewTransform();EXPECT_NEAR(zoomed.m11(),fitted.m11()*128,1e-8);EXPECT_LT(QLineF(zoomed.map(world),anchor).length(),1e-8);
+        QWheelEvent wheel(anchor,anchor,{},QPoint(0,120),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);QApplication::sendEvent(preview,&wheel);EXPECT_NEAR(preview->viewTransform().m11(),zoomed.m11()*1.2,1e-8);EXPECT_LT(QLineF(preview->viewTransform().map(world),anchor).length(),1e-8);
+        QWheelEvent swipe(anchor,anchor,QPoint(30,-15),{},Qt::NoButton,Qt::NoModifier,Qt::ScrollUpdate,false);QApplication::sendEvent(preview,&swipe);EXPECT_LT(QLineF(preview->viewTransform().map(world),anchor+QPointF(30,-15)).length(),1e-8);
+        const auto mouse=[&](QEvent::Type type,QPointF at,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent event(type,at,at,at,button,buttons,Qt::NoModifier);QApplication::sendEvent(preview,&event);};
+        QPointF click=preview->viewTransform().map(world);mouse(QEvent::MouseButtonPress,click,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,click,Qt::LeftButton,Qt::NoButton);EXPECT_EQ(table->currentRow(),2);
+        mouse(QEvent::MouseButtonPress,click,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseMove,click+QPointF(45,20),Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,click+QPointF(45,20),Qt::LeftButton,Qt::NoButton);EXPECT_EQ(table->currentRow(),2);EXPECT_LT(QLineF(preview->viewTransform().map(world),click+QPointF(45,20)).length(),1e-8);
+        QKeyEvent fit(QEvent::KeyPress,Qt::Key_F,Qt::NoModifier);QApplication::sendEvent(preview,&fit);EXPECT_EQ(preview->viewTransform(),fitted);
+        QNativeGestureEvent pinch(Qt::ZoomNativeGesture,QPointingDevice::primaryPointingDevice(),2,anchor,anchor,anchor,.5,{});QApplication::sendEvent(preview,&pinch);auto* fitButton=dialog->findChild<QToolButton*>("flow-boundary-fit");ASSERT_NE(fitButton,nullptr);fitButton->click();EXPECT_EQ(preview->viewTransform(),fitted);
+        QWheelEvent zoomAgain(anchor,anchor,{},QPoint(0,120),Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);QApplication::sendEvent(preview,&zoomAgain);mouse(QEvent::MouseButtonDblClick,anchor,Qt::LeftButton,Qt::LeftButton);EXPECT_EQ(preview->viewTransform(),fitted);
+        dialog->accept();
+    });
+    const auto accepted=editFlowSetup(nullptr,shape,cfg,2);EXPECT_EQ(accepted.value("boundaries"),cfg.value("boundaries"));EXPECT_EQ(boundaryGeometry(shape),cfg.value("boundaryGeometry"));
+}
 TEST(RunHistory, LargeNativeHistoryReplayWhenExplicitlyRequested){
     const auto root=qEnvironmentVariable("VORTIA_HISTORY_REPLAY_CASE");if(root.isEmpty())GTEST_SKIP()<<"Read-only optional native log replay";
     RunMonitor monitor;QElapsedTimer timer;timer.start();monitor.setCase(root);while(monitor.loading()&&timer.elapsed()<30000){QApplication::processEvents();QThread::msleep(1);}ASSERT_FALSE(monitor.loading());EXPECT_GT(monitor.history().observations,100u);EXPECT_TRUE(monitor.history().series.contains("mass.global"));for(const auto& [key,points]:monitor.history().series)EXPECT_LE(points.size(),8192u);
@@ -1097,6 +1117,6 @@ TEST(EngineeringUi, RenderComponentsWhenExplicitlyRequested){
     QTranslator translator;ASSERT_TRUE(translator.load(QStringLiteral(VORTIA_TEST_QM)));QApplication::installTranslator(&translator);
     ASSERT_TRUE(QDir().mkpath(output));ThemeManager::apply(*qobject_cast<QApplication*>(QApplication::instance()),ThemeManager::Theme::Dark);
     RunMonitor monitor;ASSERT_NE(monitor.findChild<QWidget*>("monitor-detail-plot"),nullptr);EXPECT_TRUE(monitor.findChild<QWidget*>("monitor-detail-plot")->toolTip().contains(QString::fromUtf8("Pellizca")));monitor.resize(1200,740);monitor.show();monitor.setCase(source);QElapsedTimer timer;timer.start();while(monitor.loading()&&timer.elapsed()<30000){QApplication::processEvents();QThread::msleep(1);}ASSERT_FALSE(monitor.loading());QApplication::processEvents();EXPECT_TRUE(monitor.grab().save(output+"/Seguimiento-componentes.png"));
-    const auto original=boundaryExample();auto rounded=original;ASSERT_TRUE(rounded.filletVertex(2,1));auto cfg=assignedExample();cfg.insert("boundaryGeometry",boundaryGeometry(original));QTimer::singleShot(0,[&](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);QApplication::processEvents();EXPECT_TRUE(d->grab().save(output+"/Contornos-componentes.png"));d->reject();});editFlowSetup(nullptr,rounded,cfg,2);
+    const auto original=boundaryExample();auto rounded=original;ASSERT_TRUE(rounded.filletVertex(2,1));auto cfg=assignedExample();cfg.insert("boundaryGeometry",boundaryGeometry(original));QTimer::singleShot(0,[&](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);QApplication::processEvents();EXPECT_TRUE(d->grab().save(output+"/Contornos-componentes.png"));auto* preview=dynamic_cast<BoundaryPreview*>(d->findChild<QWidget*>("flow-boundary-preview"));ASSERT_NE(preview,nullptr);const auto v=rounded.segmentPoint(2,.5);const auto anchor=preview->viewTransform().map(QPointF(v.xMm,v.yMm));for(int i=0;i<3;++i){QNativeGestureEvent pinch(Qt::ZoomNativeGesture,QPointingDevice::primaryPointingDevice(),2,anchor,anchor,anchor,1,{});QApplication::sendEvent(preview,&pinch);}QApplication::processEvents();EXPECT_TRUE(d->grab().save(output+"/Contornos-ampliados-componentes.png"));d->reject();});editFlowSetup(nullptr,rounded,cfg,2);
     SketchEditorDialog editor;editor.resize(1120,750);editor.setSketch(rounded);editor.show();QApplication::processEvents();EXPECT_TRUE(editor.grab().save(output+"/Croquis-componentes.png"));QApplication::removeTranslator(&translator);
 }

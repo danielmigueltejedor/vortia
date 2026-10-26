@@ -54,15 +54,19 @@ Expected<StepOutcome> CaseRunner::execute(const std::string& label,
     logFile.write("\n===== Vortia step: " + label + " (" + executable + ") =====\n");
 
     LogParser parser(callbacks.onMonitors&&(label.find("Foam")!=std::string::npos||label=="parallel flow"));
+    LogParser errorParser;
+    const auto progress=[&](){auto value=parser.progress();const auto& error=errorParser.progress();
+        if(error.diverged&&(!value.diverged||error.divergenceKind==DivergenceKind::NonPositiveUpdate)){value.diverged=true;value.divergenceKind=error.divergenceKind;value.divergenceReason=error.divergenceReason;}return value;};
     auto onOutput = [&](OutputStream stream, std::string_view chunk) {
         logFile.write(chunk);
         if (stream == OutputStream::StdOut)
             parser.feed(chunk);
+        else errorParser.feed(chunk);
         if (callbacks.onOutput)
             callbacks.onOutput(stream, chunk);
         if(callbacks.onMonitors){auto samples=parser.takeMonitorSamples();if(!samples.empty())callbacks.onMonitors(samples);}
         if (callbacks.onProgress)
-            callbacks.onProgress(parser.progress());
+            callbacks.onProgress(progress());
     };
 
     log(LogLevel::Info, "Running '" + executable + "' in " + caseDir.string());
@@ -71,14 +75,16 @@ Expected<StepOutcome> CaseRunner::execute(const std::string& label,
         return result.error();
 
     StepOutcome outcome;
-    parser.flush();
+    parser.flush();errorParser.flush();
     if(callbacks.onMonitors){auto samples=parser.takeMonitorSamples();if(!samples.empty())callbacks.onMonitors(samples);}
     if (callbacks.onProgress)
-        callbacks.onProgress(parser.progress());
+        callbacks.onProgress(progress());
     outcome.name = label;
     outcome.process = std::move(result.value());
-    outcome.diverged = parser.progress().diverged;
-    outcome.divergenceReason = parser.progress().divergenceReason;
+    const auto final=progress();
+    outcome.diverged = final.diverged;
+    outcome.divergenceKind = final.divergenceKind;
+    outcome.divergenceReason = final.divergenceReason;
     outcome.finalTime = parser.progress().time;
     return outcome;
     } catch (const std::exception& e) {

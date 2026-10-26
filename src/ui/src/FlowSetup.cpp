@@ -1,5 +1,7 @@
 #include "vortia/ui/FlowSetup.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
+#include "vortia/ui/BoundaryPreview.hpp"
+#include <QToolButton>
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
@@ -53,27 +55,6 @@ namespace vortia {
 namespace {
 QString tr(const char* s) { return QCoreApplication::translate("vortia::FlowSetup", s); }
 
-class BoundaryPreview final:public QWidget {
-    const Sketch2D& shape_;QTableWidget* table_;
-    QPointF project(SketchPoint2D p)const{return {(p.xMm-minX_)*scale_+left_,height()-bottom_-(p.yMm-minY_)*scale_};}
-    double minX_=0,minY_=0,scale_=1,left_=24,bottom_=24;
-public:
-    BoundaryPreview(const Sketch2D& shape,QTableWidget* table,QWidget* parent):QWidget(parent),shape_(shape),table_(table){setObjectName("flow-boundary-preview");setMinimumHeight(190);setMaximumHeight(260);setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);setToolTip(tr("Click a numbered segment to select its boundary settings."));}
-    void paintEvent(QPaintEvent*)override{
-        QPainter p(this);p.setRenderHint(QPainter::Antialiasing);p.fillRect(rect(),palette().color(QPalette::Base));if(shape_.segmentCount()==0)return;
-        double minX=std::numeric_limits<double>::infinity(),maxX=-minX,minY=minX,maxY=-minX;
-        for(std::size_t i=0;i<shape_.segmentCount();++i)for(int j=0;j<=24;++j){const auto v=shape_.segmentPoint(i,j/24.0);minX=std::min(minX,v.xMm);maxX=std::max(maxX,v.xMm);minY=std::min(minY,v.yMm);maxY=std::max(maxY,v.yMm);}
-        scale_=std::max(1e-9,std::min((width()-64)/std::max(1e-6,maxX-minX),(height()-52)/std::max(1e-6,maxY-minY)));minX_=minX;minY_=minY;left_=(width()-(maxX-minX)*scale_)/2;bottom_=(height()-(maxY-minY)*scale_)/2;
-        for(std::size_t i=0;i<shape_.segmentCount();++i){const int row=static_cast<int>(i);auto* editor=qobject_cast<QComboBox*>(table_->cellWidget(row,2));const auto kind=editor?editor->currentData().toString():QString{};const QColor color=kind=="inlet"?QColor("#26a87b"):kind=="outlet"?QColor("#e99445"):kind=="reservoir"?QColor("#a683dc"):kind=="axis"?QColor("#5ca7b8"):kind=="wall"?QColor("#3795bd"):QColor("#dc5f68");const bool selected=table_->currentRow()==row;
-            QPainterPath path;path.moveTo(project(shape_.points()[i]));const int pieces=shape_.arc(i)?48:1;for(int j=1;j<=pieces;++j)path.lineTo(project(shape_.segmentPoint(i,static_cast<double>(j)/pieces)));p.setPen(QPen(color,selected?4:2,kind=="axis"?Qt::DashLine:Qt::SolidLine));p.drawPath(path);
-            const auto at=project(shape_.segmentPoint(i,.5));QRectF label(at.x()-13,at.y()-12,26,24);p.setPen(selected?palette().color(QPalette::Text):color);p.setBrush(palette().color(QPalette::Base));p.drawRoundedRect(label,5,5);p.drawText(label,Qt::AlignCenter,QString::number(row+1));
-        }
-    }
-    void mousePressEvent(QMouseEvent* event)override{
-        double best=16;int row=-1;const auto pos=event->position();for(std::size_t i=0;i<shape_.segmentCount();++i){const int pieces=shape_.arc(i)?48:1;for(int j=0;j<pieces;++j){const auto a=project(shape_.segmentPoint(i,static_cast<double>(j)/pieces)),b=project(shape_.segmentPoint(i,static_cast<double>(j+1)/pieces)),v=b-a;const double denominator=QPointF::dotProduct(v,v);const double t=denominator>0?std::clamp(QPointF::dotProduct(pos-a,v)/denominator,0.0,1.0):0;const double distance=QLineF(pos,a+t*v).length();if(distance<best){best=distance;row=static_cast<int>(i);}}if(QLineF(pos,project(shape_.segmentPoint(i,.5))).length()<14){row=static_cast<int>(i);best=0;}}
-        if(row>=0){table_->setCurrentCell(row,0);table_->selectRow(row);table_->scrollToItem(table_->item(row,0));update();}event->accept();
-    }
-};
 class BoundaryFocus final:public QObject {
     QTableWidget* table_;int row_;
 public:BoundaryFocus(QTableWidget* table,int row):QObject(table),table_(table),row_(row){}
@@ -154,7 +135,12 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     table->setHorizontalHeaderLabels({tr("Segment"),tr("Region name"),tr("Type"),tr("Pressure (Pa)"),tr("Temperature (K)"),tr("Viscosity ratio")});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table->setMinimumHeight(240);table->setSelectionBehavior(QAbstractItemView::SelectRows);table->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    auto* preview=new BoundaryPreview(shape,table,boundaryPage);boundaryLayout->addWidget(preview);
+    auto* preview=new BoundaryPreview(shape,table,boundaryPage);
+    auto* previewTools=new QHBoxLayout;
+    auto* navigationHint=new QLabel(tr("Pinch or wheel to zoom · drag or swipe to pan · double click or F to fit"),boundaryPage);navigationHint->setWordWrap(true);previewTools->addWidget(navigationHint,1);
+    auto* fitPreview=new QToolButton(boundaryPage);fitPreview->setObjectName("flow-boundary-fit");fitPreview->setText(tr("Fit boundaries"));fitPreview->setIcon(QIcon(":/vortia/icons/fit.svg"));fitPreview->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);previewTools->addWidget(fitPreview);
+    QObject::connect(fitPreview,&QToolButton::clicked,preview,&BoundaryPreview::fitView);
+    boundaryLayout->addLayout(previewTools);boundaryLayout->addWidget(preview);
     auto* details=new QLabel(boundaryPage);details->setObjectName("flow-boundary-details");details->setWordWrap(true);details->setTextInteractionFlags(Qt::TextSelectableByMouse);boundaryLayout->addWidget(details);
     auto* templates=new QHBoxLayout;auto* regions=new QComboBox(boundaryPage);regions->setObjectName("flow-region-template");regions->addItem(tr("Choose a saved region…"));
     QJsonArray savedRegions=working.value("boundaries").toArray();for(const auto& bc:working.value("unmappedBoundaries").toArray())if(!savedRegions.contains(bc))savedRegions.append(bc);

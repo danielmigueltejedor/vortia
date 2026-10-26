@@ -814,6 +814,9 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
         <name>vortia::FlowSetup</name>
+    <message><source>Pinch or wheel to zoom · drag or swipe to pan · double click or F to fit</source><translation>Pellizca o usa la rueda para ampliar · arrastra o desliza para desplazar · doble clic o F para encuadrar</translation></message>
+    <message><source>Fit boundaries</source><translation>Encuadrar contornos</translation></message>
+    <message><source>Segment %1 · %2 · %3</source><translation>Tramo %1 · %2 · %3</translation></message>
     <message><source>%1 new or ambiguous segments need a boundary type. Unchanged and unambiguous inherited assignments have been retained.</source><translation>Hay %1 tramos nuevos o ambiguos que necesitan un tipo de contorno. Se conservan las asignaciones anteriores que se pueden asociar con seguridad.</translation></message>
     <message><source>%1 · arc · R %2 mm</source><translation>%1 · arco · R %2 mm</translation></message>
     <message><source>%1 · line · %2 mm</source><translation>%1 · recta · %2 mm</translation></message>
@@ -1079,6 +1082,8 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 
 <context>
         <name>vortia::JobController</name>
+    <message><source>Numerical instability: no admissible density/energy update after 30 local-step reductions. This run is not converged. Review initial values, boundary conditions and mesh before restarting from a valid state.</source><translation>Inestabilidad numérica: no se ha obtenido una actualización admisible de densidad o energía tras reducir 30 veces el paso local. Este cálculo no ha convergido. Revisa los valores iniciales, los contornos y la malla antes de reiniciar desde un estado válido.</translation></message>
+    <message><source>Solver stopped: %1</source><translation>El solver se ha detenido: %1</translation></message>
         <message><source>Calculation cancelled. Resume from the latest saved checkpoint.</source><translation>Cálculo cancelado. Puedes continuar desde el último estado guardado.</translation></message>
         <message>
             <source>Mesh checked and exported; no CFD calculation was run.</source>

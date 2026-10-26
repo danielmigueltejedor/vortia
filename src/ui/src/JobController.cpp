@@ -140,8 +140,9 @@ void JobController::runJob(JobSpec spec) {
                 summary = QString::fromStdString(solverStep.error().describe());
             } else if (solverStep->diverged) {
                 success = false;
-                summary = QStringLiteral("Solver diverged: %1")
-                              .arg(QString::fromStdString(solverStep->divergenceReason));
+                summary = solverStep->divergenceKind==openfoam::DivergenceKind::NonPositiveUpdate
+                    ? tr("Numerical instability: no admissible density/energy update after 30 local-step reductions. This run is not converged. Review initial values, boundary conditions and mesh before restarting from a valid state.")
+                    : tr("Solver stopped: %1").arg(QString::fromStdString(solverStep->divergenceReason));
             } else if (solverStep->process.cancelled) {
                 success = false;
                 summary = tr("Calculation cancelled. Resume from the latest saved checkpoint.");
