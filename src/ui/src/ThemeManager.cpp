@@ -144,7 +144,53 @@ QTabWidget#vortia-editor-tabs QTabBar::tab:selected { color: #123e5c; background
 QTabWidget#vortia-editor-tabs QTabBar::tab:hover { background: #d7e7f4; }
 )QSS");
     app.setStyleSheet(theme == Theme::Dark ? darkSheet : lightSheet);
-    app.setStyleSheet(app.styleSheet()+QStringLiteral("\nQComboBox::down-arrow { image:url(:/vortia/icons/chevron-down.svg); width:12px; height:12px; } QToolButton::menu-indicator { image:url(:/vortia/icons/chevron-down.svg); width:10px; height:10px; }"));
+    const bool dark=theme==Theme::Dark;
+    const QString controls=QStringLiteral(R"QSS(
+QComboBox {padding-right:32px; combobox-popup:0;}
+QComboBox::drop-down {subcontrol-origin:padding;subcontrol-position:top right;width:28px;border:0;border-top-right-radius:6px;border-bottom-right-radius:6px;}
+QComboBox::down-arrow {image:url(:/vortia/icons/chevron-down.svg);width:12px;height:12px;}
+QComboBox::drop-down:hover {background:%3;}
+QComboBox QAbstractItemView {background:%2;color:%6;border:1px solid %1;border-radius:8px;padding:5px;outline:0;selection-background-color:%5;selection-color:white;}
+QComboBox QAbstractItemView::item {min-height:28px;padding:5px 10px;border-radius:5px;}
+QComboBox QAbstractItemView::item:selected {background:%5;color:white;}
+QComboBox:disabled, QAbstractSpinBox:disabled, QLineEdit:disabled {color:%4;background:%3;border-color:%1;}
+QSpinBox, QDoubleSpinBox {padding-right:29px;}
+QSpinBox::up-button, QDoubleSpinBox::up-button {subcontrol-origin:border;subcontrol-position:top right;width:25px;height:16px;background:transparent;border:0;border-top-right-radius:6px;}
+QSpinBox::down-button, QDoubleSpinBox::down-button {subcontrol-origin:border;subcontrol-position:bottom right;width:25px;height:16px;background:transparent;border:0;border-bottom-right-radius:6px;}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {background:%3;}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {image:url(:/vortia/icons/chevron-up.svg);width:10px;height:10px;}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {image:url(:/vortia/icons/chevron-down.svg);width:10px;height:10px;}
+QScrollBar:vertical {background:transparent;width:11px;margin:2px;}
+QScrollBar:horizontal {background:transparent;height:11px;margin:2px;}
+QScrollBar::handle:vertical {background:%4;border-radius:4px;min-height:28px;}
+QScrollBar::handle:horizontal {background:%4;border-radius:4px;min-width:28px;}
+QScrollBar::handle:hover {background:%5;}
+QScrollBar::add-line, QScrollBar::sub-line {background:none;border:0;width:0;height:0;}
+QScrollBar::add-page, QScrollBar::sub-page {background:none;}
+QMenu {background:%2;color:%6;border:1px solid %1;border-radius:9px;padding:6px;}
+QMenu::item {padding:8px 30px 8px 26px;border-radius:5px;}
+QMenu::item:selected {background:%5;color:white;}
+QMenu::item:disabled {color:%4;}
+QMenu::separator {height:1px;background:%1;margin:5px 8px;}
+QMenu::right-arrow {image:url(:/vortia/icons/chevron-right.svg);width:12px;height:12px;}
+QToolButton::menu-indicator {image:url(:/vortia/icons/chevron-down.svg);width:10px;height:10px;}
+QToolButton::menu-button {border:0;background:transparent;width:18px;}
+QTabBar::close-button {image:url(:/vortia/icons/close.svg);width:13px;height:13px;padding:3px;border-radius:4px;}
+QTabBar::close-button:hover {background:%3;}
+QDockWidget::close-button {image:url(:/vortia/icons/close.svg);border:0;background:transparent;border-radius:4px;width:18px;height:18px;}
+QDockWidget::float-button {image:url(:/vortia/icons/undock.svg);border:0;background:transparent;border-radius:4px;width:18px;height:18px;}
+QDockWidget::close-button:hover, QDockWidget::float-button:hover {background:%3;}
+QTableWidget {background:%2;alternate-background-color:%3;color:%6;border:1px solid %1;border-radius:7px;gridline-color:%1;selection-background-color:%5;selection-color:white;}
+QHeaderView::section {background:%3;color:%6;padding:7px 10px;border:0;border-bottom:1px solid %1;}
+QTableCornerButton::section {background:%3;border:0;}
+QListWidget {background:%2;color:%6;border:1px solid %1;border-radius:7px;padding:4px;outline:0;}
+QListWidget::item {padding:7px 9px;border-radius:5px;}
+QListWidget::item:selected {background:%5;color:white;}
+QSlider::groove:horizontal {height:4px;background:%1;border-radius:2px;}
+QSlider::handle:horizontal {width:15px;margin:-6px 0;background:%5;border:1px solid %5;border-radius:8px;}
+)QSS").arg(dark?"#435262":"#cbd7e2",dark?"#222b35":"#ffffff",dark?"#354351":"#edf3f8",
+            dark?"#718091":"#99adbd","#147f9f",dark?"#e5edf5":"#24384a");
+    app.setStyleSheet(app.styleSheet()+controls);
 }
 
 ThemeManager::Theme ThemeManager::fromName(const QString& name) {

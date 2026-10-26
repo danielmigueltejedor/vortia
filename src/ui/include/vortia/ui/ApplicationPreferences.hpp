@@ -9,6 +9,7 @@ struct ApplicationPreferences {
     QString language="system",theme="dark",density="comfortable",backendRoot,caseStorage;
     int interfaceScale=100,defaultProcesses=0,checkpointInterval=500,iterationLimit=50000,consoleLines=10000;
     double zoomSensitivity=1,snapSpacing=1;
+    double cfdZoomSensitivity=1,cfdPanSensitivity=1;
     bool snapToGrid=true,showGrid=true,showDimensions=true,rememberLayout=true;
     bool showConsoleOnRun=false,showAssessmentOnRun=true,automaticPreview=true;
     static ApplicationPreferences load(QSettings&);

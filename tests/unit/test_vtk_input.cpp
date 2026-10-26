@@ -8,6 +8,9 @@
 #include <vtkPointData.h>
 #include <vtkMultiBlockDataSet.h>
 #include <vtkPlaneSource.h>
+#include <vtkPolyData.h>
+#include <limits>
+#include <algorithm>
 
 TEST(LineSampling, PrefersFluidVolumeOverAnEquallyLargeBoundaryPatch) {
     vtkNew<vtkPlaneSource> patch;patch->SetXResolution(2);patch->SetYResolution(4);
@@ -63,4 +66,30 @@ TEST(VtkInteractorInput, UnsolicitedMiddleOrRightButtonsDoNotArmCamera) {
     style->OnMiddleButtonDown();
     style->OnRightButtonDown();
     EXPECT_FALSE(style->qtDragAuthorized());
+}
+
+TEST(FieldAnalysis, PointProbeAndPlanesPreserveAnalyticalFieldsAndSource) {
+    vtkNew<vtkImageData> grid;grid->SetDimensions(3,3,3);grid->SetSpacing(.5,.5,.5);
+    vtkNew<vtkDoubleArray> p;p->SetName("p");p->SetNumberOfTuples(grid->GetNumberOfPoints());
+    vtkNew<vtkDoubleArray> u;u->SetName("U");u->SetNumberOfComponents(3);u->SetNumberOfTuples(grid->GetNumberOfPoints());
+    for(vtkIdType i=0;i<grid->GetNumberOfPoints();++i){double x[3];grid->GetPoint(i,x);p->SetValue(i,x[0]+2*x[1]);u->SetTuple3(i,x[0],2*x[1],3*x[2]);}
+    grid->GetPointData()->AddArray(p);grid->GetPointData()->AddArray(u);
+    const auto names=vortia::fieldNames(grid);
+    EXPECT_EQ(names,(std::vector<std::string>{"Ux","Uy","Uz","p","|U|"}));
+    const auto sample=vortia::sampleFieldPoint(grid,{.25,.5,.75},"p");
+    ASSERT_TRUE(sample.valid);EXPECT_NEAR(sample.value,1.25,1e-8);
+    EXPECT_NEAR(vortia::sampleFieldPoint(grid,{.25,.5,.75},"Uz").value,2.25,1e-8);
+    EXPECT_NEAR(vortia::sampleFieldPoint(grid,{.25,.5,.75},"|U|").value,std::sqrt(.25*.25+1+2.25*2.25),1e-8);
+    EXPECT_FALSE(vortia::sampleFieldPoint(grid,{-1,.5,.5},"p").valid);
+    EXPECT_THROW(vortia::sampleFieldPoint(grid,{0,0,0},"missing"),std::runtime_error);
+    EXPECT_THROW(vortia::sampleFieldPoint(grid,{std::numeric_limits<double>::quiet_NaN(),0,0},"p"),std::runtime_error);
+    for(int axis=0;axis<3;++axis){
+        auto cut=vortia::sliceField(grid,axis,.25);ASSERT_GT(cut->GetNumberOfPoints(),0);
+        auto* values=cut->GetPointData()->GetArray("p");ASSERT_NE(values,nullptr);
+        for(vtkIdType i=0;i<cut->GetNumberOfPoints();++i){double x[3];cut->GetPoint(i,x);EXPECT_NEAR(x[axis],.25,1e-8);EXPECT_NEAR(values->GetComponent(i,0),x[0]+2*x[1],1e-8);}
+    }
+    EXPECT_THROW(vortia::sliceField(grid,0,2),std::runtime_error);
+    EXPECT_THROW(vortia::sliceField(grid,3,.5),std::runtime_error);
+    EXPECT_EQ(grid->GetNumberOfPoints(),27);EXPECT_EQ(grid->GetNumberOfCells(),8);
+    EXPECT_EQ(grid->GetPointData()->GetNumberOfArrays(),2);EXPECT_EQ(grid->GetPointData()->GetArray("p"),p.GetPointer());
 }
