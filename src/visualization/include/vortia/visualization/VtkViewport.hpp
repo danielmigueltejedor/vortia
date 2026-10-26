@@ -18,6 +18,7 @@ class vtkCamera;
 class vtkScalarBarActor;
 class vtkOrientationMarkerWidget;
 class vtkRenderer;
+class QTimer;
 
 namespace vortia {
 
@@ -119,6 +120,7 @@ private:
     double zoomSensitivity_{1},panSensitivity_{1};
     int sliceAxis_{2};double slicePosition_{0};
     NavigationMode navigationMode_{NavigationMode::Orbit};
+    QTimer* cameraRenderTimer_;
     // Authoritative Qt press state. Unlike a VTK interactor state, this
     // cannot be set by a stray vtkCommand::MouseMoveEvent.
     bool intentionalPointerDrag_{false};

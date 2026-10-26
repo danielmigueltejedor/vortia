@@ -45,6 +45,7 @@
 #include <QWheelEvent>
 #include <QNativeGestureEvent>
 #include <QKeyEvent>
+#include <QTimer>
 #include <numbers>
 #include <QEvent>
 
@@ -191,6 +192,14 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     setFocusPolicy(Qt::StrongFocus);
     setToolTip(tr("Pinch to zoom · two fingers to pan · drag to orbit · Shift/Space + drag to pan · F to fit"));
     setMinimumSize(320, 240);
+    cameraRenderTimer_ = new QTimer(this);
+    cameraRenderTimer_->setSingleShot(true);
+    connect(cameraRenderTimer_, &QTimer::timeout, this, [this]() {
+        // Qt update() only composites the last VTK frame. Camera edits need a
+        // new VTK render; coalesce a burst of input into one rendered frame.
+        if (isVisible() && isValid())
+            if (auto* window = this->renderWindow()) window->Render();
+    });
 }
 
 VtkViewport::~VtkViewport() = default;
@@ -206,6 +215,7 @@ void VtkViewport::showEvent(QShowEvent* event) {
             }
         }
     }
+    finishCameraChange();
 }
 
 void VtkViewport::cancelPointerDrag() {
@@ -257,7 +267,9 @@ void VtkViewport::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void VtkViewport::finishCameraChange() {
-    renderer_->ResetCameraClippingRange();update();
+    renderer_->ResetCameraClippingRange();
+    if (!cameraRenderTimer_->isActive()) cameraRenderTimer_->start(0);
+    update();
 }
 void VtkViewport::panCamera(QPointF pixels) {
     if(!std::isfinite(pixels.x())||!std::isfinite(pixels.y()))return;
