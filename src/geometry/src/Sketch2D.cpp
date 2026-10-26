@@ -1,6 +1,7 @@
 #include "vortia/geometry/Sketch2D.hpp"
 
 #include <algorithm>
+#include <numbers>
 
 namespace vortia {
 namespace {
@@ -168,3 +169,39 @@ bool Sketch2D::setFilletRadius(std::size_t segment, double radiusMm) {
     return true;
 }
 } // namespace vortia
+
+namespace vortia {
+bool Sketch2D::removePoint(std::size_t index) {
+    if(index>=points_.size())return false;
+    Sketch2D next;std::vector<std::size_t> original;
+    for(std::size_t i=0;i<points_.size();++i)if(i!=index){if(!next.addPoint(points_[i]))return false;original.push_back(i);}
+    if(closed_&&original.size()>=3&&!next.close())return false;
+    for(std::size_t i=0;i<next.segmentCount();++i){const auto a=original[i],b=original[(i+1)%original.size()];
+        if((a+1)%points_.size()==b&&a<segmentCount())if(!next.setSegmentBulge(i,segmentBulge(a)))return false;}
+    *this=std::move(next);return true;
+}
+}
+
+namespace vortia {
+namespace {
+std::optional<std::pair<double,double>> radiusRange(SketchPoint2D a,SketchPoint2D corner,SketchPoint2D b){
+    const double x=a.xMm-corner.xMm,y=a.yMm-corner.yMm,u=b.xMm-corner.xMm,v=b.yMm-corner.yMm,left=std::hypot(x,y),right=std::hypot(u,v);
+    if(left<=2e-6||right<=2e-6)return {};
+    const double theta=std::acos(std::clamp((x*u+y*v)/(left*right),-1.0,1.0));if(theta<1e-6||std::abs(std::numbers::pi-theta)<1e-6)return {};
+    const double tangent=std::tan(theta/2),low=std::max(.001,2e-6*tangent),high=std::min(1e6,(std::min(left,right)-2e-6)*tangent);
+    if(!std::isfinite(low)||!std::isfinite(high)||high<=low)return {};return std::pair{low,high};
+}
+}
+std::optional<std::pair<double,double>> Sketch2D::filletRadiusRange(std::size_t index)const{
+    const auto n=points_.size();if(n<3||index>=n||(!closed_&&(index==0||index+1==n)))return {};
+    const auto previous=(index+n-1)%n,next=(index+1)%n;if(segmentBulge(previous)!=0||segmentBulge(index)!=0)return {};
+    return radiusRange(points_[previous],points_[index],points_[next]);
+}
+std::optional<std::pair<double,double>> Sketch2D::arcFilletRadiusRange(std::size_t segment)const{
+    const auto current=arc(segment);if(!current)return {};auto copy=*this;if(!copy.setFilletRadius(segment,current->radiusMm))return {};
+    const auto n=points_.size(),previous=(segment+n-1)%n,end=(segment+1)%n,next=(segment+2)%n;
+    const auto a=points_[previous],b=points_[segment],c=points_[end],d=points_[next];const double ux=b.xMm-a.xMm,uy=b.yMm-a.yMm,vx=d.xMm-c.xMm,vy=d.yMm-c.yMm,denom=ux*vy-uy*vx;
+    if(std::abs(denom)<=1e-18)return {};const double t=((c.xMm-a.xMm)*vy-(c.yMm-a.yMm)*vx)/denom;
+    return radiusRange(a,{a.xMm+t*ux,a.yMm+t*uy},d);
+}
+}

@@ -8,6 +8,7 @@
 #include <chrono>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QJsonArray>
 
 #include <QMetaObject>
 
@@ -95,6 +96,13 @@ void JobController::runJob(JobSpec spec) {
             };
             QString lastAssessment;
             std::optional<openfoam::ConvergenceSample> lastConvergence;
+            QJsonArray pendingMonitors;
+            auto lastMonitors=std::chrono::steady_clock::now();
+            const auto publishMonitors=[&](){if(pendingMonitors.isEmpty())return;const auto json=QString::fromUtf8(QJsonDocument(pendingMonitors).toJson(QJsonDocument::Compact));pendingMonitors={};QMetaObject::invokeMethod(this,[this,json](){emit monitorSamples(json);},Qt::QueuedConnection);lastMonitors=std::chrono::steady_clock::now();};
+            callbacks.onMonitors=[&](const std::vector<openfoam::MonitorSample>& samples){
+                for(const auto& sample:samples)pendingMonitors.append(QJsonArray{sample.coordinate,sample.value,QString::fromStdString(sample.series),sample.session});
+                if(pendingMonitors.size()>=4096||std::chrono::steady_clock::now()-lastMonitors>=std::chrono::milliseconds(200))publishMonitors();
+            };
             callbacks.onProgress = [&](const openfoam::SolverProgress& p) {
                 last = p;
                 if(p.convergence && (!lastConvergence || p.convergence->iteration!=lastConvergence->iteration ||
@@ -126,6 +134,7 @@ void JobController::runJob(JobSpec spec) {
 
             auto solverStep = runner.runSolver(spec.caseDir, spec.setup, spec.caps, callbacks,
                                               cancelToken_.get(), spec.solverOverride,spec.processes);
+            publishMonitors();
             if (!solverStep) {
                 success = false;
                 summary = QString::fromStdString(solverStep.error().describe());

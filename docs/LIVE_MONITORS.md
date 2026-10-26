@@ -1,0 +1,13 @@
+# Recorded and live engineering monitors
+
+Results → Calculation monitors opens the central Monitors workspace. A calculation opens it automatically. It contains a four-plot overview, ten detailed plot groups, a recent-data table, selectable curves/runs, linear/log Y, a last-coordinate window, horizontal pinch/wheel zoom and pan, a frozen display, CSV export and plot/overview PNG export.
+
+The ten groups are initial residuals, final residuals, global/local mass imbalance and tolerance, field changes and tolerance, normalized equation updates and tolerance, open-boundary incoming/outgoing mass flow, Courant numbers, reported CPU/wall time, solver-coordinate advance per wall second, and the consecutive accepted-sample window. Missing observations are absent, never replaced by zero. The equation update indicator is distinct from a linear-system residual. Zero is clipped to 1e-16 for logarithmic display; original values are retained in the data table and CSV.
+
+The existing parser emits each actual observation with its coordinate. JobController batches UI delivery at 200 ms or 4096 observations; plots redraw at most 5 Hz. No per-iteration VTK conversion or field loading is introduced. Live and reopened histories use the same parser. Older cases retain only what their original logs reported. The new native backend publishes already-reduced incoming/outgoing flux totals without additional field scans or MPI reductions.
+
+Native flow uses iteration/pseudo-time, not physical seconds. Generic solver Time remains labelled a solver coordinate. Throughput is a finite difference of that coordinate and reported wall-clock values; coarse clock resolution limits it. Incoming/outgoing flux includes every open boundary and the actual computed domain (including a wedge sector), not the principal inlet alone, full-circle flow, or thrust.
+
+Histories belong to calculation folders. Reopening parses log.vortia in a cancellable background thread; four recent histories are cached. Plot memory is bounded to 64 series and 8192 retained points per series using temporal buckets that retain extrema. The full original log is preserved. CSV exports retained history with session, solver_coordinate, series, raw value and unit. Percentage plots multiply fractions by 100; CSV/table values remain fractions. A frozen view does not pause the solver or data recording.
+
+Runs are separated and are never joined by a line. Imported case dictionaries, saved fields and source projects are not modified by viewing histories. Low residuals and these dashboards do not validate the physical model or establish mesh independence. Full compressible nozzle/exterior RANS convergence remains unresolved.

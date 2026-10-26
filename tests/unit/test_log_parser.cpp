@@ -103,3 +103,25 @@ TEST(LogParser, ConvergenceMarkerRequiresCompleteValidCriteria) {
     EXPECT_FALSE(vortia::openfoam::parseConvergenceReport("{}"));
     parser.reset();EXPECT_FALSE(parser.progress().convergence);
 }
+
+TEST(LogParser, MonitorStreamPreservesChunkedCoordinatesAndDoesNotInventMissingMetrics){
+    LogParser parser(true);parser.feed("Courant Numbers: min = 0.01, average = 0.05, max = 0.1\nTime = 100\nDICPCG: Solving for p, Initial residual = 0.2, Final residual = ");
+    parser.feed("0.001, No Iterations 3\nExecutionTime = 1 s ClockTime = 2 s\nTime = 200\nDICPCG: Solving for p, Initial residual = 0.1, Final residual = 0, No Iterations 1\nExecutionTime = 2 s ClockTime = 3 s\n");
+    const auto samples=parser.takeMonitorSamples();ASSERT_EQ(samples.size(),11u);
+    EXPECT_EQ(samples[0].series,"courant.mean");EXPECT_DOUBLE_EQ(samples[0].coordinate,100);
+    EXPECT_EQ(samples[2].series,"residual.initial.p");EXPECT_DOUBLE_EQ(samples[2].coordinate,100);EXPECT_DOUBLE_EQ(samples[2].value,.2);
+    EXPECT_EQ(samples.back().series,"runtime.rate");EXPECT_DOUBLE_EQ(samples.back().value,100);
+    for(const auto& sample:samples)EXPECT_FALSE(sample.series.starts_with("mass."));EXPECT_TRUE(parser.takeMonitorSamples().empty());
+    parser.feed("Time = 1\nDICPCG: Solving for p, Initial residual = nan, Final residual = nan, No Iterations 1\n");EXPECT_TRUE(parser.progress().diverged);EXPECT_TRUE(parser.takeMonitorSamples().empty());
+}
+TEST(LogParser, MonitorSamplesRespectAssessmentTimeAndRetainPhysicalFlowTotals){
+    const std::string report=R"({"schema":1,"status":"checking","iteration":700,"checkedIteration":700,"sampled":true,"automatic":true,"equationError":0.001,"equationTolerance":0.00001,"globalMass":0.01,"localMass":0.02,"fieldChange":0.03,"massTolerance":0.001,"fieldTolerance":0.001,"stableSamples":0,"requiredSamples":5,"interval":50,"massIncoming":0.2,"massOutgoing":0.21})";
+    LogParser parser(true);parser.feed("VORTIA_CONVERGENCE "+report+"\n");const auto samples=parser.takeMonitorSamples();ASSERT_EQ(samples.size(),11u);
+    EXPECT_DOUBLE_EQ(samples.front().coordinate,700);EXPECT_EQ(samples[9].series,"flow.incoming");EXPECT_DOUBLE_EQ(samples[9].value,.2);
+    auto stale=report;stale.replace(stale.find("\"iteration\":700"),15,"\"iteration\":750");parser.feed("VORTIA_CONVERGENCE "+stale+"\n");EXPECT_TRUE(parser.takeMonitorSamples().empty());
+    auto invalid=report;invalid.replace(invalid.find("\"massIncoming\":0.2"),18,"\"massIncoming\":-1");EXPECT_FALSE(parseConvergenceReport(invalid));
+}
+TEST(LogParser, MonitorReplaySeparatesRunsAndIgnoresMeshStages){
+    LogParser parser(true);parser.feed("===== Vortia step: checkMesh (checkMesh) =====\nTime = 9\nExecutionTime = 1 s ClockTime = 1 s\n===== Vortia step: simpleFoam (simpleFoam) =====\nTime = 10\nDICPCG: Solving for p, Initial residual = 0.2, Final residual = 0.01, No Iterations 1\n===== Vortia step: simpleFoam (simpleFoam) =====\nTime = 1\nDICPCG: Solving for p, Initial residual = 0.3, Final residual = 0.02, No Iterations 1\n");
+    const auto samples=parser.takeMonitorSamples();ASSERT_EQ(samples.size(),4u);EXPECT_NE(samples[0].session,samples[2].session);EXPECT_DOUBLE_EQ(samples[2].coordinate,1);
+}

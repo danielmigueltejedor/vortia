@@ -53,13 +53,14 @@ Expected<StepOutcome> CaseRunner::execute(const std::string& label,
     LogFileSink logFile(caseDir / "log.vortia");
     logFile.write("\n===== Vortia step: " + label + " (" + executable + ") =====\n");
 
-    LogParser parser;
+    LogParser parser(callbacks.onMonitors&&(label.find("Foam")!=std::string::npos||label=="parallel flow"));
     auto onOutput = [&](OutputStream stream, std::string_view chunk) {
         logFile.write(chunk);
         if (stream == OutputStream::StdOut)
             parser.feed(chunk);
         if (callbacks.onOutput)
             callbacks.onOutput(stream, chunk);
+        if(callbacks.onMonitors){auto samples=parser.takeMonitorSamples();if(!samples.empty())callbacks.onMonitors(samples);}
         if (callbacks.onProgress)
             callbacks.onProgress(parser.progress());
     };
@@ -71,6 +72,7 @@ Expected<StepOutcome> CaseRunner::execute(const std::string& label,
 
     StepOutcome outcome;
     parser.flush();
+    if(callbacks.onMonitors){auto samples=parser.takeMonitorSamples();if(!samples.empty())callbacks.onMonitors(samples);}
     if (callbacks.onProgress)
         callbacks.onProgress(parser.progress());
     outcome.name = label;

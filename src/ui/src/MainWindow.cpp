@@ -1,6 +1,8 @@
 #include "vortia/ui/FlowSetup.hpp"
 #include "vortia/ui/LineProfile.hpp"
 #include "vortia/ui/FieldTools.hpp"
+#include "vortia/ui/RunMonitor.hpp"
+#include "vortia/ui/BoundaryMapping.hpp"
 #include <QActionGroup>
 #include <QSaveFile>
 #include <QCryptographicHash>
@@ -128,6 +130,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         showFlowAssessment(QJsonDocument::fromJson(report.toUtf8()).object());
     });
     connect(jobController_, &JobController::resultsReady, this, &MainWindow::onResultsReady);
+    connect(jobController_, &JobController::monitorSamples,runMonitor_,&RunMonitor::appendBatch);
+    connect(jobController_, &JobController::jobFinished,runMonitor_,[this](){runMonitor_->finishRun();});
     connect(jobController_, &JobController::progressUpdated, this,
             [this](double time, double coMax, const QString& residuals) {
                 if(!flowConfig_.isEmpty()) {
@@ -419,6 +423,10 @@ void MainWindow::buildMenusAndToolbar() {
     auto* image=new QAction(toolIcon("export-image",QStyle::SP_DialogSaveButton),tr("Export view PNG…"),this);image->setIconText(tr("Save image"));image->setObjectName("vortia-export-view-image");
     connect(image,&QAction::triggered,this,[this](){exportViewportImage(this,viewport_);});addGroup(resultsPage,tr("Export"),{image});resultMenu->addAction(image);
 
+    auto* monitors=new QAction(toolIcon("chart",QStyle::SP_FileDialogDetailedView),tr("Calculation monitors"),this);monitors->setObjectName("vortia-open-monitors");monitors->setIconText(tr("Monitors"));
+    connect(monitors,&QAction::triggered,this,[this](){workspaceTabs_->setCurrentWidget(runMonitor_);if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(4);});
+    resultMenu->addSeparator();resultMenu->addAction(monitors);addGroup(resultsPage,tr("Tracking"),{monitors});
+
     toolbar->addWidget(tabs);
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("vortia-status-text"));
@@ -456,10 +464,12 @@ void MainWindow::buildDocks() {
     sketchEditor_ = new SketchEditorDialog(workspaceTabs_);
     sketchEditor_->setWindowFlags(Qt::Widget);sketchEditor_->setEmbedded(true);
     workspaceTabs_->addTab(sketchEditor_, tr("2D Sketch"));
+    runMonitor_=new RunMonitor(workspaceTabs_);workspaceTabs_->addTab(runMonitor_,tr("Monitors"));
     connect(sketchEditor_, &SketchEditorDialog::closeRequested, this,
             [this]() { workspaceTabs_->setCurrentWidget(viewport_); });
     connect(sketchEditor_, &SketchEditorDialog::sketchChanged, this, [this]() {
         dirty_ = true;
+        if(activeProjectTab_>=0&&!flowConfig_.isEmpty()){const auto& doc=documents_[static_cast<std::size_t>(activeProjectTab_)];const auto& history=sketchEditor_->editHistory();const bool remember=history.revision!=doc.editHistory.revision;flowConfig_=reconcileFlowBoundaries(doc.sketch,sketchEditor_->sketch(),flowConfig_,remember);}
         flowConfig_.remove("preparedHash");
         storeCurrentTab();
         refreshProjectTabTitle();
@@ -500,6 +510,7 @@ void MainWindow::buildDocks() {
     propsDock->setWidget(propertiesContainer);
     addDockWidget(Qt::RightDockWidgetArea, propsDock);
     connect(workspaceTabs_,&QTabWidget::currentChanged,this,[this,propsDock](int){
+        if(workspaceTabs_->currentWidget()==runMonitor_)if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(4);
         if(workspaceTabs_->currentWidget()==sketchEditor_&&!projectSwitchLocked())propsDock->hide();
     });
 
@@ -579,6 +590,7 @@ void MainWindow::storeCurrentTab() {
     tab.setup = setup_;
     if (sketchEditor_) {
         tab.sketch = sketchEditor_->sketch();
+        if(tab.editHistory.revision!=sketchEditor_->editHistory().revision)tab.editHistory=sketchEditor_->editHistory();
         tab.nozzleDimensions = sketchEditor_->nozzleDimensions();
     }
     tab.modified = dirty_;
@@ -652,6 +664,7 @@ void MainWindow::activateProjectTab(int index) {
     if (sketchEditor_) {
         sketchEditor_->setNozzleDimensions(tab.nozzleDimensions);
         sketchEditor_->setSketch(tab.sketch);
+        sketchEditor_->setEditHistory(tab.editHistory);
     }
     viewport_->clearScene();
     updateViewport();
@@ -791,7 +804,7 @@ bool MainWindow::openProjectDirectory(const QString& dir) {
     }
     addProjectTab(QString::fromStdString(project->name()), openedSetup,
                   project->rootDir());
-    flowConfig_=openedFlow;
+    flowConfig_=restoreBoundaryGeometry(staged.sketch(),openedFlow);
     properties_->setEnabled(flowConfig_.isEmpty());
     updateViewport();
     updateNozzleNotice();
@@ -1094,7 +1107,7 @@ bool MainWindow::ensureFlowEnvironment() {
 }
 
 QString MainWindow::flowFingerprint(bool includeRunControls) const {
-    auto cfg=flowConfig_;cfg.remove("activeCase");cfg.remove("preparedHash");cfg.remove("preparedEngine");
+    auto cfg=flowConfig_;for(const auto* metadata:{"boundaryGeometry","boundaryVersions","unmappedBoundaries"})cfg.remove(metadata);cfg.remove("activeCase");cfg.remove("preparedHash");cfg.remove("preparedEngine");
     if(!includeRunControls) {
         auto solver=cfg.value("solver").toObject();
         for(const auto* key:{"iterations","writeInterval","maxCo","processes","convergence","logInterval"})solver.remove(key);
@@ -1111,6 +1124,9 @@ bool MainWindow::ensureFlowCase(bool force) {
         QMessageBox::warning(this,tr("Invalid fluid domain"),tr("Close the fluid contour before generating its mesh."));return false;
     }
     if (flowConfig_.isEmpty()) { configureFlow(0); if (flowConfig_.isEmpty()) return false; }
+    flowConfig_=normalizedFlowConfiguration(sketchEditor_->sketch(),flowConfig_);
+    const auto boundariesReady=[this](){bool inlet=false,outlet=false;const auto boundaries=flowConfig_.value("boundaries").toArray();if(boundaries.size()!=static_cast<qsizetype>(sketchEditor_->sketch().segmentCount()))return false;for(const auto& value:boundaries){const auto kind=value.toObject().value("type").toString();if(kind=="unassigned"||kind.isEmpty())return false;inlet=inlet||kind=="inlet";outlet=outlet||kind=="outlet";}return inlet&&outlet;};
+    if(!boundariesReady()){configureFlow(2);flowConfig_=normalizedFlowConfiguration(sketchEditor_->sketch(),flowConfig_);if(!boundariesReady()){setProjectState(tr("Assign the highlighted boundaries, including a total-pressure inlet and a pressure outlet, before generating the case."));return false;}}
     if (!ensureFlowEnvironment() || !saveProject()) return false;
     const auto fingerprint=flowFingerprint();
     const auto previous=flowConfig_.value("activeCase").toString();
@@ -1267,6 +1283,9 @@ void MainWindow::onRun() {
         const auto error=stageFlowBackend(QString::fromStdString(caseDir.string()));
         if(!error.isEmpty()){QMessageBox::warning(this,tr("Run failed"),error);return;}
     }
+    runMonitor_->beginRun(QString::fromStdString(caseDir.string()));
+    workspaceTabs_->setCurrentWidget(runMonitor_);
+    if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(4);
     setJobUiRunning(true);
 
     JobController::JobSpec spec;
@@ -1324,6 +1343,7 @@ void MainWindow::updateNozzleNotice() {
     const auto caseDir = useExistingCase_ ? existingCaseDir_ :
         (!flowConfig_.isEmpty() ? std::filesystem::path(flowConfig_.value("activeCase").toString().toStdString()) :
         (projectRoot_.empty() ? std::filesystem::path{} : projectRoot_ / "case"));
+    if(!projectSwitchLocked())runMonitor_->setCase(caseDir.empty()?QString{}:QString::fromStdString(caseDir.string()));
     const bool generic = !flowConfig_.isEmpty() || std::filesystem::exists(caseDir/".vortia-flow-case");
     const bool nozzle = !caseDir.empty() && openfoam::isNozzlePracticeCase(caseDir);
     nozzleNotice_->setVisible(nozzle || generic);

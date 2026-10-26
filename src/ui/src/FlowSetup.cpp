@@ -1,4 +1,12 @@
 #include "vortia/ui/FlowSetup.hpp"
+#include "vortia/ui/BoundaryMapping.hpp"
+#include <QPainter>
+#include <QPainterPath>
+#include <QMouseEvent>
+#include <QSet>
+#include <QSignalBlocker>
+#include <functional>
+#include <limits>
 #include "vortia/ui/SettingsNavigation.hpp"
 #include <QCoreApplication>
 #include <QComboBox>
@@ -44,9 +52,37 @@
 namespace vortia {
 namespace {
 QString tr(const char* s) { return QCoreApplication::translate("vortia::FlowSetup", s); }
+
+class BoundaryPreview final:public QWidget {
+    const Sketch2D& shape_;QTableWidget* table_;
+    QPointF project(SketchPoint2D p)const{return {(p.xMm-minX_)*scale_+left_,height()-bottom_-(p.yMm-minY_)*scale_};}
+    double minX_=0,minY_=0,scale_=1,left_=24,bottom_=24;
+public:
+    BoundaryPreview(const Sketch2D& shape,QTableWidget* table,QWidget* parent):QWidget(parent),shape_(shape),table_(table){setObjectName("flow-boundary-preview");setMinimumHeight(190);setMaximumHeight(260);setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);setToolTip(tr("Click a numbered segment to select its boundary settings."));}
+    void paintEvent(QPaintEvent*)override{
+        QPainter p(this);p.setRenderHint(QPainter::Antialiasing);p.fillRect(rect(),palette().color(QPalette::Base));if(shape_.segmentCount()==0)return;
+        double minX=std::numeric_limits<double>::infinity(),maxX=-minX,minY=minX,maxY=-minX;
+        for(std::size_t i=0;i<shape_.segmentCount();++i)for(int j=0;j<=24;++j){const auto v=shape_.segmentPoint(i,j/24.0);minX=std::min(minX,v.xMm);maxX=std::max(maxX,v.xMm);minY=std::min(minY,v.yMm);maxY=std::max(maxY,v.yMm);}
+        scale_=std::max(1e-9,std::min((width()-64)/std::max(1e-6,maxX-minX),(height()-52)/std::max(1e-6,maxY-minY)));minX_=minX;minY_=minY;left_=(width()-(maxX-minX)*scale_)/2;bottom_=(height()-(maxY-minY)*scale_)/2;
+        for(std::size_t i=0;i<shape_.segmentCount();++i){const int row=static_cast<int>(i);auto* editor=qobject_cast<QComboBox*>(table_->cellWidget(row,2));const auto kind=editor?editor->currentData().toString():QString{};const QColor color=kind=="inlet"?QColor("#26a87b"):kind=="outlet"?QColor("#e99445"):kind=="reservoir"?QColor("#a683dc"):kind=="axis"?QColor("#5ca7b8"):kind=="wall"?QColor("#3795bd"):QColor("#dc5f68");const bool selected=table_->currentRow()==row;
+            QPainterPath path;path.moveTo(project(shape_.points()[i]));const int pieces=shape_.arc(i)?48:1;for(int j=1;j<=pieces;++j)path.lineTo(project(shape_.segmentPoint(i,static_cast<double>(j)/pieces)));p.setPen(QPen(color,selected?4:2,kind=="axis"?Qt::DashLine:Qt::SolidLine));p.drawPath(path);
+            const auto at=project(shape_.segmentPoint(i,.5));QRectF label(at.x()-13,at.y()-12,26,24);p.setPen(selected?palette().color(QPalette::Text):color);p.setBrush(palette().color(QPalette::Base));p.drawRoundedRect(label,5,5);p.drawText(label,Qt::AlignCenter,QString::number(row+1));
+        }
+    }
+    void mousePressEvent(QMouseEvent* event)override{
+        double best=16;int row=-1;const auto pos=event->position();for(std::size_t i=0;i<shape_.segmentCount();++i){const int pieces=shape_.arc(i)?48:1;for(int j=0;j<pieces;++j){const auto a=project(shape_.segmentPoint(i,static_cast<double>(j)/pieces)),b=project(shape_.segmentPoint(i,static_cast<double>(j+1)/pieces)),v=b-a;const double denominator=QPointF::dotProduct(v,v);const double t=denominator>0?std::clamp(QPointF::dotProduct(pos-a,v)/denominator,0.0,1.0):0;const double distance=QLineF(pos,a+t*v).length();if(distance<best){best=distance;row=static_cast<int>(i);}}if(QLineF(pos,project(shape_.segmentPoint(i,.5))).length()<14){row=static_cast<int>(i);best=0;}}
+        if(row>=0){table_->setCurrentCell(row,0);table_->selectRow(row);table_->scrollToItem(table_->item(row,0));update();}event->accept();
+    }
+};
+class BoundaryFocus final:public QObject {
+    QTableWidget* table_;int row_;
+public:BoundaryFocus(QTableWidget* table,int row):QObject(table),table_(table),row_(row){}
+    bool eventFilter(QObject*,QEvent* e)override{if(e->type()==QEvent::FocusIn)table_->setCurrentCell(row_,0);return false;}
+};
 }
 
 QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObject& previous, int page, const QJsonObject& defaults) {
+    const auto working=restoreBoundaryGeometry(shape,previous);
     QDialog dialog(parent);
     dialog.setObjectName("vortia-flow-setup");
     dialog.setWindowTitle(tr("Flow configuration"));
@@ -117,19 +153,28 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     table->setObjectName("flow-boundaries");
     table->setHorizontalHeaderLabels({tr("Segment"),tr("Region name"),tr("Type"),tr("Pressure (Pa)"),tr("Temperature (K)"),tr("Viscosity ratio")});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    table->setMinimumHeight(280); boundaryLayout->addWidget(table);
-    const auto oldBoundaries = previous.value("boundaries").toArray();
+    table->setMinimumHeight(240);table->setSelectionBehavior(QAbstractItemView::SelectRows);table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    auto* preview=new BoundaryPreview(shape,table,boundaryPage);boundaryLayout->addWidget(preview);
+    auto* details=new QLabel(boundaryPage);details->setObjectName("flow-boundary-details");details->setWordWrap(true);details->setTextInteractionFlags(Qt::TextSelectableByMouse);boundaryLayout->addWidget(details);
+    auto* templates=new QHBoxLayout;auto* regions=new QComboBox(boundaryPage);regions->setObjectName("flow-region-template");regions->addItem(tr("Choose a saved region…"));
+    QJsonArray savedRegions=working.value("boundaries").toArray();for(const auto& bc:working.value("unmappedBoundaries").toArray())if(!savedRegions.contains(bc))savedRegions.append(bc);
+    QSet<QByteArray> uniqueRegions;for(const auto& value:savedRegions){const auto bc=value.toObject();if(bc.value("type")=="unassigned")continue;const auto key=QJsonDocument(bc).toJson(QJsonDocument::Compact);if(uniqueRegions.contains(key))continue;uniqueRegions.insert(key);regions->addItem(bc.value("name").toString()+" · "+bc.value("type").toString(),QVariant::fromValue(bc));}
+    templates->addWidget(regions,1);auto* applyRegion=new QPushButton(tr("Apply to selected segments"),boundaryPage);applyRegion->setObjectName("flow-apply-region");templates->addWidget(applyRegion);boundaryLayout->addLayout(templates);
+    boundaryLayout->addWidget(table);
+    auto* feedback=new QLabel(boundaryPage);feedback->setObjectName("flow-boundary-feedback");feedback->setWordWrap(true);boundaryLayout->addWidget(feedback);
+    const auto oldBoundaries = working.value("boundaries").toArray();
     for (int row=0;row<table->rowCount();++row) {
         const auto index=static_cast<std::size_t>(row);
         const auto a=shape.points()[index], b=shape.points()[(index+1)%shape.points().size()];
         const bool axis=a.yMm==0 && b.yMm==0 && shape.segmentBulge(index)==0;
         const auto old=oldBoundaries.size()==table->rowCount() ? oldBoundaries[row].toObject() : QJsonObject{};
-        auto* segment=new QTableWidgetItem(QString("%1 · %2 mm").arg(row+1).arg(shape.segmentLength(index),0,'g',6));
+        auto* segment=new QTableWidgetItem((shape.arc(index)?tr("%1 · arc · R %2 mm").arg(row+1).arg(shape.arc(index)->radiusMm,0,'g',6):tr("%1 · line · %2 mm").arg(row+1).arg(shape.segmentLength(index),0,'g',6)));
         segment->setFlags(segment->flags()&~Qt::ItemIsEditable);table->setItem(row,0,segment);
         table->setCellWidget(row,1,new QLineEdit(old.value("name").toString(axis?QStringLiteral("axis"):QString("edge_%1").arg(row+1)),table));
         auto* type=new QComboBox(table);
-        for (const auto& item:std::vector<std::pair<QString,QString>>{{tr("Wall"),"wall"},{tr("Axis"),"axis"},{tr("Total-pressure inlet"),"inlet"},{tr("Pressure outlet"),"outlet"},{tr("Open reservoir"),"reservoir"}})type->addItem(item.first,item.second);
-        type->setCurrentIndex(std::max(0,type->findData(old.value("type").toString(axis?"axis":"wall"))));table->setCellWidget(row,2,type);
+        for (const auto& item:std::vector<std::pair<QString,QString>>{{tr("Wall"),"wall"},{tr("Axis"),"axis"},{tr("Total-pressure inlet"),"inlet"},{tr("Pressure outlet"),"outlet"},{tr("Open reservoir"),"reservoir"},{tr("Unassigned"),"unassigned"}})type->addItem(item.first,item.second);
+        type->setCurrentIndex(std::max(0,type->findData(axis?"axis":old.value("type").toString("wall"))));
+        if(axis){type->setEnabled(false);type->setToolTip(tr("A straight segment on Y=0 is automatically assigned to the axis."));}table->setCellWidget(row,2,type);
         for (int col=3;col<6;++col) {
             const char* key=col==3?"pressure":col==4?"temperature":"viscosityRatio";
             auto* value=new QDoubleSpinBox(table);value->setDecimals(col==3?1:3);value->setRange(0.001,1e9);
@@ -137,13 +182,21 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
             value->setValue(old.value(key).toDouble(col==3?101325:col==4?300:10));table->setCellWidget(row,col,value);
         }
         auto updateBoundaryEditors=[table,row,type]() {
-            const bool open=type->currentData().toString()!="wall" && type->currentData().toString()!="axis";
+            const auto kind=type->currentData().toString();const bool open=kind=="inlet"||kind=="outlet"||kind=="reservoir";
             for(int col=3;col<6;++col)table->cellWidget(row,col)->setEnabled(open);
         };
         QObject::connect(type,qOverload<int>(&QComboBox::currentIndexChanged),&dialog,updateBoundaryEditors);
         updateBoundaryEditors();
+        for(int column=1;column<6;++column)table->cellWidget(row,column)->installEventFilter(new BoundaryFocus(table,row));
+        QObject::connect(type,qOverload<int>(&QComboBox::currentIndexChanged),preview,qOverload<>(&QWidget::update));
         segment->setToolTip(QString("(%1, %2) → (%3, %4) mm").arg(a.xMm).arg(a.yMm).arg(b.xMm).arg(b.yMm));
     }
+
+    const auto selectedBoundary=[&](int row){if(row<0||row>=table->rowCount())return;const auto i=static_cast<std::size_t>(row);const auto a=shape.points()[i],b=shape.points()[(i+1)%shape.points().size()];details->setText(tr("Segment %1 · vertex %2 (%3, %4) → vertex %5 (%6, %7) mm · length %8 mm").arg(row+1).arg(row).arg(a.xMm,0,'g',9).arg(a.yMm,0,'g',9).arg((row+1)%static_cast<int>(shape.points().size())).arg(b.xMm,0,'g',9).arg(b.yMm,0,'g',9).arg(shape.segmentLength(i),0,'g',9));preview->update();};
+    QObject::connect(table,&QTableWidget::currentCellChanged,&dialog,[&](int row,int,int,int){selectedBoundary(row);});if(table->rowCount()){table->setCurrentCell(0,0);selectedBoundary(0);}
+    QObject::connect(applyRegion,&QPushButton::clicked,&dialog,[&](){if(regions->currentIndex()<1)return;const auto bc=regions->currentData().toJsonObject();auto rows=table->selectionModel()->selectedRows();if(rows.empty()&&table->currentRow()>=0)rows.append(table->model()->index(table->currentRow(),0));for(const auto& selected:rows){const int row=selected.row();auto* type=static_cast<QComboBox*>(table->cellWidget(row,2));if(!type->isEnabled())continue;static_cast<QLineEdit*>(table->cellWidget(row,1))->setText(bc.value("name").toString());type->setCurrentIndex(std::max(0,type->findData(bc.value("type"))));for(int col=3;col<6;++col)static_cast<QDoubleSpinBox*>(table->cellWidget(row,col))->setValue(bc.value(col==3?"pressure":col==4?"temperature":"viscosityRatio").toDouble());}preview->update();});
+    int unresolved=0;for(const auto& value:oldBoundaries)unresolved+=value.toObject().value("type")=="unassigned";
+    feedback->setText(unresolved?tr("%1 new or ambiguous segments need a boundary type. Unchanged and unambiguous inherited assignments have been retained.").arg(unresolved):tr("Assignments are linked to the current geometry. Split segments inherit their region; a fillet between walls is a wall."));
     registerPage(boundaryPage,"Boundary conditions","boundary");
     auto* calculation=addPage("Initialization and calculation","solver");
     number(calculation,"initial","pressure","Initial absolute pressure (Pa)",101325,0.001,1e9,1);
@@ -186,9 +239,10 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     navigation->selectPage(std::clamp(page,0,pages->count()-1));
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
     QObject::connect(buttons,&QDialogButtonBox::accepted,&dialog,[&](){
-        if(criteria[1].spin->value()<criteria[0].spin->value()) {
-            QMessageBox::warning(&dialog,tr("Convergence criteria"),tr("The minimum iterations must be at least the check interval."));return;
-        }
+        if(criteria[1].spin->value()<criteria[0].spin->value())criteria[1].spin->setValue(criteria[0].spin->value());
+        const auto control=[&](const QString& section,const QString& key)->QDoubleSpinBox*{for(const auto& number:numbers)if(number.section==section&&number.key==key)return number.spin;return nullptr;};
+        if(auto* saved=control("solver","writeInterval"))saved->setValue(std::min(saved->value(),control("solver","iterations")->value()));
+        if(auto* wall=control("mesh","wallSizeMm"))wall->setValue(std::min(wall->value(),control("mesh","sizeMm")->value()));
         dialog.accept();
     });
     QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
@@ -206,7 +260,9 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
         for(int col=3;col<6;++col)bc.insert(col==3?"pressure":col==4?"temperature":"viscosityRatio",static_cast<QDoubleSpinBox*>(table->cellWidget(row,col))->value());
         boundaries.append(bc);
     }
-    result.insert("boundaries",boundaries);return result;
+    result.insert("boundaries",normalizedBoundaryNames(boundaries));result.insert("boundaryGeometry",boundaryGeometry(shape));
+    for(const auto* key:{"boundaryVersions","unmappedBoundaries"})if(working.contains(key))result.insert(key,working.value(key));
+    return result;
 }
 
 QString stageFlowBackend(const QString& caseDir) {

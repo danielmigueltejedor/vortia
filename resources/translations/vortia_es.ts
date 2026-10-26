@@ -3,6 +3,10 @@
 <TS version="2.1" language="es_ES">
 <context>
     <name>vortia::MainWindow</name>
+    <message><source>Assign the highlighted boundaries, including a total-pressure inlet and a pressure outlet, before generating the case.</source><translation>Asigna los contornos señalados, incluida una entrada de presión total y una salida de presión, antes de generar el caso.</translation></message>
+    <message><source>Calculation monitors</source><translation>Seguimiento del cálculo</translation></message>
+    <message><source>Monitors</source><translation>Seguimiento</translation></message>
+    <message><source>Tracking</source><translation>Seguimiento</translation></message>
     <message><source>Analyze</source><translation>Análisis</translation></message>
     <message><source>Data</source><translation>Datos</translation></message>
     <message><source>Display</source><translation>Representación</translation></message>
@@ -591,6 +595,45 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
     <name>vortia::SketchEditorDialog</name>
+    <message><source>Choose a corner between two straight segments that can support a tangent fillet.</source><translation>Elige una esquina entre dos rectas que permita un redondeo tangente.</translation></message>
+    <message><source>Double click to edit this coordinate in millimetres.</source><translation>Haz doble clic para editar esta coordenada en milímetros.</translation></message>
+    <message><source>Edit vertex %1</source><translation>Editar vértice %1</translation></message>
+    <message><source>Radius (mm) · allowed %1 to %2</source><translation>Radio (mm) · intervalo válido de %1 a %2</translation></message>
+    <message><source>The point was not added: open the profile and use distinct consecutive points.</source><translation>No se ha añadido el punto: abre el perfil y utiliza puntos consecutivos distintos.</translation></message>
+    <message><source>This arc is not an editable tangent fillet. Select a supported fillet arc.</source><translation>Este arco no es un redondeo tangente editable. Selecciona un arco de redondeo compatible.</translation></message>
+    <message><source>Those coordinates would create an invalid segment. The original vertex was retained.</source><translation>Esas coordenadas crearían un segmento no válido. Se conserva el vértice original.</translation></message>
+    <message><source>Aligned with vertex</source><translation>Alineación con vértice</translation></message>
+    <message><source>Arc center</source><translation>Centro de arco</translation></message>
+    <message><source>Coordinates are in millimetres. In an open profile, the copied fragment is appended and connected to its last point.</source><translation>Las coordenadas están en milímetros. En un perfil abierto, el fragmento se añade y se conecta con el último punto.</translation></message>
+    <message><source>Copied %1 vertices. With no selection, Copy copies the whole sketch.</source><translation>Se han copiado %1 vértices. Sin selección se copia el croquis completo.</translation></message>
+    <message><source>Drawing references</source><translation>Referencias de dibujo</translation></message>
+    <message><source>Endpoint</source><translation>Extremo</translation></message>
+    <message><source>Free / grid placement</source><translation>Posición libre / rejilla</translation></message>
+    <message><source>Midpoint</source><translation>Punto medio</translation></message>
+    <message><source>Orthogonal</source><translation>Ortogonal</translation></message>
+    <message><source>Paste a closed profile into an empty sketch. Open profiles accept appended points or segments; separate contours are not supported.</source><translation>Pega un perfil cerrado en un croquis vacío. En los perfiles abiertos se añaden puntos o segmentos conectados; no se admiten contornos independientes.</translation></message>
+    <message><source>Paste geometry</source><translation>Pegar geometría</translation></message>
+    <message><source>Paste would create invalid or duplicate consecutive vertices. The sketch was retained.</source><translation>El pegado crearía vértices no válidos o consecutivos duplicados. Se conserva el croquis.</translation></message>
+    <message><source>Perpendicular</source><translation>Perpendicular</translation></message>
+    <message><source>Polar tracking</source><translation>Rastreo polar</translation></message>
+    <message><source>Shift: temporary orthogonal · Alt: suspend references</source><translation>Mayús: ortogonal temporal · Alt: suspender referencias</translation></message>
+    <message><source>The clipboard does not contain valid Vortia geometry.</source><translation>El portapapeles no contiene geometría válida de Vortia.</translation></message>
+    <message><source>The vertex cannot be removed without creating a zero-length segment.</source><translation>No se puede eliminar el vértice sin crear un segmento de longitud cero.</translation></message>
+    <message><source>X offset</source><translation>Desplazamiento X</translation></message>
+    <message><source>Y offset</source><translation>Desplazamiento Y</translation></message>
+    <message><source>Undo</source><translation>Deshacer</translation></message>
+    <message><source>Redo</source><translation>Rehacer</translation></message>
+    <message><source>Copy geometry</source><translation>Copiar geometría</translation></message>
+    <message><source>Paste geometry…</source><translation>Pegar geometría…</translation></message>
+    <message><source>Delete selected vertex</source><translation>Eliminar vértice seleccionado</translation></message>
+    <message><source>Enable references (F3)</source><translation>Activar referencias (F3)</translation></message>
+    <message><source>Endpoints</source><translation>Extremos</translation></message>
+    <message><source>Midpoints</source><translation>Puntos medios</translation></message>
+    <message><source>Arc centers</source><translation>Centros de arcos</translation></message>
+    <message><source>Vertex alignment</source><translation>Alineación con vértices</translation></message>
+    <message><source>Perpendicular tracking</source><translation>Rastreo perpendicular</translation></message>
+    <message><source>Orthogonal mode (F8)</source><translation>Modo ortogonal (F8)</translation></message>
+    <message><source>Polar tracking · 15° (F10)</source><translation>Rastreo polar · 15° (F10)</translation></message>
     <message><source>Case geometry: select to inspect; drag empty space to pan.</source><translation>Geometría del caso: selecciona para consultar; arrastra el fondo para desplazar.</translation></message>
     <message><source>OpenFOAM case geometry: pinch to zoom, pan and inspect dimensions. To change the mesh, prepare a new nozzle case with the desired dimensions.</source><translation>Geometría del caso OpenFOAM: amplía con dos dedos, desplaza y consulta cotas. Para cambiar la malla, prepara un nuevo caso de tobera con las dimensiones que quieras.</translation></message>
     <message><source>Pinch to zoom; swipe with two fingers to pan. Drag empty space, or hold Space to pan. Esc selects; L draws; F fits the sketch.</source><translation>Pellizca para ampliar; desliza dos dedos para desplazar. Arrastra el fondo o mantén Espacio para mover la vista. Esc selecciona; L dibuja; F encuadra el croquis.</translation></message>
@@ -771,6 +814,16 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
         <name>vortia::FlowSetup</name>
+    <message><source>%1 new or ambiguous segments need a boundary type. Unchanged and unambiguous inherited assignments have been retained.</source><translation>Hay %1 tramos nuevos o ambiguos que necesitan un tipo de contorno. Se conservan las asignaciones anteriores que se pueden asociar con seguridad.</translation></message>
+    <message><source>%1 · arc · R %2 mm</source><translation>%1 · arco · R %2 mm</translation></message>
+    <message><source>%1 · line · %2 mm</source><translation>%1 · recta · %2 mm</translation></message>
+    <message><source>A straight segment on Y=0 is automatically assigned to the axis.</source><translation>Un tramo recto sobre Y=0 se asigna automáticamente al eje.</translation></message>
+    <message><source>Apply to selected segments</source><translation>Aplicar a los tramos seleccionados</translation></message>
+    <message><source>Assignments are linked to the current geometry. Split segments inherit their region; a fillet between walls is a wall.</source><translation>Las asignaciones están vinculadas a esta geometría. Los tramos divididos heredan su región; un redondeo entre paredes se asigna como pared.</translation></message>
+    <message><source>Choose a saved region…</source><translation>Elegir una región guardada…</translation></message>
+    <message><source>Click a numbered segment to select its boundary settings.</source><translation>Haz clic en un tramo numerado para seleccionar sus condiciones de contorno.</translation></message>
+    <message><source>Segment %1 · vertex %2 (%3, %4) → vertex %5 (%6, %7) mm · length %8 mm</source><translation>Tramo %1 · vértice %2 (%3, %4) → vértice %5 (%6, %7) mm · longitud %8 mm</translation></message>
+    <message><source>Unassigned</source><translation>Sin asignar</translation></message>
     <message><source>Models</source><translation>Modelos</translation></message>
     <message><source>Boundaries</source><translation>Contornos</translation></message>
     <message><source>Calculation</source><translation>Cálculo</translation></message>
@@ -1268,5 +1321,81 @@ Valor: %2</translation></message>
     <message><source>Pinch to zoom · two fingers to pan · drag to orbit · Shift/Space + drag to pan · F to fit</source><translation>Pellizca para ampliar · dos dedos para desplazar · arrastra para orbitar · Mayús/Espacio + arrastre para desplazar · F para encuadrar</translation></message>
     <message><source>Pressure (Pa)</source><translation>Presión (Pa)</translation></message>
     <message><source>Temperature (K)</source><translation>Temperatura (K)</translation></message>
+</context>
+<context>
+    <name>vortia::RunMonitor</name>
+    <message><source>About these measures</source><translation>Acerca de estas medidas</translation></message>
+    <message><source>Zero is displayed at 1e−16 on a logarithmic axis. The data table and CSV retain the actual value.</source><translation>En el eje logarítmico, el cero se representa en 1e−16. La tabla y el CSV conservan el valor real.</translation></message>
+    <message><source>Nearest recorded samples (not interpolated)</source><translation>Muestras registradas más cercanas (sin interpolación)</translation></message>
+    <message><source> · display history reduced; complete log retained</source><translation> · historial gráfico reducido; registro completo conservado</translation></message>
+    <message><source> · view frozen; recording continues</source><translation> · vista congelada; el registro continúa</translation></message>
+    <message><source>%1 observations · %2 series</source><translation>%1 observaciones · %2 series</translation></message>
+    <message><source>%1
+Coordinate: %2 · run: %3
+Value: %4</source><translation>%1
+Coordenada: %2 · ejecución: %3
+Valor: %4</translation></message>
+    <message><source>All runs</source><translation>Todas las ejecuciones</translation></message>
+    <message><source>CPU / wall time (s)</source><translation>Tiempo CPU / reloj (s)</translation></message>
+    <message><source>Courant number</source><translation>Número de Courant</translation></message>
+    <message><source>Curves</source><translation>Curvas</translation></message>
+    <message><source>Detailed graph</source><translation>Gráfica detallada</translation></message>
+    <message><source>Equation update indicator</source><translation>Indicador de ecuaciones</translation></message>
+    <message><source>Export CSV…</source><translation>Exportar CSV…</translation></message>
+    <message><source>Export failed</source><translation>No se ha podido exportar</translation></message>
+    <message><source>Export monitor history</source><translation>Exportar historial de seguimiento</translation></message>
+    <message><source>Field change (%)</source><translation>Variación de campos (%)</translation></message>
+    <message><source>Final residuals</source><translation>Residuos finales</translation></message>
+    <message><source>Final · %1</source><translation>Final · %1</translation></message>
+    <message><source>Fit plots</source><translation>Encuadrar gráficas</translation></message>
+    <message><source>Freeze view</source><translation>Congelar vista</translation></message>
+    <message><source>Histories belong to this calculation folder. Changing a sketch does not recalculate an existing history.</source><translation>El historial corresponde a esta carpeta de cálculo. Modificar el croquis no recalcula un historial existente.</translation></message>
+    <message><source>Initial residuals</source><translation>Residuos iniciales</translation></message>
+    <message><source>Initial · %1</source><translation>Inicial · %1</translation></message>
+    <message><source>Iteration (pseudo-time; not physical seconds)</source><translation>Iteración (pseudotiempo; no son segundos físicos)</translation></message>
+    <message><source>Last coordinate interval (0 = all)</source><translation>Último intervalo de coordenadas (0 = todo)</translation></message>
+    <message><source>Live · </source><translation>En directo · </translation></message>
+    <message><source>Loading recorded history · </source><translation>Cargando historial · </translation></message>
+    <message><source>Logarithmic Y</source><translation>Eje Y logarítmico</translation></message>
+    <message><source>Mass imbalance (%)</source><translation>Desequilibrio de masa (%)</translation></message>
+    <message><source>No calculation case selected.</source><translation>No hay un caso de cálculo seleccionado.</translation></message>
+    <message><source>No reported curves</source><translation>No hay curvas registradas</translation></message>
+    <message><source>No reported samples for this view. Missing metrics are not replaced by zero.</source><translation>No hay muestras registradas para esta vista. Las medidas ausentes no se sustituyen por cero.</translation></message>
+    <message><source>No samples in the selected range. Double click to fit.</source><translation>No hay muestras en este intervalo. Haz doble clic para encuadrar.</translation></message>
+    <message><source>Open-boundary flow (kg/s)</source><translation>Caudal de contornos abiertos (kg/s)</translation></message>
+    <message><source>Overview</source><translation>Panel general</translation></message>
+    <message><source>Pinch or wheel to zoom horizontally · drag or swipe to pan · double click or F to fit</source><translation>Pellizca o usa la rueda para ampliar horizontalmente · arrastra o desliza para desplazar · doble clic o F para encuadrar</translation></message>
+    <message><source>Raw value</source><translation>Valor original</translation></message>
+    <message><source>Recent data</source><translation>Datos recientes</translation></message>
+    <message><source>Recorded history · </source><translation>Historial guardado · </translation></message>
+    <message><source>Recorded observations only; no synthetic intermediate iterations. Initial/final linear-solver residuals and the equation update indicator are different measures. Low residuals alone do not validate the flow. Log plots clip zero at 1e−16; tables/CSV retain zero. Flow totals cover all open boundaries of the computed domain, including any axisymmetric sector; they are not nozzle thrust or full-revolution inlet flow.</source><translation>Se muestran observaciones registradas, sin inventar iteraciones intermedias. Los residuos del solver lineal y el indicador de ecuaciones son medidas distintas; un residuo bajo no valida por sí solo el flujo. El cero se representa en 10⁻¹⁶ en escala logarítmica y se conserva en tablas y CSV. Los caudales suman los contornos abiertos del dominio calculado, incluido su sector axisimétrico; no representan el empuje ni el caudal de entrada de una revolución completa.</translation></message>
+    <message><source>Run</source><translation>Ejecución</translation></message>
+    <message><source>Run %1</source><translation>Ejecución %1</translation></message>
+    <message><source>Save monitor plot</source><translation>Guardar gráfica de seguimiento</translation></message>
+    <message><source>Save plot PNG…</source><translation>Guardar gráfica PNG…</translation></message>
+    <message><source>Series</source><translation>Serie</translation></message>
+    <message><source>Solver advance per second</source><translation>Avance del solver por segundo</translation></message>
+    <message><source>Solver coordinate</source><translation>Coordenada del solver</translation></message>
+    <message><source>Solver coordinate (Time)</source><translation>Coordenada del solver (Time)</translation></message>
+    <message><source>Source: %1</source><translation>Origen: %1</translation></message>
+    <message><source>Stable sample window</source><translation>Ventana de muestras estables</translation></message>
+    <message><source>The monitor history could not be saved.</source><translation>No se ha podido guardar el historial de seguimiento.</translation></message>
+    <message><source>The plot image could not be saved.</source><translation>No se ha podido guardar la imagen de la gráfica.</translation></message>
+    <message><source>Unit</source><translation>Unidad</translation></message>
+    <message><source>Global imbalance</source><translation>Desequilibrio global</translation></message>
+    <message><source>Local imbalance</source><translation>Desequilibrio local</translation></message>
+    <message><source>Mass tolerance</source><translation>Tolerancia de masa</translation></message>
+    <message><source>Field change</source><translation>Variación de campos</translation></message>
+    <message><source>Field tolerance</source><translation>Tolerancia de campos</translation></message>
+    <message><source>Equation tolerance</source><translation>Tolerancia de ecuaciones</translation></message>
+    <message><source>All open boundaries · incoming</source><translation>Todos los contornos abiertos · entrada</translation></message>
+    <message><source>All open boundaries · outgoing</source><translation>Todos los contornos abiertos · salida</translation></message>
+    <message><source>Mean Courant</source><translation>Courant medio</translation></message>
+    <message><source>Maximum Courant</source><translation>Courant máximo</translation></message>
+    <message><source>Reported CPU time</source><translation>Tiempo CPU registrado</translation></message>
+    <message><source>Reported wall time</source><translation>Tiempo de reloj registrado</translation></message>
+    <message><source>Solver coordinate / wall second</source><translation>Coordenada del solver / segundo real</translation></message>
+    <message><source>Consecutive accepted samples</source><translation>Muestras válidas consecutivas</translation></message>
+    <message><source>Required samples</source><translation>Muestras necesarias</translation></message>
 </context>
 </TS>

@@ -14,6 +14,8 @@ namespace {
 const std::regex kResidual(
     R"(\bSolving for (\w+), Initial residual = ([0-9.eE+\-nanif]+), Final residual = ([0-9.eE+\-nanif]+), No Iterations (\d+))");
 
+const std::regex kExecution(R"(ExecutionTime = ([0-9.eE+\-]+) s\s+ClockTime = ([0-9.eE+\-]+) s)");
+
 const std::regex kTime(R"(^\s*Time = ([0-9.eE+\-]+)\s*$)");
 
 const std::regex kCourant(R"(Courant Number mean: ([0-9.eE+\-nanif]+) max: ([0-9.eE+\-nanif]+))");
@@ -53,6 +55,11 @@ std::optional<ConvergenceSample> parseConvergenceReport(std::string_view text) {
         if(s.checkedIteration>s.iteration)return {};
         if(s.status=="converged"&&(!s.sampled||s.checkedIteration!=s.iteration||s.stableSamples<s.requiredSamples||
             s.globalMass>s.massTolerance||s.localMass>s.massTolerance||s.fieldChange>s.fieldTolerance||s.equationError>s.equationTolerance))return {};
+        if(j.contains("massIncoming")||j.contains("massOutgoing")){
+            const auto incoming=j.at("massIncoming").get<double>(),outgoing=j.at("massOutgoing").get<double>();
+            if(!std::isfinite(incoming)||!std::isfinite(outgoing)||incoming<0||outgoing<0)return {};
+            s.massIncoming=incoming;s.massOutgoing=outgoing;
+        }
         return s;
     } catch(...) {return {};}
 }
@@ -81,14 +88,32 @@ void LogParser::flush() {
 
 void LogParser::reset() {
     pending_.clear();
-    progress_ = SolverProgress{};
+    progress_ = SolverProgress{};monitorSamples_.clear();hasTime_=false;session_=0;historyPhase_=true;pendingCentralCourant_.reset();clockBaseline_.reset();
 }
 
+std::vector<MonitorSample> LogParser::takeMonitorSamples(){auto samples=std::move(monitorSamples_);monitorSamples_.clear();return samples;}
+void LogParser::monitor(const std::string& key,double x,double value){
+    if(collectMonitors_&&historyPhase_&&std::isfinite(x)&&x>=0&&std::isfinite(value)&&value>=0)monitorSamples_.push_back({x,value,key,session_});
+}
 void LogParser::processLine(const std::string& line) {
+    if(collectMonitors_&&line.rfind("===== Vortia step:",0)==0){
+        historyPhase_=line.find("Foam")!=std::string::npos||line.find("(mpirun)")!=std::string::npos;
+        if(historyPhase_)++session_;hasTime_=false;clockBaseline_.reset();pendingCentralCourant_.reset();
+        return;
+    }
     constexpr std::string_view marker="VORTIA_CONVERGENCE ";
     if(line.rfind(marker,0)==0) {
-        if(auto sample=parseConvergenceReport(std::string_view(line).substr(marker.size())))
+        if(auto sample=parseConvergenceReport(std::string_view(line).substr(marker.size()))){
+            if(sample->sampled&&sample->checkedIteration==sample->iteration){
+                const auto x=sample->checkedIteration;
+                monitor("mass.global",x,sample->globalMass);monitor("mass.local",x,sample->localMass);monitor("mass.tolerance",x,sample->massTolerance);
+                monitor("field.change",x,sample->fieldChange);monitor("field.tolerance",x,sample->fieldTolerance);
+                monitor("equation.error",x,sample->equationError);monitor("equation.tolerance",x,sample->equationTolerance);
+                monitor("stability.samples",x,sample->stableSamples);monitor("stability.required",x,sample->requiredSamples);
+                if(sample->massIncoming){monitor("flow.incoming",x,*sample->massIncoming);monitor("flow.outgoing",x,*sample->massOutgoing);}
+            }
             progress_.convergence=std::move(sample);
+        }
         return;
     }
     if (looksFatal(line)) {
@@ -98,26 +123,39 @@ void LogParser::processLine(const std::string& line) {
     }
 
     std::smatch match;
-    if (std::regex_search(line, match, kTime)) {
+    if (line.find("Time =")!=std::string::npos&&std::regex_search(line, match, kTime)) {
         try {
-            progress_.time = std::stod(match[1].str());
+            const double coordinate=std::stod(match[1].str());
+            if(collectMonitors_&&hasTime_&&coordinate<progress_.time){++session_;clockBaseline_.reset();}
+            progress_.time = coordinate;hasTime_=true;
+            if(pendingCentralCourant_){monitor("courant.mean",coordinate,pendingCentralCourant_->first);monitor("courant.max",coordinate,pendingCentralCourant_->second);pendingCentralCourant_.reset();}
         } catch (...) {
         }
         return;
     }
-    if (std::regex_search(line, match, kCourant) || std::regex_search(line, match, kCentralCourant)) {
+    if (line.find("Courant Number")!=std::string::npos&&(std::regex_search(line, match, kCourant) || std::regex_search(line, match, kCentralCourant))) {
         try {
             progress_.courantMean = std::stod(match[1].str());
             progress_.courantMax = std::stod(match[2].str());
         } catch (...) {
         }
+        if(line.find("Courant Numbers:")!=std::string::npos)pendingCentralCourant_={{progress_.courantMean,progress_.courantMax}};
+        else if(hasTime_){monitor("courant.mean",progress_.time,progress_.courantMean);monitor("courant.max",progress_.time,progress_.courantMax);}
         if (isBadNumber(progress_.courantMax)) {
             progress_.diverged = true;
             progress_.divergenceReason = "Courant number became NaN/Inf";
         }
         return;
     }
-    if (std::regex_search(line, match, kResidual)) {
+    if(collectMonitors_&&hasTime_&&line.find("ExecutionTime =")!=std::string::npos&&std::regex_search(line,match,kExecution)){
+        try {const double cpu=std::stod(match[1].str()),clock=std::stod(match[2].str());
+            monitor("runtime.cpu",progress_.time,cpu);monitor("runtime.clock",progress_.time,clock);
+            if(clockBaseline_&&clock>clockBaseline_->second&&progress_.time>clockBaseline_->first){monitor("runtime.rate",progress_.time,(progress_.time-clockBaseline_->first)/(clock-clockBaseline_->second));clockBaseline_={{progress_.time,clock}};}
+            else if(!clockBaseline_||clock<clockBaseline_->second)clockBaseline_={{progress_.time,clock}};
+        }catch(...){}
+        return;
+    }
+    if (line.find("Solving for ")!=std::string::npos&&std::regex_search(line, match, kResidual)) {
         ResidualSample sample;
         sample.field = match[1].str();
         try {
@@ -131,6 +169,7 @@ void LogParser::processLine(const std::string& line) {
             progress_.diverged = true;
             progress_.divergenceReason = "NaN/Inf residual for field " + sample.field;
         }
+        if(hasTime_){monitor("residual.initial."+sample.field,progress_.time,sample.initial);monitor("residual.final."+sample.field,progress_.time,sample.final);}
         for (auto& existing : progress_.residuals) {
             if (existing.field == sample.field) {
                 existing = sample;
