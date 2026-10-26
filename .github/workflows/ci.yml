@@ -51,7 +51,7 @@ jobs:
       - name: Install build dependencies and OpenFOAM
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build g++ libgtest-dev nlohmann-json3-dev libhdf5-dev openfoam
+          sudo apt-get install -y cmake ninja-build g++ libgtest-dev nlohmann-json3-dev libhdf5-dev openfoam python3-venv libglu1-mesa
       - name: Build mesh generator smoke tool
         run: |
           cmake -S . -B build -G Ninja -DVORTIA_BUILD_UI=OFF -DCMAKE_BUILD_TYPE=Release
@@ -120,6 +120,19 @@ jobs:
           blockMesh -case "$case_dir" | tee "$RUNNER_TEMP/blockMesh-nozzle.log"
           checkMesh -case "$case_dir" -allTopology -allGeometry | tee "$RUNNER_TEMP/checkMesh-nozzle.log"
           grep -q "Mesh OK" "$RUNNER_TEMP/checkMesh-nozzle.log"
+      - name: Check partition preview and export with native Gmsh and OpenFOAM
+        shell: bash
+        run: |
+          set -eo pipefail
+          if [[ -f /usr/share/openfoam/etc/bashrc ]]; then
+            source /usr/share/openfoam/etc/bashrc
+          elif [[ -f /usr/lib/openfoam/openfoam1912/etc/bashrc ]]; then
+            source /usr/lib/openfoam/openfoam1912/etc/bashrc
+          fi
+          python3 -m venv "$RUNNER_TEMP/vortia-gmsh"
+          "$RUNNER_TEMP/vortia-gmsh/bin/pip" install gmsh==4.15.2
+          VORTIA_REGION_CHECK_OPENFOAM=1 PYTHONDONTWRITEBYTECODE=1 \
+            "$RUNNER_TEMP/vortia-gmsh/bin/python" resources/flow/test_mesh_regions_native.py
 
   macos:
     runs-on: macos-15
