@@ -1032,6 +1032,11 @@ TEST(RunHistory, BoundedDecimationRetainsExtremaAndExportsRawZeroValues){
     ASSERT_EQ(history.series.size(),1);const auto& points=history.series.begin()->second;EXPECT_LE(points.size(),8192u);EXPECT_TRUE(history.reduced);EXPECT_EQ(history.observations,20000u);EXPECT_DOUBLE_EQ(points.front().x,0);EXPECT_DOUBLE_EQ(points.back().x,19999);EXPECT_TRUE(std::any_of(points.begin(),points.end(),[](const auto& p){return p.y==1000;}));
     QTemporaryDir folder;const auto file=folder.filePath("history.csv");ASSERT_TRUE(history.writeCsv(file));const auto text=readFile(file);EXPECT_TRUE(text.startsWith("session,solver_coordinate,series,value,unit"));EXPECT_TRUE(text.contains("1,0,residual.initial.p,0,1"));
 }
+TEST(RunHistory, CancellingAReadCannotPublishIntoTheNextCase){
+    QTemporaryDir a,b;QByteArray large;for(int i=0;i<10000;++i)large+="Time = "+QByteArray::number(i)+"\nDICPCG: Solving for p, Initial residual = 0.2, Final residual = 0.01, No Iterations 1\n";
+    writeFile(a.filePath("log.vortia"),large);writeFile(b.filePath("log.vortia"),"Time = 7\nDICPCG: Solving for Ux, Initial residual = 0.3, Final residual = 0.02, No Iterations 1\n");
+    RunMonitor monitor;monitor.setCase(a.path());monitor.setCase(b.path());QElapsedTimer timer;timer.start();while(monitor.loading()&&timer.elapsed()<3000){QApplication::processEvents();QThread::msleep(1);}ASSERT_FALSE(monitor.loading());QApplication::processEvents();EXPECT_FALSE(monitor.history().series.contains("residual.initial.p"));ASSERT_TRUE(monitor.history().series.contains("residual.initial.Ux"));EXPECT_EQ(monitor.history().series.at("residual.initial.Ux").size(),1u);
+}
 TEST(RunHistory, ReplayAndLiveSamplesRemainBoundToTheirCaseAndFreezeDoesNotStopRecording){
     QTemporaryDir a,b;writeFile(a.filePath("log.vortia"),"Time = 10\nDICPCG: Solving for p, Initial residual = 0.2, Final residual = 0.01, No Iterations 1\n");
     RunMonitor monitor;monitor.setCase(a.path());QElapsedTimer timer;timer.start();while(monitor.loading()&&timer.elapsed()<3000){QApplication::processEvents();QThread::msleep(1);}ASSERT_FALSE(monitor.loading());ASSERT_EQ(monitor.history().series.at("residual.initial.p").size(),1u);

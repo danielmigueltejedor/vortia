@@ -170,7 +170,7 @@ RunMonitor::RunMonitor(QWidget* parent):QWidget(parent),history_(std::make_share
     connect(image,&QPushButton::clicked,this,[this](){const auto path=QFileDialog::getSaveFileName(this,monitorText("Save monitor plot"),{},"PNG (*.png)");if(path.isEmpty())return;QWidget* graph=views_->currentIndex()==0?qobject_cast<QScrollArea*>(views_->widget(0))->widget():plot_;if(views_->currentIndex()==2){views_->setCurrentIndex(1);refresh();}QSaveFile output(path);if(!output.open(QIODevice::WriteOnly)||!graph->grab().save(&output,"PNG")||!output.commit())QMessageBox::warning(this,monitorText("Export failed"),monitorText("The plot image could not be saved."));});
     redraw_=new QTimer(this);redraw_->setInterval(200);connect(redraw_,&QTimer::timeout,this,[this](){if(dirty_&&isVisible())refresh();});redraw_->start();refresh();
 }
-RunMonitor::~RunMonitor(){reader_.request_stop();if(reader_.joinable())reader_.join();}
+RunMonitor::~RunMonitor(){readerStop_.store(true);if(reader_.joinable())reader_.join();}
 void RunMonitor::setPaused(bool value){frozen_=value?std::make_shared<MonitorHistory>(*history_):nullptr;dirty_=true;refresh();}
 std::vector<std::string> RunMonitor::keysFor(int group)const{
     const auto* h=frozen_?frozen_.get():history_.get();std::vector<std::string> keys;
@@ -197,21 +197,22 @@ void RunMonitor::setCase(const QString& directory,bool force){
     loadLog(directory.isEmpty()?QString{}:QDir(directory).filePath("log.vortia"),force);
 }
 void RunMonitor::loadLog(const QString& file,bool force){
-    if(!force&&file==logPath_)return;reader_.request_stop();if(reader_.joinable())reader_.join();const auto generation=++generation_;logPath_=file;loading_=false;running_=false;paused_->setChecked(false);frozen_.reset();history_=std::make_shared<MonitorHistory>();hidden_.clear();plot_->fit();for(auto* p:overview_)p->fit();
+    if(!force&&file==logPath_)return;readerStop_.store(true);if(reader_.joinable())reader_.join();const auto generation=++generation_;logPath_=file;loading_=false;running_=false;paused_->setChecked(false);frozen_.reset();history_=std::make_shared<MonitorHistory>();hidden_.clear();plot_->fit();for(auto* p:overview_)p->fit();
     source_->setText(file.isEmpty()?monitorText("No calculation case selected."):monitorText("Source: %1").arg(QDir::toNativeSeparators(file)));source_->setToolTip(monitorText("Histories belong to this calculation folder. Changing a sketch does not recalculate an existing history."));
     const QFileInfo info(file);if(file.isEmpty()||!info.isFile()){dirty_=true;refresh();return;}
     const auto cached=cache_.find(file);if(!force&&cached!=cache_.end()&&cached->second.size==info.size()&&cached->second.modified==info.lastModified().toMSecsSinceEpoch()){history_=cached->second.history;dirty_=true;refresh();return;}
     loading_=true;dirty_=true;refresh();
-    reader_=std::jthread([this,file,generation](std::stop_token stop){
+    readerStop_.store(false);
+    reader_=std::thread([this,file,generation](){
         auto loaded=std::make_shared<MonitorHistory>();std::ifstream input(file.toStdString(),std::ios::binary);openfoam::LogParser parser(true);std::array<char,16384> buffer{};
-        while(input&&!stop.stop_requested()){input.read(buffer.data(),buffer.size());const auto size=input.gcount();if(size<=0)break;parser.feed(std::string_view(buffer.data(),static_cast<std::size_t>(size)));loaded->append(parser.takeMonitorSamples());}
-        if(stop.stop_requested())return;parser.flush();loaded->append(parser.takeMonitorSamples());
+        while(input&&!readerStop_.load()){input.read(buffer.data(),buffer.size());const auto size=input.gcount();if(size<=0)break;parser.feed(std::string_view(buffer.data(),static_cast<std::size_t>(size)));loaded->append(parser.takeMonitorSamples());}
+        if(readerStop_.load())return;parser.flush();loaded->append(parser.takeMonitorSamples());
         QMetaObject::invokeMethod(this,[this,generation,loaded,file](){if(generation!=generation_||running_)return;history_=loaded;loading_=false;const QFileInfo current(file);if(cache_.size()>=4)cache_.erase(cache_.begin());cache_[file]={current.size(),current.lastModified().toMSecsSinceEpoch(),loaded};dirty_=true;refresh();},Qt::QueuedConnection);
     });
 }
 void RunMonitor::beginRun(const QString& directory){
     if(QDir(directory).filePath("log.vortia")!=logPath_)setCase(directory);
-    reader_.request_stop();if(reader_.joinable())reader_.join();++generation_;loading_=false;running_=true;sessionOffset_=history_->latestSession()+1;paused_->setChecked(false);dirty_=true;refresh();
+    readerStop_.store(true);if(reader_.joinable())reader_.join();++generation_;loading_=false;running_=true;sessionOffset_=history_->latestSession()+1;paused_->setChecked(false);dirty_=true;refresh();
 }
 void RunMonitor::finishRun(){if(!caseDirectory_.isEmpty())setCase(caseDirectory_,true);else{running_=false;dirty_=true;}}
 void RunMonitor::appendBatch(const QString& json){

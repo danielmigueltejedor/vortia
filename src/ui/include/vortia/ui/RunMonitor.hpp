@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <thread>
+#include <atomic>
 #include <vector>
 class QLabel;class QComboBox;class QCheckBox;class QDoubleSpinBox;class QTabWidget;class QTableWidget;class QTimer;
 namespace vortia {
@@ -36,7 +37,8 @@ private:
     void refresh();void refreshSessions();void setPaused(bool);
     std::vector<std::string> keysFor(int group)const;
     std::shared_ptr<MonitorHistory> history_,frozen_;
-    std::jthread reader_;
+    std::thread reader_;
+    std::atomic_bool readerStop_{false};
     std::uint64_t generation_=0;
     QString logPath_,caseDirectory_,axisLabel_;
     struct Cached {qint64 size=0,modified=0;std::shared_ptr<MonitorHistory> history;};
