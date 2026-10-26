@@ -25,6 +25,8 @@ struct ConvergenceSample {
 // Strict parsing shared by live progress and persisted assessment readers.
 std::optional<ConvergenceSample> parseConvergenceReport(std::string_view json);
 
+enum class DivergenceKind { None, Fatal, NonFinite, NonPositiveUpdate };
+
 /// Incrementally-built view of a running solver's numerical state.
 struct SolverProgress {
     std::optional<ConvergenceSample> convergence;
@@ -33,6 +35,7 @@ struct SolverProgress {
     double courantMax{0.0};
     std::vector<ResidualSample> residuals; ///< Latest sample per field.
     bool diverged{false};
+    DivergenceKind divergenceKind{DivergenceKind::None};
     std::string divergenceReason;
 };
 

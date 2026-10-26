@@ -169,6 +169,11 @@ TEST_F(FakeBackendTest, SolverFailureIsReportedNotSwallowed) {
     EXPECT_NE(solved->process.stdErr.find("cannot read file"), std::string::npos);
 }
 
+TEST_F(FakeBackendTest, PositivityFailureOnStderrKeepsItsSpecificDiagnosis) {
+    makeFakeTool("icoFoam","echo 'Time = 8750'\necho '[2] --> FOAM FATAL ERROR:' 1>&2\nprintf '[2] No positive conservative update after 30 reductions' 1>&2\nexit 1\n");
+    const auto caseDir=dir_/"case";ASSERT_TRUE(CaseWriter::write(caseDir,minimalSetup(),caps_).hasValue());PosixProcessRunner processes;CaseRunner runner(processes,environment_);SolverProgress progress;RunCallbacks callbacks;callbacks.onProgress=[&](const SolverProgress& p){progress=p;};const auto result=runner.runSolver(caseDir,minimalSetup(),caps_,callbacks,nullptr);ASSERT_TRUE(result);EXPECT_FALSE(result->process.succeeded());EXPECT_TRUE(result->diverged);EXPECT_EQ(result->divergenceKind,DivergenceKind::NonPositiveUpdate);EXPECT_EQ(result->divergenceReason,"No positive conservative update after 30 reductions");EXPECT_DOUBLE_EQ(result->finalTime,8750);EXPECT_EQ(progress.divergenceKind,DivergenceKind::NonPositiveUpdate);
+}
+
 TEST_F(FakeBackendTest, MissingToolYieldsBackendUnavailable) {
     // No tools in PATH at all.
     PosixProcessRunner processes;

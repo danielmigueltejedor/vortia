@@ -125,3 +125,7 @@ TEST(LogParser, MonitorReplaySeparatesRunsAndIgnoresMeshStages){
     LogParser parser(true);parser.feed("===== Vortia step: checkMesh (checkMesh) =====\nTime = 9\nExecutionTime = 1 s ClockTime = 1 s\n===== Vortia step: simpleFoam (simpleFoam) =====\nTime = 10\nDICPCG: Solving for p, Initial residual = 0.2, Final residual = 0.01, No Iterations 1\n===== Vortia step: simpleFoam (simpleFoam) =====\nTime = 1\nDICPCG: Solving for p, Initial residual = 0.3, Final residual = 0.02, No Iterations 1\n");
     const auto samples=parser.takeMonitorSamples();ASSERT_EQ(samples.size(),4u);EXPECT_NE(samples[0].session,samples[2].session);EXPECT_DOUBLE_EQ(samples[2].coordinate,1);
 }
+
+TEST(LogParser, ParallelPositivityFailureIsNotOverwrittenByOtherRanks) {
+    LogParser parser;parser.feed("[2] --> FOAM FATAL ERROR:\n[2] No positive conservative update after 30 red");parser.feed("uctions\n[7] --> FOAM FATAL ERROR:\nMPI_ABORT was invoked on rank 2\n");parser.flush();EXPECT_TRUE(parser.progress().diverged);EXPECT_EQ(parser.progress().divergenceKind,DivergenceKind::NonPositiveUpdate);EXPECT_EQ(parser.progress().divergenceReason,"No positive conservative update after 30 reductions");parser.reset();EXPECT_EQ(parser.progress().divergenceKind,DivergenceKind::None);
+}

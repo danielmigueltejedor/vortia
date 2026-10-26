@@ -14,6 +14,7 @@ add_library(vortia_ui STATIC
     src/JobController.cpp
     src/MainWindow.cpp
     src/FlowSetup.cpp
+    src/BoundaryPreview.cpp
     src/BoundaryMapping.cpp
     src/FieldTools.cpp
     src/LineProfile.cpp
