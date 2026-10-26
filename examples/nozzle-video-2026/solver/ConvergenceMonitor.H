@@ -18,6 +18,7 @@ class VortiaConvergenceMonitor {
     Foam::vectorField oldU_;
     int elapsed_=0;
     double checkedIteration_=0;
+    double massIncoming_=0,massOutgoing_=0;
     bool reached_=false, sampled_=false;
     vortiaConvergence::Metrics metrics_;
     static vortiaConvergence::Limits read(const Foam::dictionary& d) {
@@ -77,6 +78,7 @@ public:
             }
         }
         Foam::reduce(incoming,Foam::sumOp<double>());Foam::reduce(outgoing,Foam::sumOp<double>());
+        massIncoming_=incoming;massOutgoing_=outgoing;
         Foam::reduce(patches,Foam::sumOp<int>());metrics_.openBoundary=patches>0;
         const double scale=std::max(std::max(incoming,outgoing),limits_.absoluteMassTolerance/limits_.massTolerance);
         metrics_.globalMass=std::abs(outgoing-incoming)/scale;
@@ -133,6 +135,7 @@ public:
         s<<"{\"schema\":1,\"status\":\""<<status<<"\",\"iteration\":"<<time_.value()
          <<",\"checkedIteration\":"<<checkedIteration_<<",\"sampled\":"<<(sampled_?"true":"false")<<",\"automatic\":"<<(automatic_?"true":"false")
          <<",\"globalMass\":"<<finite(metrics_.globalMass)<<",\"localMass\":"<<finite(metrics_.localMass)
+         <<",\"massIncoming\":"<<finite(massIncoming_)<<",\"massOutgoing\":"<<finite(massOutgoing_)
          <<",\"equationError\":"<<finite(metrics_.equationError)<<",\"equationTolerance\":"<<limits_.equationTolerance
          <<",\"fieldChange\":"<<finite(metrics_.fieldChange)<<",\"stableSamples\":"<<policy_.stable()
          <<",\"requiredSamples\":"<<limits_.stableSamples<<",\"massTolerance\":"<<limits_.massTolerance

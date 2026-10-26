@@ -25,6 +25,12 @@
   </qresource>
   <qresource prefix="/vortia/icons">
     <file alias="chart.svg">icons/ui/chart.svg</file>
+    <file alias="undo.svg">icons/ui/undo.svg</file>
+    <file alias="redo.svg">icons/ui/redo.svg</file>
+    <file alias="copy.svg">icons/ui/copy.svg</file>
+    <file alias="paste.svg">icons/ui/paste.svg</file>
+    <file alias="delete.svg">icons/ui/delete.svg</file>
+
     <file alias="wireframe.svg">icons/ui/wireframe.svg</file>
     <file alias="surface.svg">icons/ui/surface.svg</file>
     <file alias="export-image.svg">icons/ui/export-image.svg</file>

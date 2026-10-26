@@ -1,5 +1,17 @@
 #include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/geometry/SketchTemplates.hpp"
+#include "vortia/geometry/SketchSnapping.hpp"
+#include <QApplication>
+#include <array>
+#include <QStyle>
+#include <QClipboard>
+#include <QMimeData>
+#include <QAction>
+#include <QMenu>
+#include <QSettings>
+#include <QStyledItemDelegate>
+#include <QSignalBlocker>
+#include <QTimer>
 #include "vortia/mesh/PlanarNozzleBlockMesh.hpp"
 #include "vortia/mesh/AxisymmetricNozzleBlockMesh.hpp"
 
@@ -67,19 +79,32 @@ public:
     void fitView() { fitPending_ = true; update(); }
     void setDrawMode(bool enabled) {
         dragVertex_ = -1;
-        drawMode_ = enabled;
+        drawMode_ = enabled;hoverVisible_=false;
         updateCursor();
     }
     void setPanMode(bool enabled) { panMode_ = enabled; dragVertex_ = -1; updateCursor(); }
     void setReadOnly(bool value) { readOnly_ = value; dragVertex_ = -1; if (value) setDrawMode(false); }
-    std::function<void()> onSelectRequested;
+    SketchSnapOptions assistance;
+    std::function<void()> onSelectRequested,onDeleteRequested,onEditStarted,onEditFinished,onUndoRequested,onRedoRequested,onCopyRequested,onPasteRequested;
+    std::function<void(const QString&)> onHint;
+    SketchSnapResult placement(QPointF pixel,Qt::KeyboardModifiers modifiers) const {
+        SketchPoint2D world{x0_+pixel.x()/scale_,y0_+(height()-pixel.y())/scale_};
+        auto options=assistance;if(modifiers&Qt::AltModifier)options.enabled=false;
+        if(modifiers&Qt::ShiftModifier){options.enabled=true;options.orthogonal=true;}
+        auto result=snapSketchPoint(*sketch_,world,10.0/scale_,options);
+        if(result.kind==SketchSnapKind::None&&snap_){result.point.xMm=std::round(world.xMm/snapSpacing_)*snapSpacing_;result.point.yMm=std::round(world.yMm/snapSpacing_)*snapSpacing_;}
+        return result;
+    }
+    QString hintName(SketchSnapKind kind) const {
+        switch(kind){case SketchSnapKind::Endpoint:return SketchEditorDialog::tr("Endpoint");case SketchSnapKind::Midpoint:return SketchEditorDialog::tr("Midpoint");case SketchSnapKind::Center:return SketchEditorDialog::tr("Arc center");case SketchSnapKind::Alignment:return SketchEditorDialog::tr("Aligned with vertex");case SketchSnapKind::Perpendicular:return SketchEditorDialog::tr("Perpendicular");case SketchSnapKind::Orthogonal:return SketchEditorDialog::tr("Orthogonal");case SketchSnapKind::Polar:return SketchEditorDialog::tr("Polar tracking");default:return SketchEditorDialog::tr("Free / grid placement");}
+    }
     std::function<void(SketchPoint2D)> onCanvasClicked;
     void setSelected(int point, int segment) {
         selectedPoint_ = point;
         selectedSegment_ = segment;
         update();
     }
-    std::function<void(int)> onPointSelected;
+    std::function<void(int)> onPointSelected,onPointEditRequested;
     std::function<void(int)> onSegmentSelected;
     std::function<void(int, SketchPoint2D)> onPointDragged;
 protected:
@@ -173,6 +198,16 @@ protected:
                 p.drawText(at + QPointF(6, 16), QString::number(i));
             }
         }
+        if(drawMode_&&!readOnly_&&hoverVisible_){
+            const auto at=project(hover_.point);p.setPen(QPen(QColor(113,225,168),1,Qt::DashLine));
+            for(const auto& ref:hover_.references){const auto q=project(ref);p.drawLine(q,at);p.drawEllipse(q,6,6);}
+            if(!sketch_->points().empty())p.drawLine(project(sketch_->points().back()),at);
+            p.setPen(QPen(QColor(113,225,168),2));p.setBrush(Qt::NoBrush);p.drawRect(QRectF(at.x()-5,at.y()-5,10,10));
+            QString label=hintName(hover_.kind);
+            if(!sketch_->points().empty()){const auto a=sketch_->points().back();const double dx=hover_.point.xMm-a.xMm,dy=hover_.point.yMm-a.yMm;label+=QStringLiteral(" · %1 mm · %2°").arg(std::hypot(dx,dy),0,'f',3).arg(std::atan2(dy,dx)*180/std::numbers::pi,0,'f',1);}
+            QRectF box=p.fontMetrics().boundingRect(label).adjusted(-7,-5,7,5);box.moveTopLeft(at+QPointF(14,-30));box.moveLeft(std::clamp(box.left(),0.0,std::max(0.0,width()-box.width())));box.moveTop(std::clamp(box.top(),0.0,std::max(0.0,height()-box.height())));
+            p.fillRect(box,QColor(17,46,40,240));p.drawText(box,Qt::AlignCenter,label);
+        }
     }
     void mousePressEvent(QMouseEvent* event) override {
         if (!sketch_) return;
@@ -185,12 +220,8 @@ protected:
         }
         if (event->button() != Qt::LeftButton) return;
         if (drawMode_) {
-            // Pixels -> millimetres, snapped to a 1 mm engineering grid.
-            SketchPoint2D world{x0_ + pos.x() / scale_,
-                                y0_ + (height() - pos.y()) / scale_};
-            if(snap_)world.xMm = std::round(world.xMm/snapSpacing_)*snapSpacing_;
-            if(snap_)world.yMm = std::round(world.yMm/snapSpacing_)*snapSpacing_;
-            if (onCanvasClicked) onCanvasClicked(world);
+            const auto snapped=placement(pos,event->modifiers());
+            if (onCanvasClicked) onCanvasClicked(snapped.point);
             event->accept();
             return;
         }
@@ -201,7 +232,7 @@ protected:
             if (d < bestDistance) { bestDistance = d; bestPoint = static_cast<int>(i); }
         }
         if (bestPoint >= 0) {
-            if (!readOnly_) dragVertex_ = bestPoint;
+            if (!readOnly_) {dragVertex_ = bestPoint;if(onEditStarted)onEditStarted();}
             if (onPointSelected) onPointSelected(bestPoint);
             event->accept();
             return;
@@ -232,6 +263,10 @@ protected:
         }
         event->accept();
     }
+    void mouseDoubleClickEvent(QMouseEvent* event) override {
+        if(!readOnly_&&!drawMode_&&sketch_){double best=12;int point=-1;for(std::size_t i=0;i<sketch_->points().size();++i){const double distance=QLineF(event->position(),project(sketch_->points()[i])).length();if(distance<best){best=distance;point=static_cast<int>(i);}}if(point>=0&&onPointEditRequested){if(onEditFinished)onEditFinished();dragVertex_=-1;onPointEditRequested(point);event->accept();return;}}
+        QWidget::mouseDoubleClickEvent(event);
+    }
     void mouseMoveEvent(QMouseEvent* event) override {
         if (panning_) {
             panBy(event->position() - panLast_);
@@ -252,17 +287,18 @@ protected:
             dragVertex_ = -1;
             update();
         }
+        if(drawMode_&&!readOnly_&&sketch_){hover_=placement(event->position(),event->modifiers());hoverVisible_=true;if(onHint)onHint(hintName(hover_.kind));update();}
         QWidget::mouseMoveEvent(event);
     }
     void leaveEvent(QEvent* event) override {
-        QWidget::leaveEvent(event);
+        hoverVisible_=false;update();QWidget::leaveEvent(event);
     }
     void mouseReleaseEvent(QMouseEvent* event) override {
         if (panning_ && (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton)) {
             panning_ = false; updateCursor(); event->accept(); return;
         }
         if (event->button() == Qt::LeftButton && dragVertex_ >= 0) {
-            dragVertex_ = -1;
+            if(onEditFinished)onEditFinished();dragVertex_ = -1;
             update();
             event->accept();
             return;
@@ -296,11 +332,17 @@ protected:
             event->accept(); return true;
         }
         if (event->type() == QEvent::FocusOut) {
-            spaceDown_ = false; panning_ = false; dragVertex_ = -1; updateCursor();
+            if(dragVertex_>=0&&onEditFinished)onEditFinished();spaceDown_ = false; panning_ = false; dragVertex_ = -1; updateCursor();
         }
         return QWidget::event(event);
     }
     void keyPressEvent(QKeyEvent* event) override {
+        if(event->matches(QKeySequence::Undo)){if(onUndoRequested)onUndoRequested();event->accept();return;}
+        if(event->matches(QKeySequence::Redo)){if(onRedoRequested)onRedoRequested();event->accept();return;}
+        if(event->matches(QKeySequence::Copy)){if(onCopyRequested)onCopyRequested();event->accept();return;}
+        if(event->matches(QKeySequence::Paste)){if(onPasteRequested)onPasteRequested();event->accept();return;}
+        if((event->key()==Qt::Key_Return||event->key()==Qt::Key_Enter)&&selectedPoint_>=0&&!readOnly_){if(onPointEditRequested)onPointEditRequested(selectedPoint_);event->accept();return;}
+        if(event->key()==Qt::Key_Delete||event->key()==Qt::Key_Backspace){if(!readOnly_&&onDeleteRequested)onDeleteRequested();event->accept();return;}
         if (event->key() == Qt::Key_Space) {
             spaceDown_ = true; updateCursor(); event->accept(); return;
         }
@@ -382,6 +424,7 @@ private:
     bool spaceDown_{false};
     bool fitPending_{true};
     QPointF panLast_;
+    SketchSnapResult hover_;bool hoverVisible_=false;
     int dragVertex_{-1};
     int selectedPoint_{-1};
     int selectedSegment_{-1};
@@ -391,6 +434,13 @@ private:
 };
 
 namespace {
+
+class CoordinateDelegate final:public QStyledItemDelegate {
+public:using QStyledItemDelegate::QStyledItemDelegate;
+    QWidget* createEditor(QWidget* parent,const QStyleOptionViewItem&,const QModelIndex&)const override{auto* spin=new QDoubleSpinBox(parent);spin->setRange(-2000000,2000000);spin->setDecimals(6);spin->setFrame(false);return spin;}
+    void setEditorData(QWidget* editor,const QModelIndex& index)const override{static_cast<QDoubleSpinBox*>(editor)->setValue(index.data(Qt::EditRole).toDouble());}
+    void setModelData(QWidget* editor,QAbstractItemModel* model,const QModelIndex& index)const override{auto* spin=static_cast<QDoubleSpinBox*>(editor);spin->interpretText();model->setData(index,spin->value(),Qt::EditRole);}
+};
 
 // Small CAD glyphs are drawn as vectors at both standard and Retina sizes.
 enum class SketchGlyph { Select, Line, Pan, Fit, Rectangle, Circle, Nozzle,
@@ -478,6 +528,8 @@ std::optional<std::vector<double>> dimensionDialog(
 } // namespace
 
 SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
+    committed_={sketch_,nozzleDims_};
+    connect(this,&SketchEditorDialog::sketchChanged,this,&SketchEditorDialog::recordEdit);
     setWindowTitle(tr("Vortia — Dimensioned 2D Sketch"));
     resize(1160, 710);
     auto* root = new QVBoxLayout(this);
@@ -501,9 +553,10 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     auto* form = new QFormLayout;
     x_ = new QDoubleSpinBox(sidebar);
     y_ = new QDoubleSpinBox(sidebar);
+    x_->setObjectName("vortia-sketch-x");y_->setObjectName("vortia-sketch-y");
     for (auto* control : {x_, y_}) {
-        control->setRange(-1000000.0, 1000000.0);
-        control->setDecimals(3);
+        control->setRange(-2000000.0, 2000000.0);
+        control->setDecimals(6);
         control->setSuffix(QStringLiteral(" mm"));
         control->setSingleStep(1.0);
     }
@@ -554,13 +607,39 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
         grid->addWidget(b, cell / 4, cell % 4); ++cell;
     }
     tools->addLayout(grid);
+    auto* editRow=new QHBoxLayout;
+    const auto editCommand=[&](const char* text,const char* id,const QKeySequence& key,QStyle::StandardPixmap icon,auto callback){
+        auto* action=new QAction(tr(text),this);action->setObjectName(QString("vortia-sketch-%1-action").arg(id));
+        if(!key.isEmpty()){action->setShortcut(key);action->setShortcutContext(Qt::WidgetWithChildrenShortcut);addAction(action);}
+        connect(action,&QAction::triggered,this,callback);
+        auto* button=new QToolButton(sidebar);button->setObjectName(QString("vortia-sketch-%1").arg(id));const QIcon glyph(QString(":/vortia/icons/%1.svg").arg(id));action->setIcon(glyph.isNull()?style()->standardIcon(icon):glyph);button->setDefaultAction(action);button->setIconSize({22,22});button->setMinimumSize(38,36);button->setToolTip(action->text()+" · "+key.toString(QKeySequence::NativeText));editRow->addWidget(button);return action;
+    };
+    undoAction_=editCommand("Undo","undo",QKeySequence::Undo,QStyle::SP_ArrowBack,[this](){undoEdit();});
+    redoAction_=editCommand("Redo","redo",QKeySequence::Redo,QStyle::SP_ArrowForward,[this](){redoEdit();});
+    copyAction_=editCommand("Copy geometry","copy",QKeySequence::Copy,QStyle::SP_FileIcon,[this](){copySelection();});
+    pasteAction_=editCommand("Paste geometry…","paste",QKeySequence::Paste,QStyle::SP_DialogOpenButton,[this](){pasteGeometry();});
+    deleteAction_=editCommand("Delete selected vertex","delete",{},QStyle::SP_TrashIcon,[this](){deleteSelectedPoint();});
+    tools->addLayout(editRow);
+    auto* references=new QToolButton(sidebar);references->setObjectName("vortia-sketch-references");references->setText(tr("Drawing references"));references->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);references->setIcon(QIcon(":/vortia/icons/probe.svg"));references->setPopupMode(QToolButton::InstantPopup);
+    auto* referenceMenu=new QMenu(references);references->setMenu(referenceMenu);QSettings preferences("Vortia","Vortia");
+    const auto option=[&](const char* text,const char* key,bool SketchSnapOptions::*member,bool initial,const QKeySequence& shortcut=QKeySequence{}){
+        auto* action=referenceMenu->addAction(tr(text));action->setObjectName(QString("vortia-snap-%1").arg(key));action->setCheckable(true);action->setChecked(preferences.value(QString("sketch/assistance/%1").arg(key),initial).toBool());canvas_->assistance.*member=action->isChecked();
+        if(!shortcut.isEmpty()){action->setShortcut(shortcut);action->setShortcutContext(Qt::WidgetWithChildrenShortcut);addAction(action);}
+        connect(action,&QAction::toggled,this,[this,member,key](bool value){canvas_->assistance.*member=value;QSettings p("Vortia","Vortia");p.setValue(QString("sketch/assistance/%1").arg(key),value);canvas_->update();});return action;
+    };
+    option("Enable references (F3)","enabled",&SketchSnapOptions::enabled,true,QKeySequence(Qt::Key_F3));referenceMenu->addSeparator();
+    option("Endpoints","endpoints",&SketchSnapOptions::endpoints,true);option("Midpoints","midpoints",&SketchSnapOptions::midpoints,true);option("Arc centers","centers",&SketchSnapOptions::centers,true);option("Vertex alignment","alignment",&SketchSnapOptions::alignment,true);option("Perpendicular tracking","perpendicular",&SketchSnapOptions::perpendicular,true);
+    referenceMenu->addSeparator();option("Orthogonal mode (F8)","orthogonal",&SketchSnapOptions::orthogonal,false,QKeySequence(Qt::Key_F8));option("Polar tracking · 15° (F10)","polar",&SketchSnapOptions::polar,false,QKeySequence(Qt::Key_F10));tools->addWidget(references);
+    auto* hint=new QLabel(tr("Shift: temporary orthogonal · Alt: suspend references"),sidebar);hint->setObjectName("vortia-sketch-snap-hint");hint->setWordWrap(true);tools->addWidget(hint);canvas_->onHint=[hint](const QString& text){hint->setText(text);};
+
     table_ = new QTableWidget(sidebar);
     table_->setColumnCount(3);
     table_->setHorizontalHeaderLabels({tr("Vertex"), tr("X (mm)"), tr("Y (mm)")});
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    tools->addWidget(table_, 1);
+    table_->setEditTriggers(QAbstractItemView::DoubleClicked|QAbstractItemView::EditKeyPressed);
+    table_->setItemDelegateForColumn(1,new CoordinateDelegate(table_));table_->setItemDelegateForColumn(2,new CoordinateDelegate(table_));
+    tools->addWidget(table_, 1);table_->installEventFilter(this);
     selected_ = new QLabel(sidebar);
     selected_->setWordWrap(true);
     tools->addWidget(selected_);
@@ -684,6 +763,15 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     connect(done, &QPushButton::clicked, this,
             [this]() { emit closeRequested(); });
     connect(table_, &QTableWidget::cellClicked, this, [this](int row, int) { setSelectedPoint(row); });
+    canvas_->onUndoRequested=[this](){undoEdit();};canvas_->onRedoRequested=[this](){redoEdit();};canvas_->onCopyRequested=[this](){copySelection();};canvas_->onPasteRequested=[this](){pasteGeometry();};
+    canvas_->onDeleteRequested=[this](){deleteSelectedPoint();};
+    canvas_->onEditStarted=[this](){dragEditing_=true;dragRecorded_=false;};
+    canvas_->onEditFinished=[this](){dragEditing_=false;dragRecorded_=false;};
+    connect(QApplication::clipboard(),&QClipboard::dataChanged,this,&SketchEditorDialog::refreshEditActions);
+    canvas_->onPointEditRequested=[this](int index){editVertexCoordinates(index);};
+    const auto applyCoordinates=[this](){if(readOnly_||selectedPoint_<0||sketch_.pointLockedByArcs(static_cast<std::size_t>(selectedPoint_)))return;const auto current=sketch_.points()[static_cast<std::size_t>(selectedPoint_)];if(std::abs(x_->value()-current.xMm)>5e-7||std::abs(y_->value()-current.yMm)>5e-7)movePoint();};
+    connect(x_,&QDoubleSpinBox::editingFinished,this,applyCoordinates);connect(y_,&QDoubleSpinBox::editingFinished,this,applyCoordinates);
+    connect(table_,&QTableWidget::itemChanged,this,[this](QTableWidgetItem* item){if(readOnly_||!item||item->column()==0)return;const auto index=static_cast<std::size_t>(item->row());if(index>=sketch_.points().size())return;bool validX=false,validY=false;const double x=table_->item(item->row(),1)->data(Qt::EditRole).toDouble(&validX),y=table_->item(item->row(),2)->data(Qt::EditRole).toDouble(&validY);if(validX&&validY&&sketch_.movePoint(index,{x,y})){selectedPoint_=item->row();selectedSegment_=-1;x_->setValue(x);y_->setValue(y);emit sketchChanged();}else status_->setText(tr("Those coordinates would create an invalid segment. The original vertex was retained."));QTimer::singleShot(0,this,[this](){refresh();});});
     canvas_->onPointSelected = [this](int index) { setSelectedPoint(index); };
     canvas_->onPointDragged = [this](int index, SketchPoint2D point) {
         if (sketch_.movePoint(static_cast<std::size_t>(index), point)) {
@@ -696,10 +784,10 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     };
     canvas_->onCanvasClicked = [this](SketchPoint2D point) {
         if (sketch_.closed()) {
-            QMessageBox::information(this, tr("Closed profile"),
-                tr("Open the profile before adding points."));
+            status_->setText(tr("Open the profile before adding points."));findChild<QPushButton*>("vortia-sketch-select")->click();
             return;
         }
+        if(sketch_.points().size()>=3&&std::hypot(point.xMm-sketch_.points().front().xMm,point.yMm-sketch_.points().front().yMm)<1e-6){if(sketch_.close()){findChild<QPushButton*>("vortia-sketch-select")->click();emit sketchChanged();refresh();}return;}
         if (sketch_.addPoint(point)) {
             x_->setValue(point.xMm);
             y_->setValue(point.yMm);
@@ -729,21 +817,21 @@ void SketchEditorDialog::setShape(const Sketch2D& shape) {
 }
 
 void SketchEditorDialog::refresh() {
+    QSignalBlocker tableSignals(table_);
     table_->setRowCount(static_cast<int>(sketch_.points().size()));
     for (std::size_t i = 0; i < sketch_.points().size(); ++i) {
         const auto& p = sketch_.points()[i];
-        table_->setItem(static_cast<int>(i), 0, new QTableWidgetItem(QString::number(i)));
-        table_->setItem(static_cast<int>(i), 1, new QTableWidgetItem(QString::number(p.xMm, 'f', 3)));
-        table_->setItem(static_cast<int>(i), 2, new QTableWidgetItem(QString::number(p.yMm, 'f', 3)));
+        auto* id=new QTableWidgetItem(QString::number(i));id->setFlags(id->flags()&~Qt::ItemIsEditable);table_->setItem(static_cast<int>(i),0,id);
+        for(int column=1;column<=2;++column){auto* cell=new QTableWidgetItem;cell->setData(Qt::EditRole,column==1?p.xMm:p.yMm);if(readOnly_||sketch_.pointLockedByArcs(i)){cell->setFlags(cell->flags()&~Qt::ItemIsEditable);cell->setToolTip(tr("This vertex supports a tangent arc. Select the arc and edit its radius."));}else cell->setToolTip(tr("Double click to edit this coordinate in millimetres."));table_->setItem(static_cast<int>(i),column,cell);}
     }
     selected_->setText(selectedSegment_ >= 0 && static_cast<std::size_t>(selectedSegment_) < sketch_.segmentCount()
-        ? tr("Segment %1: %2 mm").arg(selectedSegment_)
+        ? tr("Segment %1: %2 mm").arg(selectedSegment_+1)
                  .arg(sketch_.segmentLength(static_cast<std::size_t>(selectedSegment_)), 0, 'f', 3)
         : tr("Select a segment or vertex in the drawing."));
     if (selectedSegment_ >= 0) {
         if (const auto c = sketch_.arc(static_cast<std::size_t>(selectedSegment_)))
             selected_->setText(tr("Arc %1: radius %2 mm · length %3 mm")
-                .arg(selectedSegment_).arg(c->radiusMm, 0, 'f', 3)
+                .arg(selectedSegment_+1).arg(c->radiusMm, 0, 'f', 3)
                 .arg(sketch_.segmentLength(static_cast<std::size_t>(selectedSegment_)), 0, 'f', 3));
     } else if (selectedPoint_ >= 0 && sketch_.pointLockedByArcs(static_cast<std::size_t>(selectedPoint_))) {
         selected_->setText(tr("This vertex supports a tangent arc. Select the arc and edit its radius."));
@@ -752,7 +840,9 @@ void SketchEditorDialog::refresh() {
         .arg(sketch_.points().size()).arg(sketch_.segmentCount())
         .arg(sketch_.perimeter(), 0, 'f', 3)
         .arg(sketch_.closed() ? tr("Closed profile") : tr("Open profile")));
-    canvas_->setSelected(selectedPoint_, selectedSegment_);
+    const bool locked=selectedPoint_>=0&&sketch_.pointLockedByArcs(static_cast<std::size_t>(selectedPoint_));x_->setReadOnly(readOnly_||locked);y_->setReadOnly(readOnly_||locked);
+    if(auto* move=findChild<QPushButton*>("vortia-sketch-move"))move->setEnabled(!readOnly_&&selectedPoint_>=0&&!locked);
+    canvas_->setSelected(selectedPoint_, selectedSegment_);refreshEditActions();
 }
 
 void SketchEditorDialog::setSelectedSegment(int index) {
@@ -771,8 +861,7 @@ void SketchEditorDialog::setSelectedPoint(int index) {
 }
 void SketchEditorDialog::addPoint() {
     if (!sketch_.addPoint({x_->value(), y_->value()})) {
-        QMessageBox::warning(this, tr("Invalid point"),
-                             tr("Could not append the point. Open profiles and distinct consecutive points are required."));
+        status_->setText(tr("The point was not added: open the profile and use distinct consecutive points."));
         return;
     }
     emit sketchChanged();
@@ -781,7 +870,7 @@ void SketchEditorDialog::addPoint() {
 void SketchEditorDialog::movePoint() {
     if (selectedPoint_ < 0 ||
         !sketch_.movePoint(static_cast<std::size_t>(selectedPoint_), {x_->value(), y_->value()})) {
-        QMessageBox::warning(this, tr("Invalid point"), tr("Select a vertex and enter valid coordinates."));
+        status_->setText(tr("Those coordinates would create an invalid segment. The original vertex was retained."));
         return;
     }
     emit sketchChanged();
@@ -824,9 +913,9 @@ void SketchEditorDialog::fillet() {
         QMessageBox::information(this, tr("Round vertex"), tr("Select a corner vertex between two straight segments first."));
         return;
     }
+    const auto range=sketch_.filletRadiusRange(static_cast<std::size_t>(selectedPoint_));if(!range){status_->setText(tr("Choose a corner between two straight segments that can support a tangent fillet."));return;}
     bool ok = false;
-    const double radius = QInputDialog::getDouble(this, tr("Tangent rounding"), tr("Radius (mm)"),
-                                                10.0, 0.001, 1000000.0, 3, &ok);
+    const double radius = QInputDialog::getDouble(this, tr("Tangent rounding"),tr("Radius (mm) · allowed %1 to %2").arg(range->first,0,'g',6).arg(range->second,0,'g',6),std::clamp(10.0,range->first,range->second),range->first,range->second,6,&ok);
     if (!ok) return;
     const auto corner = static_cast<std::size_t>(selectedPoint_);
     if (!sketch_.filletVertex(corner, radius)) {
@@ -847,9 +936,9 @@ void SketchEditorDialog::changeRadius() {
         QMessageBox::information(this, tr("Arc radius"), tr("Select a tangent rounding arc first."));
         return;
     }
+    const auto range=sketch_.arcFilletRadiusRange(index);if(!range){status_->setText(tr("This arc is not an editable tangent fillet. Select a supported fillet arc."));return;}
     bool ok = false;
-    const double radius = QInputDialog::getDouble(this, tr("Arc radius"), tr("Radius (mm)"),
-                                                c->radiusMm, 0.001, 1000000.0, 3, &ok);
+    const double radius = QInputDialog::getDouble(this,tr("Arc radius"),tr("Radius (mm) · allowed %1 to %2").arg(range->first,0,'g',6).arg(range->second,0,'g',6),std::clamp(c->radiusMm,range->first,range->second),range->first,range->second,6,&ok);
     if (!ok) return;
     if (!sketch_.setFilletRadius(index, radius)) {
         QMessageBox::warning(this, tr("Rounding failed"),
@@ -860,7 +949,7 @@ void SketchEditorDialog::changeRadius() {
     refresh();
 }
 void SketchEditorDialog::setSketch(const Sketch2D& shape) {
-    sketch_ = shape;
+    sketch_ = shape;history_={};committed_={sketch_,nozzleDims_};dragEditing_=false;dragRecorded_=false;
     canvas_->setSketch(&sketch_);
     if (auto* select = findChild<QPushButton*>(QStringLiteral("vortia-sketch-select"))) select->click();
     selectedPoint_ = -1;
@@ -875,7 +964,8 @@ void SketchEditorDialog::setReadOnly(bool readOnly) {
     for (const auto* id : {"draw", "rectangle", "circle", "nozzle", "add", "move", "split",
                           "dimension", "fillet", "radius", "close-profile", "export", "load", "clear"})
         if (auto* button = findChild<QPushButton*>(QStringLiteral("vortia-sketch-")+id)) button->setEnabled(!readOnly);
-    x_->setReadOnly(readOnly); y_->setReadOnly(readOnly);
+    table_->setEditTriggers(readOnly?QAbstractItemView::NoEditTriggers:QAbstractItemView::DoubleClicked|QAbstractItemView::EditKeyPressed);
+    x_->setReadOnly(readOnly); y_->setReadOnly(readOnly);refresh();
     if (findChild<QPushButton*>(QStringLiteral("vortia-sketch-select"))->isChecked())
         findChild<QLabel*>(QStringLiteral("vortia-sketch-mode-hint"))->setText(readOnly
             ? tr("Case geometry: select to inspect; drag empty space to pan.")
@@ -1113,10 +1203,10 @@ void SketchEditorDialog::load() {
     if (filename.isEmpty())
         return;
     if (!confirmReplacement()) return;
+    const auto previous=committed_;const auto history=history_;
     if (!readSketchFile(filename))
         QMessageBox::warning(this, tr("Load error"), tr("Invalid or unsupported sketch format."));
-    else
-        emit sketchChanged();
+    else {history_=history;committed_=previous;emit sketchChanged();}
 }
 
 void SketchEditorDialog::reject() {
@@ -1127,3 +1217,92 @@ void SketchEditorDialog::reject() {
 }
 
 } // namespace vortia
+
+namespace vortia {
+namespace {
+bool sameEdit(const SketchEditorDialog::EditSnapshot& a,const SketchEditorDialog::EditSnapshot& b){
+    if(a.sketch.closed()!=b.sketch.closed()||a.sketch.points().size()!=b.sketch.points().size())return false;
+    for(std::size_t i=0;i<a.sketch.points().size();++i)if(a.sketch.points()[i].xMm!=b.sketch.points()[i].xMm||a.sketch.points()[i].yMm!=b.sketch.points()[i].yMm)return false;
+    for(std::size_t i=0;i<a.sketch.segmentCount();++i)if(a.sketch.segmentBulge(i)!=b.sketch.segmentBulge(i))return false;
+    const auto& x=a.dimensions;const auto& y=b.dimensions;
+    return x.inletDiameterMm==y.inletDiameterMm&&x.throatDiameterMm==y.throatDiameterMm&&x.outletDiameterMm==y.outletDiameterMm&&x.convergingLengthMm==y.convergingLengthMm&&x.divergingLengthMm==y.divergingLengthMm;
+}
+constexpr const char* sketchMime="application/x-vortia-sketch+json";
+std::optional<Sketch2D> clipboardSketch(){
+    const auto* mime=QApplication::clipboard()->mimeData();if(!mime)return {};
+    const auto bytes=mime->hasFormat(sketchMime)?mime->data(sketchMime):mime->text().toUtf8();
+    if(bytes.size()>2*1024*1024)return {};
+    const auto doc=QJsonDocument::fromJson(bytes);const auto root=doc.object();
+    if(!doc.isObject()||root.value("schemaVersion").toInt()!=2||root.value("units").toString()!="mm"||!root.value("closed").isBool()||!root.value("vertices").isArray()||!root.value("segmentBulges").isArray())return {};
+    const auto vertices=root.value("vertices").toArray();if(vertices.isEmpty()||vertices.size()>10000)return {};
+    Sketch2D next;
+    for(const auto& row:vertices){const auto point=row.toArray();if(point.size()!=2||!point[0].isDouble()||!point[1].isDouble()||std::abs(point[0].toDouble())>2000000||std::abs(point[1].toDouble())>2000000||!next.addPoint({point[0].toDouble(),point[1].toDouble()}))return {};}
+    if(root.value("closed").toBool()&&!next.close())return {};
+    const auto bulges=root.value("segmentBulges").toArray();if(static_cast<std::size_t>(bulges.size())!=next.segmentCount())return {};
+    for(qsizetype i=0;i<bulges.size();++i)if(!bulges[i].isDouble()||!next.setSegmentBulge(static_cast<std::size_t>(i),bulges[i].toDouble()))return {};
+    return next;
+}
+}
+void SketchEditorDialog::setEditHistory(EditHistory history){history_=std::move(history);committed_={sketch_,nozzleDims_};refreshEditActions();}
+void SketchEditorDialog::recordEdit(){
+    const EditSnapshot now{sketch_,nozzleDims_};if(restoring_||sameEdit(committed_,now))return;
+    if(!dragEditing_||!dragRecorded_){history_.undo.push_back(committed_);++history_.revision;if(history_.undo.size()>64)history_.undo.erase(history_.undo.begin());history_.redo.clear();dragRecorded_=dragEditing_;}
+    committed_=now;refreshEditActions();
+}
+void SketchEditorDialog::refreshEditActions(){
+    if(!undoAction_)return;
+    undoAction_->setEnabled(!readOnly_&&!history_.undo.empty());redoAction_->setEnabled(!readOnly_&&!history_.redo.empty());
+    copyAction_->setEnabled(!sketch_.points().empty());const auto* mime=QApplication::clipboard()->mimeData();pasteAction_->setEnabled(!readOnly_&&mime&&(mime->hasFormat(sketchMime)||mime->hasText()));deleteAction_->setEnabled(!readOnly_&&selectedPoint_>=0);
+}
+void SketchEditorDialog::applySnapshot(const EditSnapshot& snapshot){
+    restoring_=true;sketch_=snapshot.sketch;nozzleDims_=snapshot.dimensions;committed_=snapshot;dragEditing_=false;dragRecorded_=false;
+    selectedPoint_=selectedSegment_=-1;canvas_->setSelected(-1,-1);canvas_->update();refresh();emit sketchChanged();restoring_=false;
+}
+void SketchEditorDialog::undoEdit(){if(readOnly_||history_.undo.empty())return;history_.redo.push_back(committed_);const auto next=history_.undo.back();history_.undo.pop_back();++history_.revision;applySnapshot(next);}
+void SketchEditorDialog::redoEdit(){if(readOnly_||history_.redo.empty())return;history_.undo.push_back(committed_);const auto next=history_.redo.back();history_.redo.pop_back();++history_.revision;applySnapshot(next);}
+void SketchEditorDialog::deleteSelectedPoint(){
+    if(readOnly_||selectedPoint_<0)return;
+    if(!sketch_.removePoint(static_cast<std::size_t>(selectedPoint_))){status_->setText(tr("The vertex cannot be removed without creating a zero-length segment."));return;}
+    selectedPoint_=selectedSegment_=-1;emit sketchChanged();refresh();
+}
+bool SketchEditorDialog::eventFilter(QObject* watched,QEvent* event){
+    if(watched==table_&&event->type()==QEvent::KeyPress){const auto* key=static_cast<QKeyEvent*>(event);if(key->key()==Qt::Key_Delete||key->key()==Qt::Key_Backspace){deleteSelectedPoint();return true;}}
+    return QDialog::eventFilter(watched,event);
+}
+void SketchEditorDialog::copySelection(){
+    if(sketch_.points().empty())return;Sketch2D fragment;
+    if(selectedPoint_>=0){if(!fragment.addPoint(sketch_.points()[static_cast<std::size_t>(selectedPoint_)]))return;}
+    else if(selectedSegment_>=0){const auto i=static_cast<std::size_t>(selectedSegment_);if(!fragment.addPoint(sketch_.points()[i])||!fragment.addPoint(sketch_.points()[(i+1)%sketch_.points().size()])||!fragment.setSegmentBulge(0,sketch_.segmentBulge(i)))return;}
+    else fragment=sketch_;
+    QJsonArray vertices,bulges;for(const auto& point:fragment.points())vertices.append(QJsonArray{point.xMm,point.yMm});for(std::size_t i=0;i<fragment.segmentCount();++i)bulges.append(fragment.segmentBulge(i));
+    const auto bytes=QJsonDocument(QJsonObject{{"schemaVersion",2},{"units","mm"},{"closed",fragment.closed()},{"vertices",vertices},{"segmentBulges",bulges}}).toJson(QJsonDocument::Compact);
+    auto* mime=new QMimeData;mime->setData(sketchMime,bytes);mime->setText(QString::fromUtf8(bytes));QApplication::clipboard()->setMimeData(mime);
+    status_->setText(tr("Copied %1 vertices. With no selection, Copy copies the whole sketch.").arg(fragment.points().size()));
+}
+void SketchEditorDialog::pasteGeometry(){
+    if(readOnly_)return;const auto fragment=clipboardSketch();if(!fragment){status_->setText(tr("The clipboard does not contain valid Vortia geometry."));return;}
+    if(sketch_.closed()||(!sketch_.points().empty()&&fragment->closed())){status_->setText(tr("Paste a closed profile into an empty sketch. Open profiles accept appended points or segments; separate contours are not supported."));return;}
+    QDialog dialog(this);dialog.setObjectName("vortia-paste-geometry");dialog.setWindowTitle(tr("Paste geometry"));auto* form=new QFormLayout(&dialog);
+    auto* note=new QLabel(tr("Coordinates are in millimetres. In an open profile, the copied fragment is appended and connected to its last point."),&dialog);note->setWordWrap(true);form->addRow(note);
+    std::array<QDoubleSpinBox*,2> delta{};
+    for(std::size_t i=0;i<2;++i){delta[i]=new QDoubleSpinBox(&dialog);delta[i]->setObjectName(QString("paste-offset-%1").arg(i));delta[i]->setRange(-2000000,2000000);delta[i]->setDecimals(6);delta[i]->setSuffix(" mm");delta[i]->setValue(sketch_.points().empty()?0:10);form->addRow(i==0?tr("X offset"):tr("Y offset"),delta[i]);}
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);form->addRow(buttons);connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    Sketch2D next=sketch_;const auto start=next.points().size();
+    for(const auto& point:fragment->points()){const SketchPoint2D placed{point.xMm+delta[0]->value(),point.yMm+delta[1]->value()};if(std::abs(placed.xMm)>2000000||std::abs(placed.yMm)>2000000||!next.addPoint(placed)){status_->setText(tr("Paste would create invalid or duplicate consecutive vertices. The sketch was retained."));return;}}
+    if(fragment->closed()&&!next.close())return;
+    for(std::size_t i=0;i<fragment->segmentCount();++i)if(!next.setSegmentBulge(start+i,fragment->segmentBulge(i)))return;
+    sketch_=std::move(next);selectedSegment_=-1;selectedPoint_=static_cast<int>(start);emit sketchChanged();refresh();
+}
+}
+
+namespace vortia {
+void SketchEditorDialog::editVertexCoordinates(int index){
+    if(readOnly_||index<0||static_cast<std::size_t>(index)>=sketch_.points().size())return;setSelectedPoint(index);
+    if(sketch_.pointLockedByArcs(static_cast<std::size_t>(index))){status_->setText(tr("This vertex supports a tangent arc. Select the arc and edit its radius."));return;}
+    QDialog dialog(this);dialog.setObjectName("vortia-edit-vertex");dialog.setWindowTitle(tr("Edit vertex %1").arg(index));auto* form=new QFormLayout(&dialog);const auto point=sketch_.points()[static_cast<std::size_t>(index)];std::array<QDoubleSpinBox*,2> values{};
+    for(std::size_t i=0;i<2;++i){values[i]=new QDoubleSpinBox(&dialog);values[i]->setObjectName(QString("vertex-coordinate-%1").arg(i));values[i]->setRange(-2000000,2000000);values[i]->setDecimals(6);values[i]->setSuffix(" mm");values[i]->setValue(i==0?point.xMm:point.yMm);form->addRow(i==0?tr("X coordinate"):tr("Y coordinate"),values[i]);}
+    auto* feedback=new QLabel(&dialog);feedback->setWordWrap(true);form->addRow(feedback);auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);form->addRow(buttons);
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,[&](){auto candidate=sketch_;if(!candidate.movePoint(static_cast<std::size_t>(index),{values[0]->value(),values[1]->value()})){feedback->setText(tr("Those coordinates would create an invalid segment. The original vertex was retained."));return;}sketch_=std::move(candidate);emit sketchChanged();refresh();dialog.accept();});connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);dialog.exec();
+}
+}

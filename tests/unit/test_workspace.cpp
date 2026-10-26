@@ -18,6 +18,7 @@
 #include <QMenu>
 #include <QSettings>
 #include <map>
+#include <numbers>
 #include <QListWidget>
 #include <QStackedWidget>
 
@@ -59,6 +60,11 @@
 #include <vtkActorCollection.h>
 #include <vtkCamera.h>
 #include "vortia/ui/FieldTools.hpp"
+#include "vortia/ui/RunMonitor.hpp"
+#include "vortia/ui/BoundaryMapping.hpp"
+#include "vortia/ui/ThemeManager.hpp"
+#include <QClipboard>
+#include <QMimeData>
 
 namespace vortia {
 // Exercise document operations directly without native file-picker automation.
@@ -830,11 +836,13 @@ TEST(FlowRunControls, NativeConvergencePipelineWhenExplicitlyRequested) {
     ASSERT_TRUE(updateFlowRunControls(root,{{"iterations",1000},{"writeInterval",1000},{"maxCo",.05}},*env).isEmpty());
     openfoam::CaseRunner runner(processes,*env);const auto caps=openfoam::Detector::verifyCapabilities(*installation,*env);
     std::optional<openfoam::ConvergenceSample> last;openfoam::RunCallbacks callbacks;
+    std::vector<openfoam::MonitorSample> monitors;callbacks.onMonitors=[&](const auto& samples){monitors.insert(monitors.end(),samples.begin(),samples.end());};
     callbacks.onProgress=[&](const openfoam::SolverProgress& p){if(p.convergence)last=p.convergence;};
     const auto mesh=runner.runMeshing(root.toStdString(),caps,{},nullptr);ASSERT_TRUE(mesh);ASSERT_TRUE(mesh->process.succeeded());
     const auto result=runner.runSolver(root.toStdString(),{},caps,callbacks,nullptr,"vortiaCentralFoam",4);
     ASSERT_TRUE(result);ASSERT_TRUE(result->process.succeeded());EXPECT_EQ(result->finalTime,700);
-    ASSERT_TRUE(last);EXPECT_EQ(last->status,"converged");
+    ASSERT_TRUE(last);EXPECT_EQ(last->status,"converged");EXPECT_TRUE(last->massIncoming);EXPECT_TRUE(last->massOutgoing);
+    EXPECT_TRUE(std::any_of(monitors.begin(),monitors.end(),[](const auto& sample){return sample.series=="flow.incoming"&&sample.coordinate==700;}));
     const auto bytes=readFile(root+"/vortia-convergence.json");
     const auto assessment=openfoam::parseConvergenceReport(bytes.toStdString());
     ASSERT_TRUE(assessment);EXPECT_EQ(assessment->status,"converged");EXPECT_EQ(assessment->iteration,700);
@@ -990,4 +998,99 @@ TEST(Workspace, RibbonMenusExposeTheirCommandsAndFieldPopupContainsOnlyData) {
     files->showMenu();EXPECT_TRUE(menuOpened);
     auto* selector=window.findChild<QComboBox*>("vortia-field-selector");ASSERT_NE(selector,nullptr);
     EXPECT_FALSE(selector->isEnabled());
+}
+
+TEST(SketchEditing, KeyboardUndoDeleteAndRedoRestoreTheGeometry){
+    SketchEditorDialog editor;Sketch2D shape;ASSERT_TRUE(shape.addPoint({0,0}));ASSERT_TRUE(shape.addPoint({10,0}));ASSERT_TRUE(shape.addPoint({10,10}));ASSERT_TRUE(shape.close());editor.setSketch(shape);
+    auto* table=editor.findChild<QTableWidget*>();auto* canvas=editor.findChild<QWidget*>("vortia-sketch-canvas");ASSERT_TRUE(table&&canvas);
+    emit table->cellClicked(1,0);QKeyEvent remove(QEvent::KeyPress,Qt::Key_Backspace,Qt::NoModifier);QApplication::sendEvent(canvas,&remove);EXPECT_EQ(editor.sketch().points().size(),2);EXPECT_FALSE(editor.sketch().closed());
+    QKeyEvent undo(QEvent::KeyPress,Qt::Key_Z,Qt::ControlModifier);QApplication::sendEvent(canvas,&undo);expectShape(editor.sketch(),shape);
+    editor.redoEdit();EXPECT_EQ(editor.sketch().points().size(),2);editor.undoEdit();
+    editor.setReadOnly(true);emit table->cellClicked(1,0);editor.deleteSelectedPoint();editor.redoEdit();expectShape(editor.sketch(),shape);
+}
+TEST(SketchEditing, WholeSketchClipboardPreservesArcsAndRejectsMalformedGeometry){
+    SketchEditorDialog source,destination;Sketch2D circle;for(const auto point:{SketchPoint2D{10,0},{0,10},{-10,0},{0,-10}})ASSERT_TRUE(circle.addPoint(point));ASSERT_TRUE(circle.close());for(std::size_t i=0;i<4;++i)ASSERT_TRUE(circle.setSegmentBulge(i,std::tan(std::numbers::pi/8)));source.setSketch(circle);source.copySelection();
+    QTimer::singleShot(0,[](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);EXPECT_EQ(d->objectName(),"vortia-paste-geometry");d->accept();});
+    destination.pasteGeometry();expectShape(destination.sketch(),circle);destination.undoEdit();EXPECT_TRUE(destination.sketch().points().empty());destination.redoEdit();expectShape(destination.sketch(),circle);
+    QApplication::clipboard()->setText("{invalid geometry}");destination.pasteGeometry();expectShape(destination.sketch(),circle);
+    auto* x=destination.findChild<QDoubleSpinBox*>("vortia-sketch-x");ASSERT_NE(x,nullptr);auto* text=x->findChild<QLineEdit*>();ASSERT_NE(text,nullptr);text->setText("123");text->selectAll();QKeyEvent remove(QEvent::KeyPress,Qt::Key_Backspace,Qt::NoModifier);QApplication::sendEvent(text,&remove);expectShape(destination.sketch(),circle);
+}
+TEST(SketchEditing, UndoStacksStayWithTheirProjectTab){
+    MainWindow window;auto& editor=WorkspaceTestAccess::editor(window);auto* add=editor.findChild<QPushButton*>("vortia-sketch-add");auto* x=editor.findChild<QDoubleSpinBox*>("vortia-sketch-x");ASSERT_TRUE(add&&x);x->setValue(1);add->click();EXPECT_EQ(editor.sketch().points().size(),1);
+    WorkspaceTestAccess::add(window,"Second");x->setValue(2);add->click();WorkspaceTestAccess::select(window,0);editor.undoEdit();EXPECT_TRUE(editor.sketch().points().empty());WorkspaceTestAccess::select(window,1);ASSERT_EQ(editor.sketch().points().size(),1);EXPECT_DOUBLE_EQ(editor.sketch().points()[0].xMm,2);editor.undoEdit();EXPECT_TRUE(editor.sketch().points().empty());
+}
+TEST(SketchEditing, AVertexDragIsOneUndoableEdit){
+    SketchEditorDialog editor;editor.resize(1000,700);Sketch2D shape;ASSERT_TRUE(shape.addPoint({50,0}));ASSERT_TRUE(shape.addPoint({100,20}));ASSERT_TRUE(shape.addPoint({150,0}));editor.setSketch(shape);editor.show();QApplication::processEvents();auto* canvas=editor.findChild<QWidget*>("vortia-sketch-canvas");ASSERT_NE(canvas,nullptr);
+    const double scale=std::min((canvas->width()-65.0)/200.0,(canvas->height()-65.0)/140.0);const QPointF point(canvas->width()/2.0-50*scale,canvas->height()/2.0);
+    const auto mouse=[&](QEvent::Type type,QPointF at,Qt::MouseButton button,Qt::MouseButtons buttons){QMouseEvent event(type,at,at,at,button,buttons,Qt::NoModifier);QApplication::sendEvent(canvas,&event);};
+    mouse(QEvent::MouseButtonPress,point,Qt::LeftButton,Qt::LeftButton);mouse(QEvent::MouseMove,point+QPointF(10,10),Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseMove,point+QPointF(30,10),Qt::NoButton,Qt::LeftButton);mouse(QEvent::MouseButtonRelease,point+QPointF(30,10),Qt::LeftButton,Qt::NoButton);
+    EXPECT_NE(editor.sketch().points()[0].xMm,50);EXPECT_EQ(editor.editHistory().undo.size(),1);editor.undoEdit();expectShape(editor.sketch(),shape);
+}
+TEST(RunHistory, BoundedDecimationRetainsExtremaAndExportsRawZeroValues){
+    MonitorHistory history;std::vector<openfoam::MonitorSample> samples;for(int i=0;i<20000;++i)samples.push_back({static_cast<double>(i),i==10000?1000:i%2?1.0:0.0,"residual.initial.p",1});history.append(samples);
+    ASSERT_EQ(history.series.size(),1);const auto& points=history.series.begin()->second;EXPECT_LE(points.size(),8192u);EXPECT_TRUE(history.reduced);EXPECT_EQ(history.observations,20000u);EXPECT_DOUBLE_EQ(points.front().x,0);EXPECT_DOUBLE_EQ(points.back().x,19999);EXPECT_TRUE(std::any_of(points.begin(),points.end(),[](const auto& p){return p.y==1000;}));
+    QTemporaryDir folder;const auto file=folder.filePath("history.csv");ASSERT_TRUE(history.writeCsv(file));const auto text=readFile(file);EXPECT_TRUE(text.startsWith("session,solver_coordinate,series,value,unit"));EXPECT_TRUE(text.contains("1,0,residual.initial.p,0,1"));
+}
+TEST(RunHistory, ReplayAndLiveSamplesRemainBoundToTheirCaseAndFreezeDoesNotStopRecording){
+    QTemporaryDir a,b;writeFile(a.filePath("log.vortia"),"Time = 10\nDICPCG: Solving for p, Initial residual = 0.2, Final residual = 0.01, No Iterations 1\n");
+    RunMonitor monitor;monitor.setCase(a.path());QElapsedTimer timer;timer.start();while(monitor.loading()&&timer.elapsed()<3000){QApplication::processEvents();QThread::msleep(1);}ASSERT_FALSE(monitor.loading());ASSERT_EQ(monitor.history().series.at("residual.initial.p").size(),1u);
+    monitor.beginRun(a.path());auto* pause=monitor.findChild<QCheckBox*>("monitor-pause");ASSERT_NE(pause,nullptr);pause->setChecked(true);monitor.appendBatch(R"([[20,0.1,"residual.initial.p",0],[20,0.005,"residual.final.p",0]])");EXPECT_EQ(monitor.history().series.at("residual.initial.p").size(),2u);
+    monitor.setCase(b.path());EXPECT_TRUE(monitor.history().series.empty());monitor.appendBatch(R"([[30,1,"residual.initial.p",0]])");EXPECT_TRUE(monitor.history().series.empty());monitor.setCase(a.path());timer.restart();while(monitor.loading()&&timer.elapsed()<3000){QApplication::processEvents();QThread::msleep(1);}EXPECT_FALSE(monitor.history().series.empty());
+}
+
+namespace {
+Sketch2D boundaryExample(){Sketch2D shape;for(const auto p:{SketchPoint2D{0,0},{0,10},{10,10},{20,5},{30,5},{30,0}})if(!shape.addPoint(p))return {};if(!shape.close())return {};return shape;}
+QJsonObject assignedExample(){QJsonArray boundaries;for(const auto* kind:{"inlet","wall","wall","wall","outlet","axis"})boundaries.append(QJsonObject{{"name",kind},{"type",kind},{"pressure",QString(kind)=="inlet"?3640000:QString(kind)=="outlet"?10000:101325},{"temperature",QString(kind)=="inlet"?2900:300},{"viscosityRatio",10}});return {{"boundaries",boundaries}};}
+}
+TEST(BoundaryMapping, FilletsKeepExistingPhysicalAssignmentsAndUndoRestoresThem){
+    const auto original=boundaryExample();auto edited=original;ASSERT_TRUE(edited.filletVertex(2,1));const auto before=assignedExample();const auto mapped=reconcileFlowBoundaries(original,edited,before);const auto boundaries=mapped.value("boundaries").toArray();ASSERT_EQ(boundaries.size(),7);
+    EXPECT_EQ(boundaries[0],before.value("boundaries").toArray()[0]);EXPECT_EQ(boundaries[2].toObject().value("type").toString(),"wall");EXPECT_EQ(boundaries[5],before.value("boundaries").toArray()[4]);EXPECT_EQ(boundaries[6].toObject().value("type").toString(),"axis");
+    const auto restored=reconcileFlowBoundaries(edited,original,mapped);EXPECT_EQ(restored.value("boundaries"),before.value("boundaries"));
+    auto radius=edited;ASSERT_TRUE(radius.setFilletRadius(2,2));const auto changed=reconcileFlowBoundaries(edited,radius,mapped);EXPECT_EQ(changed.value("boundaries"),mapped.value("boundaries"));
+}
+TEST(BoundaryMapping, SplitInletsInheritValuesAndAmbiguousNewArcsStayUnassigned){
+    const auto original=boundaryExample();auto split=original;ASSERT_TRUE(split.splitSegment(0));const auto cfg=assignedExample();const auto mapped=reconcileFlowBoundaries(original,split,cfg).value("boundaries").toArray();ASSERT_EQ(mapped.size(),7);EXPECT_EQ(mapped[0],cfg.value("boundaries").toArray()[0]);EXPECT_EQ(mapped[1],mapped[0]);
+    auto mixed=original;ASSERT_TRUE(mixed.filletVertex(1,1));const auto ambiguous=reconcileFlowBoundaries(original,mixed,cfg);EXPECT_EQ(ambiguous.value("boundaries").toArray()[1].toObject().value("type").toString(),"unassigned");EXPECT_EQ(ambiguous.value("boundaries").toArray()[0],cfg.value("boundaries").toArray()[0]);
+}
+TEST(BoundaryMapping, DeletingAMixedCornerKeepsRecoverableAssignmentsAndGeometryUndo){
+    const auto original=boundaryExample();auto removed=original;ASSERT_TRUE(removed.removePoint(1));const auto cfg=assignedExample();const auto mapped=reconcileFlowBoundaries(original,removed,cfg);EXPECT_EQ(mapped.value("boundaries").toArray()[0].toObject().value("type").toString(),"unassigned");EXPECT_FALSE(mapped.value("unmappedBoundaries").toArray().empty());EXPECT_EQ(reconcileFlowBoundaries(removed,original,mapped).value("boundaries"),cfg.value("boundaries"));
+}
+TEST(BoundaryMapping, RegionNamesAreRepairedWithoutChangingOpenBoundaryValues){
+    auto cfg=assignedExample();auto boundaries=cfg.value("boundaries").toArray();auto inlet=boundaries[0].toObject();inlet.insert("name",QString::fromUtf8("Cámara de 3,64 MPa"));auto outlet=boundaries[4].toObject();outlet.insert("name",inlet.value("name"));boundaries[0]=inlet;boundaries[4]=outlet;const auto fixed=normalizedBoundaryNames(boundaries);
+    EXPECT_EQ(fixed[0].toObject().value("name").toString(),"Camara_de_3_64_MPa");EXPECT_NE(fixed[4].toObject().value("name"),fixed[0].toObject().value("name"));EXPECT_EQ(fixed[0].toObject().value("pressure"),3640000);EXPECT_EQ(fixed[4].toObject().value("pressure"),10000);
+}
+TEST(SketchEditing, CoordinateTableEditsAreUndoableAndImpossibleMovesAreRetained){
+    SketchEditorDialog editor;Sketch2D shape;ASSERT_TRUE(shape.addPoint({0,0}));ASSERT_TRUE(shape.addPoint({10,0}));ASSERT_TRUE(shape.addPoint({10,10}));editor.setSketch(shape);auto* table=editor.findChild<QTableWidget*>();ASSERT_NE(table,nullptr);table->item(1,1)->setData(Qt::EditRole,12.5);EXPECT_DOUBLE_EQ(editor.sketch().points()[1].xMm,12.5);QApplication::processEvents();editor.undoEdit();expectShape(editor.sketch(),shape);
+    table->item(1,1)->setData(Qt::EditRole,0.0);EXPECT_DOUBLE_EQ(editor.sketch().points()[1].xMm,10);QApplication::processEvents();expectShape(editor.sketch(),shape);
+}
+TEST(SketchGeometry, FilletRadiusIntervalsContainOnlyFeasibleLimits){
+    auto shape=makeRectangleSketch(3,2).value();const auto range=shape.filletRadiusRange(1);ASSERT_TRUE(range);EXPECT_LT(range->second,2);auto lower=shape,upper=shape;EXPECT_TRUE(lower.filletVertex(1,range->first));EXPECT_TRUE(upper.filletVertex(1,range->second));const auto arcRange=upper.arcFilletRadiusRange(1);ASSERT_TRUE(arcRange);EXPECT_TRUE(upper.setFilletRadius(1,arcRange->first));
+}
+TEST(FlowBoundaryEditor, DisplaysNumberedGeometryAndRetainsAllBoundaryRows){
+    const auto original=boundaryExample();auto edited=original;ASSERT_TRUE(edited.filletVertex(2,1));auto cfg=assignedExample();cfg.insert("boundaryGeometry",boundaryGeometry(original));QTimer::singleShot(0,[](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);EXPECT_NE(d->findChild<QWidget*>("flow-boundary-preview"),nullptr);auto* table=d->findChild<QTableWidget*>("flow-boundaries");ASSERT_NE(table,nullptr);EXPECT_EQ(table->rowCount(),7);EXPECT_EQ(static_cast<QComboBox*>(table->cellWidget(5,2))->currentData().toString(),"outlet");table->setCurrentCell(2,0);EXPECT_TRUE(d->findChild<QLabel*>("flow-boundary-details")->text().contains("3"));d->accept();});
+    const auto result=editFlowSetup(nullptr,edited,cfg,2);EXPECT_EQ(result.value("boundaries").toArray()[0].toObject().value("pressure"),3640000);EXPECT_TRUE(result.contains("boundaryGeometry"));
+}
+
+TEST(RunHistory, LargeNativeHistoryReplayWhenExplicitlyRequested){
+    const auto root=qEnvironmentVariable("VORTIA_HISTORY_REPLAY_CASE");if(root.isEmpty())GTEST_SKIP()<<"Read-only optional native log replay";
+    RunMonitor monitor;QElapsedTimer timer;timer.start();monitor.setCase(root);while(monitor.loading()&&timer.elapsed()<30000){QApplication::processEvents();QThread::msleep(1);}ASSERT_FALSE(monitor.loading());EXPECT_GT(monitor.history().observations,100u);EXPECT_TRUE(monitor.history().series.contains("mass.global"));for(const auto& [key,points]:monitor.history().series)EXPECT_LE(points.size(),8192u);
+    qInfo("Native history replay: %lld ms, %llu observations, %zu series",timer.elapsed(),static_cast<unsigned long long>(monitor.history().observations),monitor.history().series.size());
+}
+TEST(BoundaryMapping, NonPhysicalMetadataDoesNotInvalidateTheCalculationFingerprint){
+    QTemporaryDir dir;auto project=Project::create(dir.filePath("editable").toStdString(),"editable");ASSERT_TRUE(project);MainWindow window;project->setSetupJson(WorkspaceTestAccess::setupJson(window));ASSERT_TRUE(project->save());ASSERT_TRUE(WorkspaceTestAccess::open(window,QString::fromStdString(project->rootDir().string())));
+    auto cfg=assignedExample();WorkspaceTestAccess::flow(window,cfg);ASSERT_TRUE(WorkspaceTestAccess::save(window));const auto before=WorkspaceTestAccess::fingerprint(window);
+    cfg.insert("boundaryGeometry",boundaryGeometry(boundaryExample()));cfg.insert("boundaryVersions",QJsonArray{QJsonObject{{"example",1}}});cfg.insert("unmappedBoundaries",QJsonArray{QJsonObject{{"name","old-wall"}}});WorkspaceTestAccess::flow(window,cfg);EXPECT_EQ(WorkspaceTestAccess::fingerprint(window),before);
+}
+TEST(BoundaryMapping, SafeSettingsRepairRetainsPhysicalValues){
+    const auto shape=boundaryExample();auto cfg=assignedExample();cfg.insert("solver",QJsonObject{{"iterations",100},{"writeInterval",500},{"convergence",QJsonObject{{"interval",100},{"minimumIterations",50}}}});cfg.insert("mesh",QJsonObject{{"sizeMm",10},{"wallSizeMm",20}});const auto fixed=normalizedFlowConfiguration(shape,cfg);
+    EXPECT_EQ(fixed.value("solver").toObject().value("writeInterval"),100);EXPECT_EQ(fixed.value("solver").toObject().value("convergence").toObject().value("minimumIterations"),100);EXPECT_EQ(fixed.value("mesh").toObject().value("wallSizeMm"),10);EXPECT_EQ(fixed.value("boundaries").toArray()[0].toObject().value("pressure"),3640000);
+}
+
+TEST(EngineeringUi, RenderComponentsWhenExplicitlyRequested){
+    const auto output=qEnvironmentVariable("VORTIA_UI_ARTIFACT_DIR"),source=qEnvironmentVariable("VORTIA_HISTORY_REPLAY_CASE");if(output.isEmpty()||source.isEmpty())GTEST_SKIP()<<"Optional component render QA";
+    QTranslator translator;ASSERT_TRUE(translator.load(QStringLiteral(VORTIA_TEST_QM)));QApplication::installTranslator(&translator);
+    ASSERT_TRUE(QDir().mkpath(output));ThemeManager::apply(*qobject_cast<QApplication*>(QApplication::instance()),ThemeManager::Theme::Dark);
+    RunMonitor monitor;monitor.resize(1200,740);monitor.show();monitor.setCase(source);QElapsedTimer timer;timer.start();while(monitor.loading()&&timer.elapsed()<30000){QApplication::processEvents();QThread::msleep(1);}ASSERT_FALSE(monitor.loading());QApplication::processEvents();EXPECT_TRUE(monitor.grab().save(output+"/Seguimiento-componentes.png"));
+    const auto original=boundaryExample();auto rounded=original;ASSERT_TRUE(rounded.filletVertex(2,1));auto cfg=assignedExample();cfg.insert("boundaryGeometry",boundaryGeometry(original));QTimer::singleShot(0,[&](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);QApplication::processEvents();EXPECT_TRUE(d->grab().save(output+"/Contornos-componentes.png"));d->reject();});editFlowSetup(nullptr,rounded,cfg,2);
+    SketchEditorDialog editor;editor.resize(1120,750);editor.setSketch(rounded);editor.show();QApplication::processEvents();EXPECT_TRUE(editor.grab().save(output+"/Croquis-componentes.png"));QApplication::removeTranslator(&translator);
 }

@@ -20,6 +20,7 @@ struct ConvergenceSample {
     double massTolerance=0, fieldTolerance=0, equationError=0, equationTolerance=0;
     int stableSamples=0, requiredSamples=0, interval=0;
     bool sampled=false, automatic=false;
+    std::optional<double> massIncoming,massOutgoing;
 };
 // Strict parsing shared by live progress and persisted assessment readers.
 std::optional<ConvergenceSample> parseConvergenceReport(std::string_view json);
@@ -43,8 +44,15 @@ struct SolverProgress {
 ///   smoothSolver:  Solving for Ux, Initial residual = 1, Final residual = 2.9e-06, No Iterations 19
 ///   DICPCG:  Solving for p, Initial residual = ...
 /// Divergence is detected on NaN/Inf residuals and FOAM fatal signatures.
+struct MonitorSample {
+    double coordinate=0,value=0;
+    std::string series;
+    int session=0;
+};
 class LogParser {
 public:
+    explicit LogParser(bool collectMonitors=false):collectMonitors_(collectMonitors){}
+    std::vector<MonitorSample> takeMonitorSamples();
     void feed(std::string_view chunk);
     /// Processes any trailing partial line (call when the stream ends).
     void flush();
@@ -56,6 +64,13 @@ private:
 
     std::string pending_; ///< Partial line not yet terminated.
     SolverProgress progress_;
+    void monitor(const std::string&,double,double);
+    bool collectMonitors_=false,hasTime_=false,historyPhase_=true;
+    int session_=0;
+    std::vector<MonitorSample> monitorSamples_;
+    std::optional<std::pair<double,double>> pendingCentralCourant_;
+    std::optional<std::pair<double,double>> clockBaseline_;
+
 };
 
 } // namespace vortia::openfoam

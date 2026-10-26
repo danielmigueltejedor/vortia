@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <vector>
 #include <optional>
+#include <utility>
 
 namespace vortia {
 
@@ -51,6 +52,9 @@ public:
         points_[index] = p;
         return true;
     }
+    /// Removing a vertex replaces its incident segments with a straight join.
+    /// Unrelated arcs are retained. Failure is transactional.
+    [[nodiscard]] bool removePoint(std::size_t index);
     [[nodiscard]] bool close() {
         if (points_.size() < 3 || distance(points_.front(), points_.back()) < 1e-6)
             return false;
@@ -70,6 +74,8 @@ public:
     /// Only minor arcs / semicircles are supported; invalid input changes nothing.
     [[nodiscard]] bool setSegmentBulge(std::size_t index, double bulge);
     /// Replace a corner between two lines with a tangent circular fillet.
+    [[nodiscard]] std::optional<std::pair<double,double>> filletRadiusRange(std::size_t vertex) const;
+    [[nodiscard]] std::optional<std::pair<double,double>> arcFilletRadiusRange(std::size_t segment) const;
     [[nodiscard]] bool filletVertex(std::size_t index, double radiusMm);
     /// Resize an unsplit fillet, retaining the two supporting tangent lines.
     [[nodiscard]] bool setFilletRadius(std::size_t segment, double radiusMm);

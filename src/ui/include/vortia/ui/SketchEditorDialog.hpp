@@ -5,7 +5,9 @@
 
 #include <QDialog>
 #include <functional>
+#include <cstdint>
 
+class QAction;
 class QDoubleSpinBox;
 class QLabel;
 class QTableWidget;
@@ -21,6 +23,14 @@ class SketchEditorDialog final : public QDialog {
     Q_OBJECT
 public:
     explicit SketchEditorDialog(QWidget* parent = nullptr);
+    struct EditSnapshot {Sketch2D sketch;NozzleDimensions dimensions;};
+    struct EditHistory {std::vector<EditSnapshot> undo,redo;std::uint64_t revision=0;};
+    const EditHistory& editHistory() const {return history_;}
+    void setEditHistory(EditHistory history);
+    void undoEdit();void redoEdit();void copySelection();void pasteGeometry();void deleteSelectedPoint();
+protected:
+    bool eventFilter(QObject*,QEvent*) override;
+public:
     void setSketch(const Sketch2D& shape);
     void setInteractionPreferences(bool snap,double spacing,bool grid,bool dimensions,double zoom);
     void setReadOnly(bool readOnly);
@@ -41,6 +51,9 @@ signals:
     void sketchChanged();
     void closeRequested();
 private:
+    void recordEdit();
+    void refreshEditActions();
+    void applySnapshot(const EditSnapshot&);
     void refresh();
     bool confirmReplacement() const;
     void setShape(const Sketch2D& shape);
@@ -48,6 +61,7 @@ private:
     void setSelectedPoint(int index);
     void addPoint();
     void movePoint();
+    void editVertexCoordinates(int index);
     void split();
     void changeLength();
     void fillet();
@@ -65,6 +79,10 @@ private:
     int selectedSegment_{-1};
     int selectedPoint_{-1};
     bool readOnly_{false};
+    EditHistory history_;
+    EditSnapshot committed_;
+    bool restoring_{false},dragEditing_{false},dragRecorded_{false};
+    QAction *undoAction_{nullptr},*redoAction_{nullptr},*copyAction_{nullptr},*pasteAction_{nullptr},*deleteAction_{nullptr};
 };
 
 } // namespace vortia

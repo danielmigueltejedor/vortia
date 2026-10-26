@@ -23,6 +23,7 @@ struct StepOutcome {
 struct RunCallbacks {
     OutputCallback onOutput;                                  ///< Raw log chunks.
     std::function<void(const SolverProgress&)> onProgress;    ///< Parsed state.
+    std::function<void(const std::vector<MonitorSample>&)> onMonitors; ///< Every parsed observation; caller batches GUI delivery.
 };
 
 /// Runs the OpenFOAM pipeline (blockMesh → solver) inside a case directory

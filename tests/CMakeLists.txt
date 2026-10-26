@@ -17,6 +17,7 @@ add_executable(test_geometry
     unit/test_stl_reader.cpp
     unit/test_box_domain.cpp
     unit/test_sketch_2d.cpp
+    unit/test_sketch_snapping.cpp
     unit/test_sketch_arcs.cpp
     unit/test_sketch_templates.cpp)
 target_link_libraries(test_geometry PRIVATE vortia::geometry GTest::gtest_main vortia_warnings)

@@ -4,6 +4,7 @@ add_library(vortia_ui STATIC
     include/vortia/ui/ConsolePanel.hpp
     include/vortia/ui/JobController.hpp
     include/vortia/ui/MainWindow.hpp
+    include/vortia/ui/RunMonitor.hpp
     include/vortia/ui/ProjectExplorerPanel.hpp
     include/vortia/ui/PropertiesPanel.hpp
     include/vortia/ui/ThemeManager.hpp
@@ -13,8 +14,10 @@ add_library(vortia_ui STATIC
     src/JobController.cpp
     src/MainWindow.cpp
     src/FlowSetup.cpp
+    src/BoundaryMapping.cpp
     src/FieldTools.cpp
     src/LineProfile.cpp
+    src/RunMonitor.cpp
     src/ProjectExplorerPanel.cpp
     src/PropertiesPanel.cpp
     src/ThemeManager.cpp

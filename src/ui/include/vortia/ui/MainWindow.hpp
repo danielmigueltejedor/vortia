@@ -24,6 +24,7 @@
 class QTemporaryDir;
 
 namespace vortia {
+class RunMonitor;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -92,6 +93,7 @@ private:
         QString name;
         CaseSetup setup;
         Sketch2D sketch;
+        SketchEditorDialog::EditHistory editHistory;
         NozzleDimensions nozzleDimensions;
         std::filesystem::path root;
         std::filesystem::path externalCase;
@@ -123,6 +125,7 @@ private:
     QTabWidget* workspaceTabs_{nullptr};
     SketchEditorDialog* sketchEditor_{nullptr};
     VtkViewport* viewport_{nullptr};
+    RunMonitor* runMonitor_{nullptr};
     ProjectExplorerPanel* explorer_{nullptr};
     PropertiesPanel* properties_{nullptr};
     ConsolePanel* console_{nullptr};
