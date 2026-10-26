@@ -1,0 +1,33 @@
+name: Deterministic Quality Gates
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch integrity
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}" HEAD
+          else
+            git show --format= --check HEAD
+          fi
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ libgtest-dev nlohmann-json3-dev libhdf5-dev
+      - name: Configure numerical core
+        run: cmake -S . -B build-quality -G Ninja -DVORTIA_BUILD_UI=OFF -DVORTIA_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Compile
+        run: cmake --build build-quality --parallel 2
+      - name: Numerical and regression tests
+        run: ctest --test-dir build-quality --output-on-failure
