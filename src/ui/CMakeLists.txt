@@ -14,6 +14,10 @@ add_library(vortia_ui STATIC
     src/JobController.cpp
     src/MainWindow.cpp
     src/FlowSetup.cpp
+    include/vortia/ui/PlanarView.hpp
+    include/vortia/ui/MeshRegionsWidget.hpp
+    src/PlanarView.cpp
+    src/MeshRegionsWidget.cpp
     src/BoundaryPreview.cpp
     src/BoundaryMapping.cpp
     src/FieldTools.cpp

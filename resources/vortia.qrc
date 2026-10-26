@@ -1,6 +1,7 @@
 <RCC>
   <qresource prefix="/vortia/flow">
     <file alias="prepare.py">flow/prepare.py</file>
+    <file alias="mesh_regions.py">flow/mesh_regions.py</file>
     <file alias="boundaries.py">flow/boundaries.py</file>
   </qresource>
   <qresource prefix="/vortia">
@@ -24,6 +25,8 @@
     <file alias="solver/LICENSE.md">../examples/nozzle-video-2026/solver/LICENSE.md</file>
   </qresource>
   <qresource prefix="/vortia/icons">
+    <file alias="mesh-cut.svg">icons/ui/mesh-cut.svg</file>
+    <file alias="coordinates.svg">icons/ui/coordinates.svg</file>
     <file alias="chart.svg">icons/ui/chart.svg</file>
     <file alias="undo.svg">icons/ui/undo.svg</file>
     <file alias="redo.svg">icons/ui/redo.svg</file>

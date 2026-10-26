@@ -814,6 +814,10 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
         <name>vortia::FlowSetup</name>
+    <message><source>Global size (mm)</source><translation>Tamaño global (mm)</translation></message>
+    <message><source>Near-wall size (mm)</source><translation>Cerca de pared (mm)</translation></message>
+    <message><source>Wedge angle (°)</source><translation>Ángulo de cuña (°)</translation></message>
+    <message><source>Mesh settings</source><translation>Ajustes de malla</translation></message>
     <message><source>Pinch or wheel to zoom · drag or swipe to pan · double click or F to fit</source><translation>Pellizca o usa la rueda para ampliar · arrastra o desliza para desplazar · doble clic o F para encuadrar</translation></message>
     <message><source>Fit boundaries</source><translation>Encuadrar contornos</translation></message>
     <message><source>Segment %1 · %2 · %3</source><translation>Tramo %1 · %2 · %3</translation></message>
@@ -1402,5 +1406,50 @@ Valor: %4</translation></message>
     <message><source>Solver coordinate / wall second</source><translation>Coordenada del solver / segundo real</translation></message>
     <message><source>Consecutive accepted samples</source><translation>Muestras válidas consecutivas</translation></message>
     <message><source>Required samples</source><translation>Muestras necesarias</translation></message>
+</context>
+<context><name>vortia::MeshRegionsWidget</name>
+    <message><source>Close the fluid contour before previewing the mesh.</source><translation>Cierra el contorno fluido antes de previsualizar la malla.</translation></message>
+    <message><source>Recover saved region settings</source><translation>Recuperar ajustes de región guardados</translation></message>
+    <message><source>Select a detected region before applying saved settings.</source><translation>Selecciona una región detectada antes de aplicar los ajustes guardados.</translation></message>
+    <message><source>Region %1</source><translation>Región %1</translation></message>
+    <message><source>Target size (mm)</source><translation>Tamaño objetivo (mm)</translation></message>
+    <message><source>Quad dominant can include triangles near the axis or difficult corners.</source><translation>El predominio cuadrilátero puede incluir triángulos cerca del eje o en esquinas difíciles.</translation></message>
+    <message><source>Divide region</source><translation>Dividir región</translation></message>
+    <message><source>Cut coordinates…</source><translation>Coordenadas del corte…</translation></message>
+    <message><source>Fit mesh</source><translation>Encuadrar malla</translation></message>
+    <message><source>Update preview</source><translation>Actualizar previsualización</translation></message>
+    <message><source>Cancel</source><translation>Cancelar</translation></message>
+    <message><source>Start X</source><translation>X inicial</translation></message>
+    <message><source>Start Y</source><translation>Y inicial</translation></message>
+    <message><source>End X</source><translation>X final</translation></message>
+    <message><source>End Y</source><translation>Y final</translation></message>
+    <message><source> Some previous controls no longer match a region; review the new rows.</source><translation> Algunos controles anteriores ya no corresponden a una región; revisa las nuevas filas.</translation></message>
+    <message><source>%1 regions · %2 cells · %3 internal interfaces. Preview only; final quality is checked by OpenFOAM.</source><translation>%1 regiones · %2 celdas · %3 interfaces internas. Previsualización; OpenFOAM comprobará la calidad final.</translation></message>
+    <message><source>%1 · target %2 mm</source><translation>%1 · tamaño objetivo %2 mm</translation></message>
+    <message><source>At most 32 partition cuts are supported.</source><translation>Se admiten hasta 32 cortes internos.</translation></message>
+    <message><source>Cell size (mm)</source><translation>Tamaño de celda (mm)</translation></message>
+    <message><source>Click two endpoints on the contour or other cuts. Esc cancels the current cut.</source><translation>Pulsa dos extremos sobre el contorno u otros cortes. Esc cancela el corte actual.</translation></message>
+    <message><source>Cut %1: (%2, %3) → (%4, %5) mm</source><translation>Corte %1: (%2, %3) → (%4, %5) mm</translation></message>
+    <message><source>Draw internal cuts, then update the preview to detect regions and see the generated cells.</source><translation>Dibuja los cortes internos y actualiza la previsualización para detectar las regiones y ver las celdas generadas.</translation></message>
+    <message><source>Edit cut…</source><translation>Editar corte…</translation></message>
+    <message><source>Generating the actual mesh preview… CFD is not running.</source><translation>Generando la malla de previsualización… El cálculo CFD no está en marcha.</translation></message>
+    <message><source>Internal partition (mm)</source><translation>División interna (mm)</translation></message>
+    <message><source>Method</source><translation>Método</translation></message>
+    <message><source>No mesh preview yet. Preview does not run the CFD solver.</source><translation>Todavía no hay una previsualización. La previsualización no ejecuta el solver CFD.</translation></message>
+    <message><source>Partition endpoints must be distinct.</source><translation>Los extremos del corte deben ser diferentes.</translation></message>
+    <message><source>Pinch / wheel: zoom · drag / two-finger swipe: pan · F / double click: fit. Cuts define mesh regions, not walls.</source><translation>Pinza o rueda: ampliar · arrastrar o deslizar dos dedos: desplazar · F o doble clic: encuadrar. Los cortes definen regiones de malla, no paredes.</translation></message>
+    <message><source>Preview cancelled. Your settings and cases were retained.</source><translation>Previsualización cancelada. Se conservan los ajustes y los casos.</translation></message>
+    <message><source>Preview cells</source><translation>Celdas mostradas</translation></message>
+    <message><source>Preview could not be generated: %1</source><translation>No se ha podido generar la previsualización: %1</translation></message>
+    <message><source>Preview is out of date. Update it to apply these settings.</source><translation>La previsualización está desactualizada. Actualízala para aplicar estos ajustes.</translation></message>
+    <message><source>Python 3 or the bundled Gmsh runtime is unavailable.</source><translation>No está disponible Python 3 o el motor Gmsh incluido.</translation></message>
+    <message><source>Quad dominant</source><translation>Predominio cuadrilátero</translation></message>
+    <message><source>Region</source><translation>Región</translation></message>
+    <message><source>Remove cut</source><translation>Eliminar corte</translation></message>
+    <message><source>Settings changed during generation. Update the preview again.</source><translation>Los ajustes han cambiado durante la generación. Actualiza de nuevo la previsualización.</translation></message>
+    <message><source>The bundled mesher is incomplete.</source><translation>El generador de malla incluido está incompleto.</translation></message>
+    <message><source>The mesher could not be started.</source><translation>No se ha podido iniciar el generador de malla.</translation></message>
+    <message><source>The temporary preview folder could not be created.</source><translation>No se ha podido crear la carpeta temporal de previsualización.</translation></message>
+    <message><source>Triangles</source><translation>Triángulos</translation></message>
 </context>
 </TS>

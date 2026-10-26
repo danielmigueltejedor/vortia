@@ -21,7 +21,7 @@ namespace {
 QString previewText(const char* text){return QCoreApplication::translate("vortia::FlowSetup",text);}
 }
 BoundaryPreview::BoundaryPreview(const Sketch2D& shape,QTableWidget* table,QWidget* parent)
-    :QWidget(parent),shape_(shape),table_(table){
+    :PlanarView(parent),shape_(shape),table_(table){
     setObjectName("flow-boundary-preview");setMinimumHeight(190);setMaximumHeight(260);
     setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     setFocusPolicy(Qt::StrongFocus);setMouseTracking(true);
@@ -31,13 +31,9 @@ BoundaryPreview::BoundaryPreview(const Sketch2D& shape,QTableWidget* table,QWidg
         const auto v=shape_.segmentPoint(i,j/48.0);
         minX=std::min(minX,v.xMm);maxX=std::max(maxX,v.xMm);minY=std::min(minY,v.yMm);maxY=std::max(maxY,v.yMm);
     }
-    if(shape_.segmentCount())bounds_=QRectF(QPointF(minX,minY),QPointF(maxX,maxY));
+    if(shape_.segmentCount())setWorldBounds(QRectF(QPointF(minX,minY),QPointF(maxX,maxY)));
+    connect(this,&PlanarView::worldClicked,this,[this](QPointF world){const int row=hitTest(viewTransform().map(world));if(row>=0){table_->setCurrentCell(row,0);table_->selectRow(row);table_->scrollToItem(table_->item(row,0));update();}});
 }
-QTransform BoundaryPreview::viewTransform() const {
-    const double scale=std::max(1e-9,std::min(std::max(1,width()-64)/std::max(1e-6,bounds_.width()),std::max(1,height()-52)/std::max(1e-6,bounds_.height())))*zoom_;
-    QTransform transform;transform.translate(width()/2.0+pan_.x(),height()/2.0+pan_.y());transform.scale(scale,-scale);transform.translate(-bounds_.center().x(),-bounds_.center().y());return transform;
-}
-void BoundaryPreview::fitView(){zoom_=1;pan_={};pressed_=dragged_=false;unsetCursor();update();}
 int BoundaryPreview::pieces(std::size_t segment)const{
     const auto arc=shape_.arc(segment);if(!arc)return 1;
     const double radius=arc->radiusMm*std::abs(viewTransform().m11());
@@ -65,38 +61,9 @@ int BoundaryPreview::hitTest(QPointF pos)const{
     }
     return row;
 }
-void BoundaryPreview::mousePressEvent(QMouseEvent* event){
-    if(event->button()!=Qt::LeftButton&&event->button()!=Qt::MiddleButton){QWidget::mousePressEvent(event);return;}
-    setFocus(Qt::MouseFocusReason);pressed_=true;dragged_=event->button()==Qt::MiddleButton;press_=previous_=event->position();event->accept();
-}
 void BoundaryPreview::mouseMoveEvent(QMouseEvent* event){
-    if(pressed_&&(event->buttons()&(Qt::LeftButton|Qt::MiddleButton))){
-        if(!dragged_&&QLineF(press_,event->position()).length()>=QApplication::startDragDistance())dragged_=true;
-        if(dragged_){pan_+=event->position()-previous_;setCursor(Qt::ClosedHandCursor);update();}previous_=event->position();event->accept();return;
-    }
+    PlanarView::mouseMoveEvent(event);if(navigating())return;
     const int row=hitTest(event->position());setCursor(row>=0?Qt::PointingHandCursor:Qt::OpenHandCursor);
     if(row>=0){auto* name=qobject_cast<QLineEdit*>(table_->cellWidget(row,1));auto* type=qobject_cast<QComboBox*>(table_->cellWidget(row,2));QToolTip::showText(event->globalPosition().toPoint(),previewText("Segment %1 · %2 · %3").arg(row+1).arg(name?name->text():QString{}).arg(type?type->currentText():QString{}),this);}else QToolTip::hideText();
 }
-void BoundaryPreview::mouseReleaseEvent(QMouseEvent* event){
-    if(!pressed_){QWidget::mouseReleaseEvent(event);return;}
-    const bool select=event->button()==Qt::LeftButton&&!dragged_;pressed_=dragged_=false;unsetCursor();
-    if(select){const int row=hitTest(event->position());if(row>=0){table_->setCurrentCell(row,0);table_->selectRow(row);table_->scrollToItem(table_->item(row,0));update();}}event->accept();
-}
-void BoundaryPreview::mouseDoubleClickEvent(QMouseEvent* event){if(event->button()==Qt::LeftButton){fitView();event->accept();}else QWidget::mouseDoubleClickEvent(event);}
-void BoundaryPreview::zoomAt(double factor,QPointF anchor){
-    if(!std::isfinite(factor)||factor<=0)return;const double next=std::clamp(zoom_*std::clamp(factor,.2,5.0),.05,10000.0);const auto relative=anchor-QPointF(width()/2.0,height()/2.0);pan_=relative-(relative-pan_)*(next/zoom_);zoom_=next;update();
-}
-void BoundaryPreview::wheelEvent(QWheelEvent* event){
-    if(!event->pixelDelta().isNull()&&!(event->modifiers()&(Qt::ControlModifier|Qt::MetaModifier))){pan_+=event->pixelDelta();update();}
-    else {const double delta=event->angleDelta().y()!=0?event->angleDelta().y():event->pixelDelta().y();zoomAt(std::pow(1.2,std::clamp(delta/120.0,-5.0,5.0)),event->position());}event->accept();
-}
-bool BoundaryPreview::event(QEvent* event){
-    if(event->type()==QEvent::NativeGesture){auto* gesture=static_cast<QNativeGestureEvent*>(event);
-        if(gesture->gestureType()==Qt::ZoomNativeGesture){zoomAt(1+gesture->value(),gesture->position());event->accept();return true;}
-        if(gesture->gestureType()==Qt::PanNativeGesture){pan_+=gesture->delta();update();event->accept();return true;}
-    }
-    if(event->type()==QEvent::FocusOut||event->type()==QEvent::WindowDeactivate){pressed_=dragged_=false;unsetCursor();}
-    return QWidget::event(event);
-}
-void BoundaryPreview::keyPressEvent(QKeyEvent* event){if(event->key()==Qt::Key_F){fitView();event->accept();}else QWidget::keyPressEvent(event);}
 }
