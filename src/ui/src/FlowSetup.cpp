@@ -1,6 +1,7 @@
 #include "vortia/ui/FlowSetup.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
 #include "vortia/ui/BoundaryPreview.hpp"
+#include "vortia/ui/MeshRegionsWidget.hpp"
 #include <QToolButton>
 #include <QPainter>
 #include <QPainterPath>
@@ -106,12 +107,15 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
         spin->setValue(previous.value(section).toObject().value(key).toDouble(defaults.value(section).toObject().value(key).toDouble(fallback)));
         form->addRow(tr(label),spin); numbers.push_back({section,key,spin}); return spin;
     };
-    auto* mesh = addPage("Mesh","mesh");
-    number(mesh,"mesh","sizeMm","Global cell size (mm)",20,0.001,1e7,3);
-    number(mesh,"mesh","wallSizeMm","Cell size near walls (mm)",2,0.001,1e7,3);
-    number(mesh,"mesh","wedgeAngle","Axisymmetric wedge angle (degrees)",5,0.1,5,2);
-    auto* meshInfo = new QLabel(tr("Generate a new mesh from the actual lines and circular arcs of the sketch. One closed fluid region above Y=0 is supported. Existing mesh and result revisions are retained."),&dialog);
-    meshInfo->setWordWrap(true); mesh->addRow(meshInfo);
+    auto* meshPage=new QWidget(pages);auto* meshLayout=new QVBoxLayout(meshPage);meshLayout->setContentsMargins(0,0,0,0);registerPage(meshPage,"Mesh","mesh");
+    auto* meshCard=new QGroupBox(tr("Mesh settings"),meshPage);auto* meshGlobalLayout=new QHBoxLayout(meshCard);meshLayout->addWidget(meshCard);
+    const auto globalForm=[&](){auto* host=new QWidget(meshCard);auto* form=new QFormLayout(host);form->setRowWrapPolicy(QFormLayout::WrapAllRows);form->setContentsMargins(0,0,0,0);meshGlobalLayout->addWidget(host);return form;};
+    auto* globalSize=number(globalForm(),"mesh","sizeMm","Global size (mm)",20,0.001,1e7,3);
+    auto* wallSize=number(globalForm(),"mesh","wallSizeMm","Near-wall size (mm)",2,0.001,1e7,3);
+    auto* wedgeAngle=number(globalForm(),"mesh","wedgeAngle","Wedge angle (°)",5,0.1,5,2);
+    auto* meshRegions=new MeshRegionsWidget(shape,previous.value("mesh").toObject(),meshPage);meshLayout->addWidget(meshRegions,1);
+    const auto meshGlobals=[=](){if(wallSize->value()>globalSize->value()){QSignalBlocker block(wallSize);wallSize->setValue(globalSize->value());}meshRegions->setGlobalSettings(QJsonObject{{"sizeMm",globalSize->value()},{"wallSizeMm",wallSize->value()},{"wedgeAngle",wedgeAngle->value()}});};
+    for(auto* spin:{globalSize,wallSize,wedgeAngle})QObject::connect(spin,qOverload<double>(&QDoubleSpinBox::valueChanged),meshRegions,meshGlobals);meshGlobals();
     auto* material = addPage("Models and material","material");
     material->addRow(new QLabel(tr("Ideal gas · energy enabled · axisymmetric without swirl · adiabatic walls"), &dialog));
     auto* turbulence = new QComboBox(&dialog); turbulence->setObjectName("flow-turbulence");
@@ -178,6 +182,8 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
         segment->setToolTip(QString("(%1, %2) → (%3, %4) mm").arg(a.xMm).arg(a.yMm).arg(b.xMm).arg(b.yMm));
     }
 
+    const auto syncMeshBoundaries=[=](){QJsonArray values;for(int row=0;row<table->rowCount();++row)values.append(QJsonObject{{"name",static_cast<QLineEdit*>(table->cellWidget(row,1))->text().trimmed()},{"type",static_cast<QComboBox*>(table->cellWidget(row,2))->currentData().toString()}});meshRegions->setBoundaries(values);};
+    for(int row=0;row<table->rowCount();++row){QObject::connect(static_cast<QLineEdit*>(table->cellWidget(row,1)),&QLineEdit::textChanged,meshRegions,syncMeshBoundaries);QObject::connect(static_cast<QComboBox*>(table->cellWidget(row,2)),qOverload<int>(&QComboBox::currentIndexChanged),meshRegions,syncMeshBoundaries);}syncMeshBoundaries();
     const auto selectedBoundary=[&](int row){if(row<0||row>=table->rowCount())return;const auto i=static_cast<std::size_t>(row);const auto a=shape.points()[i],b=shape.points()[(i+1)%shape.points().size()];details->setText(tr("Segment %1 · vertex %2 (%3, %4) → vertex %5 (%6, %7) mm · length %8 mm").arg(row+1).arg(row).arg(a.xMm,0,'g',9).arg(a.yMm,0,'g',9).arg((row+1)%static_cast<int>(shape.points().size())).arg(b.xMm,0,'g',9).arg(b.yMm,0,'g',9).arg(shape.segmentLength(i),0,'g',9));preview->update();};
     QObject::connect(table,&QTableWidget::currentCellChanged,&dialog,[&](int row,int,int,int){selectedBoundary(row);});if(table->rowCount()){table->setCurrentCell(0,0);selectedBoundary(0);}
     QObject::connect(applyRegion,&QPushButton::clicked,&dialog,[&](){if(regions->currentIndex()<1)return;const auto bc=regions->currentData().toJsonObject();auto rows=table->selectionModel()->selectedRows();if(rows.empty()&&table->currentRow()>=0)rows.append(table->model()->index(table->currentRow(),0));for(const auto& selected:rows){const int row=selected.row();auto* type=static_cast<QComboBox*>(table->cellWidget(row,2));if(!type->isEnabled())continue;static_cast<QLineEdit*>(table->cellWidget(row,1))->setText(bc.value("name").toString());type->setCurrentIndex(std::max(0,type->findData(bc.value("type"))));for(int col=3;col<6;++col)static_cast<QDoubleSpinBox*>(table->cellWidget(row,col))->setValue(bc.value(col==3?"pressure":col==4?"temperature":"viscosityRatio").toDouble());}preview->update();});
@@ -235,6 +241,7 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     if(dialog.exec()!=QDialog::Accepted)return {};
     QJsonObject result;
     for(const auto& item:numbers){auto object=result.value(item.section).toObject();object.insert(item.key,item.spin->value());result.insert(item.section,object);}
+    auto regionalMesh=meshRegions->meshSettings();const auto globals=result.value("mesh").toObject();for(auto i=globals.begin();i!=globals.end();++i)regionalMesh.insert(i.key(),i.value());result.insert("mesh",regionalMesh);
     auto mat=result.value("material").toObject();mat.insert("turbulence",turbulence->currentData().toString());result.insert("material",mat);
     QJsonObject convergenceResult;convergenceResult.insert("enabled",automatic->isChecked());
     for(const auto& c:criteria)convergenceResult.insert(c.key,c.spin->value());
@@ -366,7 +373,7 @@ QString generateFlowCase(QWidget* parent,const QString& sketchPath,const QJsonOb
     }
     QTemporaryDir stage(parentDir+"/.build-XXXXXX");if(!stage.isValid())return {};
     auto write=[&](const QString& name,const QByteArray& bytes){QFile f(stage.filePath(name));return f.open(QIODevice::WriteOnly)&&f.write(bytes)==bytes.size();};
-    for(const auto& name:{"prepare.py","boundaries.py"}){QFile f(QString(":/vortia/flow/")+name);if(!f.open(QIODevice::ReadOnly)||!write(name,f.readAll()))return {};}
+    for(const auto& name:{"prepare.py","boundaries.py","mesh_regions.py"}){QFile f(QString(":/vortia/flow/")+name);if(!f.open(QIODevice::ReadOnly)||!write(name,f.readAll()))return {};}
     auto settings=cfg;settings.remove("activeCase");settings.remove("preparedHash");settings.remove("preparedEngine");
     if(!write("settings.json",QJsonDocument(settings).toJson())||!QDir().mkpath(stage.filePath("solver/Make")))return {};
     for(const auto& name:QStringList{"vortiaCentralFoam.C","ConservativeUpdate.H","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}){

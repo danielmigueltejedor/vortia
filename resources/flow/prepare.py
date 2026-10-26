@@ -14,6 +14,7 @@ import subprocess
 import sys
 
 from boundaries import header, bisect, reservoir_velocity, pressure_outlet, viscosity_ratio_inlet
+from mesh_regions import validate_mesh, build as build_regions
 
 
 def finite(value, positive=True):
@@ -40,6 +41,7 @@ def convergence_controls(solver):
 
 
 def validate(sketch, cfg):
+    validate_mesh(sketch, cfg['mesh'])
     pts = sketch['vertices']
     bulges = sketch.get('segmentBulges', [0]*len(pts))
     if not sketch.get('closed') or sketch.get('units') != 'mm' or not 3 <= len(pts) <= 512:
@@ -98,7 +100,7 @@ def validate(sketch, cfg):
     return groups
 
 
-def mesh_case(root, sketch, cfg):
+def mesh_case(root, sketch, cfg, preview=False):
     # The runtime can live inside a signed app. Importing must not create or
     # rewrite bytecode in its sealed Resources directory.
     previous_bytecode_policy = sys.dont_write_bytecode
@@ -109,6 +111,8 @@ def mesh_case(root, sketch, cfg):
         sys.dont_write_bytecode = previous_bytecode_policy
     gmsh.initialize(['vortia-mesher', '-nopopup'])
     try:
+        if preview or cfg['mesh'].get('engine') == 'occ-regions-v1' or cfg['mesh'].get('partitions') or cfg['mesh'].get('regions'):
+            return build_regions(gmsh, root, sketch, cfg, preview)
         gmsh.model.add('fluid_domain')
         geo = gmsh.model.geo
         pts = [[x/1000, y/1000] for x, y in sketch['vertices']]
@@ -279,12 +283,20 @@ functions {{ {functions} }}
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sketch', type=Path, required=True); parser.add_argument('--config', type=Path, required=True)
-    parser.add_argument('--case', type=Path, required=True); parser.add_argument('--solver-sources', type=Path, required=True)
+    parser.add_argument('--case', type=Path, required=True); parser.add_argument('--solver-sources', type=Path)
+    parser.add_argument('--preview', action='store_true')
     parser.add_argument('--gmsh-runtime', type=Path)
     args = parser.parse_args()
     if args.gmsh_runtime: sys.path.insert(0, str(args.gmsh_runtime.resolve()))
     try:
-        prepare(args.case, json.loads(args.sketch.read_text()), json.loads(args.config.read_text()), args.solver_sources)
+        sketch, cfg = json.loads(args.sketch.read_text()), json.loads(args.config.read_text())
+        if args.preview:
+            if args.case.exists() and any(args.case.iterdir()): raise ValueError('Preview destination must be empty')
+            args.case.mkdir(parents=True, exist_ok=True)
+            mesh_case(args.case, sketch, cfg, preview=True)
+        else:
+            if args.solver_sources is None: raise ValueError('Solver sources are required for final generation')
+            prepare(args.case, sketch, cfg, args.solver_sources)
     except Exception as error:
         print('ERROR: '+str(error),file=sys.stderr)
         sys.exit(1)

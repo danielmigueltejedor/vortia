@@ -1,6 +1,7 @@
 import copy
 import unittest
 from prepare import validate, fields, convergence_controls, mesh_case
+from mesh_regions import validate_mesh
 import sys
 from pathlib import Path
 import tempfile
@@ -15,6 +16,15 @@ def inputs():
     return sketch,config
 
 class GeneralFlowTest(unittest.TestCase):
+    def test_region_controls_validate_without_changing_physical_conditions(self):
+        s,c=inputs();original=copy.deepcopy(c)
+        mesh=dict(c['mesh'],engine='occ-regions-v1',partitions=[dict(**{'from':[100,0],'to':[100,50]})],regions=[dict(seed=[50,25],name='Tobera',sizeMm=3,method='quads')])
+        validate_mesh(s,mesh)
+        self.assertEqual(c,original)
+        for key,value in [('sizeMm',float('nan')),('regions',[dict(seed=[1,2],sizeMm=0)]),('partitions',[{'from':[0,0],'to':[0,0]}]),('regions',[dict(seed=[1,2],sizeMm=1,method='unknown')]),('regions',[dict(seed=[float('inf'),2],sizeMm=1)])]:
+            with self.subTest(key=key,value=value),self.assertRaises((ValueError,KeyError)):
+                validate_mesh(s,dict(mesh,**{key:value}))
+
     def test_mesher_import_does_not_write_inside_runtime(self):
         with tempfile.TemporaryDirectory() as folder:
             runtime=Path(folder)
