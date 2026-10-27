@@ -4,6 +4,7 @@
 #include "vortia/ui/ResultFiles.hpp"
 #include "vortia/ui/FlowSetup.hpp"
 #include "vortia/ui/EngineeringWorkbench.hpp"
+#include "vortia/ui/RunDiagnostics.hpp"
 #include "vortia/ui/ConsolePanel.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
 #include <QJsonDocument>
@@ -44,6 +45,7 @@
 #include <QSurfaceFormat>
 #include <QWheelEvent>
 #include <QMessageBox>
+#include <QDockWidget>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QThread>
@@ -85,6 +87,8 @@
 namespace vortia {
 // Exercise document operations directly without native file-picker automation.
 struct WorkspaceTestAccess {
+    static void diagnose(MainWindow& w,const QJsonObject& d){w.showRunDiagnostic(d);}
+    static void refreshAssessment(MainWindow& w){w.updateNozzleNotice();}
     static QString fingerprint(MainWindow& w,bool legacy=false) {return w.flowFingerprint(legacy);}
     static void configure(MainWindow& w,int page=3) {w.configureFlow(page);}
     static FlowSetupPanel* physics(MainWindow& w){return w.physicsEditor_;}
@@ -1417,4 +1421,48 @@ TEST(WorkspaceFlow, EngineeringWorkspacePersistsWithoutInvalidatingPreparedPhysi
     QTimer::singleShot(0,[](){auto* dialog=dynamic_cast<EngineeringWorkbench*>(QApplication::activeModalWidget());ASSERT_NE(dialog,nullptr);dialog->findChild<QComboBox*>("engineering-density-mode")->setCurrentIndex(1);dialog->evaluate();ASSERT_FALSE(dialog->currentReport().isEmpty());dialog->findChild<QPushButton*>("engineering-add-comparison")->click();dialog->findChild<QPushButton*>("engineering-save-project")->click();dialog->reject();});action->trigger();
     EXPECT_EQ(WorkspaceTestAccess::fingerprint(window),fingerprint);const auto state=WorkspaceTestAccess::flow(window).value("engineering");EXPECT_EQ(state.toObject().value("comparisons").toArray().size(),1);ASSERT_TRUE(WorkspaceTestAccess::save(window));
     MainWindow reopened;ASSERT_TRUE(WorkspaceTestAccess::open(reopened,QString::fromStdString(project->rootDir().string())));EXPECT_EQ(WorkspaceTestAccess::flow(reopened).value("engineering"),state);
+}
+
+TEST(WorkspaceFlow, GuidedFailureActionsFollowProjectAndRunState) {
+    MainWindow window;auto cfg=defaultFlowConfiguration(boundaryExample());WorkspaceTestAccess::flow(window,cfg);
+    const auto diagnostic=diagnoseRunFailure(openfoam::DivergenceKind::NonPositiveUpdate,{},"[7] Vortia rejected explicit energy","solver",82460);
+    WorkspaceTestAccess::diagnose(window,diagnostic);
+    auto* restart=window.findChild<QPushButton*>("vortia-prepare-restart");ASSERT_NE(restart,nullptr);
+    EXPECT_TRUE(restart->isEnabled());EXPECT_FALSE(restart->isHidden());
+    EXPECT_TRUE(window.findChild<QLabel*>("vortia-flow-assessment")->text().contains("MPI_ABORT"));
+    WorkspaceTestAccess::lock(window,true);EXPECT_FALSE(restart->isEnabled());WorkspaceTestAccess::lock(window,false);
+    WorkspaceTestAccess::add(window,"Other");EXPECT_TRUE(window.findChild<QWidget*>("vortia-recovery-controls")->isHidden());
+}
+
+TEST(WorkspaceFlow, NativeFreshRestartKeepsTheFailedCaseWhenRequested) {
+    const auto root=qEnvironmentVariable("VORTIA_NATIVE_RECOVERY_ROOT");
+    if(root.isEmpty())GTEST_SKIP()<<"Opt-in isolated mesh preparation and recovery UI test";
+    QTemporaryDir dir;auto project=Project::create(dir.filePath("editable").toStdString(),"recovery");ASSERT_TRUE(project);
+    QSettings settings("Vortia","Vortia");settings.setValue("backend/root",root);settings.setValue("storage/cases",dir.filePath("cases"));
+    QTranslator translator;ASSERT_TRUE(translator.load(QStringLiteral(VORTIA_TEST_QM)));qApp->installTranslator(&translator);
+    MainWindow window;window.resize(1440,900);window.show();QApplication::processEvents();
+    project->setSetupJson(WorkspaceTestAccess::setupJson(window));ASSERT_TRUE(project->save());
+    ASSERT_TRUE(WorkspaceTestAccess::open(window,QString::fromStdString(project->rootDir().string())));
+    const auto shape=boundaryExample();WorkspaceTestAccess::edit(window,shape,{});
+    auto cfg=defaultFlowConfiguration(shape);cfg.insert("boundaries",assignedExample().value("boundaries"));
+    auto mesh=cfg.value("mesh").toObject();mesh.insert("sizeMm",2);mesh.insert("wallSizeMm",2);cfg.insert("mesh",mesh);
+    const auto old=dir.filePath("failed");ASSERT_TRUE(QDir().mkpath(old+"/100"));
+    writeFile(old+"/100/p","retained pressure checkpoint");writeFile(old+"/.vortia-flow-case","vortia-axisymmetric-flow-v1\n");
+    cfg.insert("activeCase",old);WorkspaceTestAccess::flow(window,cfg);ASSERT_TRUE(WorkspaceTestAccess::save(window));
+    const auto diagnostic=diagnoseRunFailure(openfoam::DivergenceKind::NonPositiveUpdate,{},"Vortia rejected explicit energy\nNo positive conservative update after 30 reductions\nMPI_ABORT","solver",82460);
+    ASSERT_TRUE(saveRunDiagnostic(old,diagnostic));WorkspaceTestAccess::diagnose(window,diagnostic);
+    auto* props=window.findChild<QDockWidget*>("vortia-dock-properties");ASSERT_NE(props,nullptr);props->show();window.resizeDocks({props},{500},Qt::Horizontal);
+    auto* tabs=window.findChild<QLabel*>("vortia-flow-assessment")->parentWidget();Q_UNUSED(tabs);
+    for(auto* tab:window.findChildren<QTabWidget*>())if(tab->count()>1&&tab->tabText(1)==MainWindow::tr("Run assessment"))tab->setCurrentIndex(1);
+    QApplication::processEvents();
+    const auto output=qEnvironmentVariable("VORTIA_UI_ARTIFACT_DIR");
+    if(!output.isEmpty()){QDir().mkpath(output);EXPECT_TRUE(window.grab().save(output+"/Diagnostico.png"));}
+    window.findChild<QPushButton*>("vortia-prepare-restart")->click();
+    const auto after=WorkspaceTestAccess::flow(window);const auto fresh=after.value("activeCase").toString();
+    ASSERT_NE(fresh,old);ASSERT_TRUE(QFileInfo::exists(fresh+"/0/p"));EXPECT_FALSE(QFileInfo::exists(fresh+"/100"));
+    EXPECT_EQ(readFile(old+"/100/p"),"retained pressure checkpoint");EXPECT_EQ(loadRunDiagnostic(old),diagnostic);
+    EXPECT_EQ(after.value("initial"),cfg.value("initial"));EXPECT_EQ(after.value("material"),cfg.value("material"));
+    EXPECT_DOUBLE_EQ(after.value("solver").toObject().value("maxCo").toDouble(),.02);
+    EXPECT_FALSE(window.findChild<JobController*>()->isRunning());
+    settings.remove("backend/root");settings.remove("storage/cases");qApp->removeTranslator(&translator);
 }

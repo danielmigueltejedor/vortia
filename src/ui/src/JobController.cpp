@@ -3,6 +3,7 @@
 #include "vortia/core/Logger.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
 #include "vortia/ui/ResultFiles.hpp"
+#include "vortia/ui/RunDiagnostics.hpp"
 
 #include <filesystem>
 #include <chrono>
@@ -46,6 +47,12 @@ void JobController::cancel() {
 bool JobController::isRunning() const { return running_.load(); }
 
 void JobController::runJob(JobSpec spec) {
+    const auto casePath=QString::fromStdString(spec.caseDir.string());
+    QString evidence,phase="mesh";
+    auto failureKind=openfoam::DivergenceKind::None;
+    double failureIteration=0;
+    const auto capture=[&](std::string_view chunk){evidence+=QString::fromUtf8(chunk.data(),static_cast<qsizetype>(chunk.size()));if(evidence.size()>32768)evidence=evidence.right(32768);};
+    saveRunDiagnostic(casePath,QJsonObject{{"schema",1},{"status","running"}});
     try {
     PosixProcessRunner processes;
     openfoam::CaseRunner runner(processes, spec.environment);
@@ -54,7 +61,8 @@ void JobController::runJob(JobSpec spec) {
     QString summary;
 
     openfoam::RunCallbacks meshCallbacks;
-    meshCallbacks.onOutput = [this](OutputStream, std::string_view chunk) {
+    meshCallbacks.onOutput = [this,&capture](OutputStream, std::string_view chunk) {
+        capture(chunk);
         const QString text=QString::fromUtf8(chunk.data(),static_cast<qsizetype>(chunk.size()));
         QMetaObject::invokeMethod(this,[this,text]() { emit outputReceived(text); },Qt::QueuedConnection);
     };
@@ -76,6 +84,8 @@ void JobController::runJob(JobSpec spec) {
                 if (executable) request.executable=executable->string();
                 const auto result=processes.run(request,cancelToken_.get(),nullptr);
                 const bool converted=result && result->succeeded();
+                saveRunDiagnostic(casePath,converted?QJsonObject{{"schema",1},{"status","success"}}:
+                    diagnoseRunFailure(openfoam::DivergenceKind::None,tr("Mesh export failed."),evidence,"mesh",0));
                 const auto vtm=converted ? latestVtmFile(QString::fromStdString((spec.caseDir/"VTK").string())) : QString{};
                 running_.store(false);
                 QMetaObject::invokeMethod(this,[this,vtm,converted]() {
@@ -85,9 +95,11 @@ void JobController::runJob(JobSpec spec) {
                 return;
             }
             openfoam::SolverProgress last;
+            phase="solver";evidence.clear();
             auto lastProgress=std::chrono::steady_clock::now()-std::chrono::milliseconds(100);
             openfoam::RunCallbacks callbacks;
             callbacks.onOutput = [&](OutputStream /*stream*/, std::string_view chunk) {
+                capture(chunk);
                 const QString text = QString::fromUtf8(chunk.data(),
                                                       static_cast<qsizetype>(chunk.size()));
                 QMetaObject::invokeMethod(this, [this, text]() {
@@ -140,6 +152,8 @@ void JobController::runJob(JobSpec spec) {
                 summary = QString::fromStdString(solverStep.error().describe());
             } else if (solverStep->diverged) {
                 success = false;
+                failureKind=solverStep->divergenceKind;
+                failureIteration=solverStep->finalTime;
                 summary = solverStep->divergenceKind==openfoam::DivergenceKind::NonPositiveUpdate
                     ? tr("Numerical instability: no admissible density/energy update after 30 local-step reductions. This run is not converged. Review initial values, boundary conditions and mesh before restarting from a valid state.")
                     : tr("Solver stopped: %1").arg(QString::fromStdString(solverStep->divergenceReason));
@@ -196,20 +210,36 @@ void JobController::runJob(JobSpec spec) {
         }
     }
 
+    const auto diagnostic=success?QJsonObject{{"schema",1},{"status","success"}}:
+        cancelRequested_.load()?QJsonObject{{"schema",1},{"status","cancelled"}}:
+        diagnoseRunFailure(failureKind,summary,evidence,phase,failureIteration);
+    if(!saveRunDiagnostic(casePath,diagnostic)) {
+        QMetaObject::invokeMethod(this,[this](){emit outputReceived(tr("The diagnostic could not be saved; the current explanation remains available in Run assessment.\n"));},Qt::QueuedConnection);
+    }
+    const auto diagnosticJson=QString::fromUtf8(QJsonDocument(diagnostic).toJson(QJsonDocument::Compact));
     running_.store(false);
-    QMetaObject::invokeMethod(this, [this, success, summary]() {
+    QMetaObject::invokeMethod(this, [this, success, summary,diagnosticJson]() {
         emit jobFinished(success, summary);
+        emit diagnosticReady(diagnosticJson);
     }, Qt::QueuedConnection);
     } catch (const std::exception& e) {
         running_.store(false);
         const QString message = QString::fromStdString(std::string("exception: ") + e.what());
-        QMetaObject::invokeMethod(this, [this, message]() {
+        const auto diagnostic=diagnoseRunFailure(failureKind,message,evidence,phase,failureIteration);
+        saveRunDiagnostic(casePath,diagnostic);
+        const auto json=QString::fromUtf8(QJsonDocument(diagnostic).toJson(QJsonDocument::Compact));
+        QMetaObject::invokeMethod(this, [this, message,json]() {
             emit jobFinished(false, message);
+            emit diagnosticReady(json);
         }, Qt::QueuedConnection);
     } catch (...) {
         running_.store(false);
-        QMetaObject::invokeMethod(this, [this]() {
+        const auto diagnostic=diagnoseRunFailure(failureKind,QStringLiteral("unknown exception"),evidence,phase,failureIteration);
+        saveRunDiagnostic(casePath,diagnostic);
+        const auto json=QString::fromUtf8(QJsonDocument(diagnostic).toJson(QJsonDocument::Compact));
+        QMetaObject::invokeMethod(this, [this,json]() {
             emit jobFinished(false, QStringLiteral("unknown exception"));
+            emit diagnosticReady(json);
         }, Qt::QueuedConnection);
     }
 }
