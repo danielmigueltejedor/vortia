@@ -17,12 +17,14 @@ public:
     void setBoundaries(const QJsonArray&);
     void requestPreview();
     bool busy()const;
+    bool previewCurrent()const{return !stale_;}
+    qint64 previewCellCount()const;
 signals:
     void settingsChanged();
     void previewFinished(bool success);
 private:
     void changed();void refreshCuts();void refreshRegions();void archiveRegions();void refreshArchive();void editCut(int index,QPointF from={},QPointF to={});
-    const Sketch2D& shape_;
+    const Sketch2D shape_;
     QJsonObject settings_;
     QJsonArray cuts_,regions_,boundaries_;
     MeshPlanView* view_;

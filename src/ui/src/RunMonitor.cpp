@@ -1,3 +1,4 @@
+#include "vortia/ui/UiIcon.hpp"
 #include "vortia/ui/RunMonitor.hpp"
 #include <QCoreApplication>
 #include <QPainter>
@@ -149,10 +150,10 @@ RunMonitor::RunMonitor(QWidget* parent):QWidget(parent),history_(std::make_share
     logarithmic_=new QCheckBox(monitorText("Logarithmic Y"),this);logarithmic_->setObjectName("monitor-logarithmic");logarithmic_->setChecked(true);tools->addWidget(logarithmic_);
     paused_=new QCheckBox(monitorText("Freeze view"),this);paused_->setObjectName("monitor-pause");tools->addWidget(paused_);tools->addStretch();root->addLayout(tools);
     auto* options=new QHBoxLayout;auto* intervalLabel=new QLabel(monitorText("Last coordinate interval (0 = all)"),this);intervalLabel->setWordWrap(true);intervalLabel->setMinimumWidth(140);options->addWidget(intervalLabel);window_=new QDoubleSpinBox(this);window_->setObjectName("monitor-window");window_->setRange(0,1e9);window_->setDecimals(5);window_->setSingleStep(100);options->addWidget(window_);
-    auto* fit=new QPushButton(monitorText("Fit plots"),this);fit->setIcon(QIcon(":/vortia/icons/fit.svg"));options->addWidget(fit);
-    auto* curves=new QToolButton(this);curves->setText(monitorText("Curves"));curves->setIcon(QIcon(":/vortia/icons/chart.svg"));curves->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);curves->setPopupMode(QToolButton::InstantPopup);auto* menu=new QMenu(curves);curves->setMenu(menu);options->addWidget(curves);options->addStretch();
-    auto* csv=new QPushButton(monitorText("Export CSV…"),this);csv->setObjectName("monitor-export-csv");csv->setIcon(QIcon(":/vortia/icons/save.svg"));options->addWidget(csv);
-    auto* image=new QPushButton(monitorText("Save plot PNG…"),this);image->setObjectName("monitor-export-png");image->setIcon(QIcon(":/vortia/icons/export-image.svg"));options->addWidget(image);root->addLayout(options);
+    auto* fit=new QPushButton(monitorText("Fit plots"),this);fit->setIcon(uiIcon(":/vortia/icons/fit.svg"));options->addWidget(fit);
+    auto* curves=new QToolButton(this);curves->setText(monitorText("Curves"));curves->setIcon(uiIcon(":/vortia/icons/chart.svg"));curves->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);curves->setPopupMode(QToolButton::InstantPopup);auto* menu=new QMenu(curves);curves->setMenu(menu);options->addWidget(curves);options->addStretch();
+    auto* csv=new QPushButton(monitorText("Export CSV…"),this);csv->setObjectName("monitor-export-csv");csv->setIcon(uiIcon(":/vortia/icons/save.svg"));options->addWidget(csv);
+    auto* image=new QPushButton(monitorText("Save plot PNG…"),this);image->setObjectName("monitor-export-png");image->setIcon(uiIcon(":/vortia/icons/export-image.svg"));options->addWidget(image);root->addLayout(options);
     views_=new QTabWidget(this);views_->setObjectName("monitor-views");auto* dashboard=new QWidget(views_);auto* grid=new QGridLayout(dashboard);grid->setContentsMargins(0,8,0,0);
     for(int i=0;i<4;++i){auto* graph=new RunPlot(dashboard);graph->setObjectName(QString("monitor-overview-%1").arg(i));graph->compact=true;overview_.push_back(graph);grid->addWidget(graph,i/2,i%2);}auto* dashboardScroll=new QScrollArea(views_);dashboardScroll->setWidgetResizable(true);dashboardScroll->setFrameShape(QFrame::NoFrame);dashboardScroll->setWidget(dashboard);views_->addTab(dashboardScroll,monitorText("Overview"));
     plot_=new RunPlot(views_);plot_->setObjectName("monitor-detail-plot");auto* detailScroll=new QScrollArea(views_);detailScroll->setFrameShape(QFrame::NoFrame);detailScroll->setWidgetResizable(true);detailScroll->setWidget(plot_);views_->addTab(detailScroll,monitorText("Detailed graph"));

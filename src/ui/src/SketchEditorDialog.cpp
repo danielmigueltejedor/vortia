@@ -1,3 +1,4 @@
+#include "vortia/ui/UiIcon.hpp"
 #include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/geometry/SketchTemplates.hpp"
 #include "vortia/geometry/SketchSnapping.hpp"
@@ -111,10 +112,15 @@ protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
-        p.fillRect(rect(), QColor(25, 31, 41));
+        const bool dark=palette().color(QPalette::Window).lightness()<128;
+        const QColor background=dark?QColor("#141a22"):QColor("#edf0f4");
+        const QColor grid=dark?QColor("#29323f"):QColor("#d8dfe6");
+        const QColor ink=palette().color(QPalette::Text);
+        const QColor accent=dark?QColor("#43abb8"):QColor("#177886");
+        p.fillRect(rect(),background);
         if (!sketch_) return;
         ensureCamera();
-        p.setPen(QPen(QColor(51, 64, 82), 1));
+        p.setPen(QPen(grid, 1));
         const double gridMm = std::pow(10.0, std::ceil(std::log10(20.0 / scale_)));
         const double minX = std::floor(x0_ / gridMm) * gridMm;
         const double maxX = x0_ + width() / scale_;
@@ -128,7 +134,7 @@ protected:
             const double py = project({0.0, y}).y();
             p.drawLine(QPointF(0, py), QPointF(width(), py));
         }
-        p.setPen(QPen(QColor(75, 117, 155), 1));
+        p.setPen(QPen(palette().color(QPalette::PlaceholderText), 1));
         p.drawLine(project({0, y0_}), project({0, maxY}));
         p.drawLine(project({x0_, 0}), project({maxX, 0}));
 
@@ -136,8 +142,8 @@ protected:
             const auto& a = sketch_->points()[i];
             const auto& b = sketch_->points()[(i + 1) % sketch_->points().size()];
             const bool picked = static_cast<int>(i) == selectedSegment_;
-            p.setPen(QPen(picked ? QColor(255, 184, 74) : QColor(87, 199, 239),
-                          picked ? 3.2 : 2.0));
+            p.setPen(QPen(picked ? accent : ink,
+                          picked ? 2.6 : 1.6));
             if (const auto c = sketch_->arc(i)) {
                 const QPointF center = project(c->center);
                 const double radius = c->radiusMm * scale_;
@@ -177,8 +183,8 @@ protected:
             if (!selected && std::any_of(labels.begin(), labels.end(),
                     [&](const QRectF& other) { return other.intersects(label.adjusted(-4, -4, 4, 4)); })) return;
             labels.push_back(label);
-            p.fillRect(label, QColor(25, 31, 41, 230));
-            p.setPen(selected ? QColor(255, 184, 74) : QColor(220, 230, 245));
+            p.fillRect(label, background);
+            p.setPen(selected ? accent : ink);
             p.drawText(label, Qt::AlignCenter, text);
         };
         if (selectedSegment_ >= 0 && static_cast<std::size_t>(selectedSegment_) < sketch_->segmentCount())
@@ -190,23 +196,23 @@ protected:
             const bool picked = static_cast<int>(i) == selectedPoint_;
             p.setPen(Qt::NoPen);
             p.setBrush(picked
-                           ? QColor(255, 184, 74) : QColor(242, 248, 254));
+                           ? accent : ink);
             const double radius = picked || sketch_->points().size() <= 12 ? 4.5 : 2.5;
             p.drawEllipse(at, radius, radius);
             if (picked || sketch_->points().size() <= 12) {
-                p.setPen(QColor(170, 195, 218));
+                p.setPen(palette().color(QPalette::PlaceholderText));
                 p.drawText(at + QPointF(6, 16), QString::number(i));
             }
         }
         if(drawMode_&&!readOnly_&&hoverVisible_){
-            const auto at=project(hover_.point);p.setPen(QPen(QColor(113,225,168),1,Qt::DashLine));
+            const auto at=project(hover_.point);p.setPen(QPen(accent,1,Qt::DashLine));
             for(const auto& ref:hover_.references){const auto q=project(ref);p.drawLine(q,at);p.drawEllipse(q,6,6);}
             if(!sketch_->points().empty())p.drawLine(project(sketch_->points().back()),at);
-            p.setPen(QPen(QColor(113,225,168),2));p.setBrush(Qt::NoBrush);p.drawRect(QRectF(at.x()-5,at.y()-5,10,10));
+            p.setPen(QPen(accent,2));p.setBrush(Qt::NoBrush);p.drawRect(QRectF(at.x()-5,at.y()-5,10,10));
             QString label=hintName(hover_.kind);
             if(!sketch_->points().empty()){const auto a=sketch_->points().back();const double dx=hover_.point.xMm-a.xMm,dy=hover_.point.yMm-a.yMm;label+=QStringLiteral(" · %1 mm · %2°").arg(std::hypot(dx,dy),0,'f',3).arg(std::atan2(dy,dx)*180/std::numbers::pi,0,'f',1);}
             QRectF box=p.fontMetrics().boundingRect(label).adjusted(-7,-5,7,5);box.moveTopLeft(at+QPointF(14,-30));box.moveLeft(std::clamp(box.left(),0.0,std::max(0.0,width()-box.width())));box.moveTop(std::clamp(box.top(),0.0,std::max(0.0,height()-box.height())));
-            p.fillRect(box,QColor(17,46,40,240));p.drawText(box,Qt::AlignCenter,label);
+            p.fillRect(box,background);p.drawText(box,Qt::AlignCenter,label);
         }
     }
     void mousePressEvent(QMouseEvent* event) override {
@@ -446,54 +452,9 @@ public:using QStyledItemDelegate::QStyledItemDelegate;
 enum class SketchGlyph { Select, Line, Pan, Fit, Rectangle, Circle, Nozzle,
                          Export, Add, Move, Split, Dimension, Close, Fillet, Radius };
 QIcon sketchIcon(SketchGlyph glyph) {
-    QIcon icon;
-    for (const int size : {32, 64}) {
-        QPixmap pixmap(size, size); pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap); p.setRenderHint(QPainter::Antialiasing);
-        p.scale(size / 32.0, size / 32.0);
-        p.setPen(QPen(QColor(35, 153, 205), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        const auto line = [&](double x, double y, double u, double v) { p.drawLine(QPointF(x,y), QPointF(u,v)); };
-        const auto node = [&](double x, double y) { p.fillRect(QRectF(x-2,y-2,4,4), QColor(245,163,55)); };
-        switch (glyph) {
-        case SketchGlyph::Select: {
-            QPolygonF arrow; arrow << QPointF(7,4) << QPointF(25,17) << QPointF(17,19)
-                << QPointF(14,27) << QPointF(7,4); p.drawPolyline(arrow); break;
-        }
-        case SketchGlyph::Line: line(5,24,15,8); line(15,8,27,16); node(5,24); node(15,8); node(27,16); break;
-        case SketchGlyph::Pan:
-        case SketchGlyph::Move:
-            line(16,4,16,28); line(4,16,28,16);
-            line(16,4,12,8); line(16,4,20,8); line(16,28,12,24); line(16,28,20,24);
-            line(4,16,8,12); line(4,16,8,20); line(28,16,24,12); line(28,16,24,20); break;
-        case SketchGlyph::Fit:
-            for (int x : {5,27}) for (int y : {5,27}) {
-                line(x,y,x+(x==5?7:-7),y); line(x,y,x,y+(y==5?7:-7));
-            }
-            p.drawRect(QRectF(11,12,10,8)); break;
-        case SketchGlyph::Rectangle: p.drawRect(QRectF(5,8,22,16)); node(5,8); node(27,24); break;
-        case SketchGlyph::Circle: p.drawEllipse(QPointF(16,16),11,11); line(12,16,20,16); line(16,12,16,20); break;
-        case SketchGlyph::Nozzle: {
-            QPolygonF wall; wall << QPointF(4,5) << QPointF(13,12) << QPointF(18,12) << QPointF(28,4);
-            p.drawPolyline(wall); for (auto& v : wall) v.setY(32-v.y()); p.drawPolyline(wall);
-            p.setPen(QPen(QColor(35,153,205),1,Qt::DashLine)); line(3,16,29,16); break;
-        }
-        case SketchGlyph::Export: p.drawRect(QRectF(4,5,16,22)); line(9,5,9,27); line(15,5,15,27);
-            line(4,12,20,12); line(4,20,20,20); line(19,16,29,16); line(29,16,25,12); line(29,16,25,20); break;
-        case SketchGlyph::Add: line(5,24,16,9); node(5,24); node(16,9); line(24,16,24,28); line(18,22,30,22); break;
-        case SketchGlyph::Split: line(4,24,28,8); node(4,24); node(28,8); node(16,16); break;
-        case SketchGlyph::Dimension: line(5,5,5,25); line(27,5,27,25); line(5,19,27,19);
-            line(5,19,10,15); line(5,19,10,23); line(27,19,22,15); line(27,19,22,23); break;
-        case SketchGlyph::Close: p.drawRect(QRectF(5,6,22,20)); node(5,6); node(27,26); break;
-        case SketchGlyph::Fillet: {
-            QPainterPath path; path.moveTo(5,28); path.lineTo(5,15); path.quadTo(5,5,15,5); path.lineTo(28,5);
-            p.drawPath(path); p.setPen(QPen(QColor(245,163,55),1,Qt::DashLine)); line(5,15,5,5); line(5,5,15,5); break;
-        }
-        case SketchGlyph::Radius: p.drawArc(QRectF(4,4,24,24),0,120*16);
-            line(16,16,25,8); line(25,8,20,9); line(25,8,24,13); node(16,16); break;
-        }
-        p.end(); icon.addPixmap(pixmap);
-    }
-    return icon;
+    static const std::array<const char*,15> names{"select","line","pan","fit","rectangle","circle","nozzle",
+        "export-image","vertex-add","vertex-move","segment-split","dimension","profile-close","fillet","radius"};
+    return uiIcon(QString(":/vortia/icons/%1.svg").arg(names.at(static_cast<std::size_t>(glyph))));
 }
 
 std::optional<std::vector<double>> dimensionDialog(
@@ -569,7 +530,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
         auto* button = new QPushButton(sidebar);
         button->setObjectName(QString::fromLatin1(id));
         button->setAccessibleName(name); button->setToolTip(name);
-        button->setIcon(sketchIcon(glyph)); button->setIconSize(QSize(28,28));
+        button->setIcon(sketchIcon(glyph)); button->setIconSize(QSize(22,22));
         button->setFixedSize(48,44); button->setAutoDefault(false);
         return button;
     };
@@ -580,7 +541,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     auto* modes = new QButtonGroup(this); modes->setExclusive(true);
     for (auto* b : {select, draw, pan}) {
         b->setCheckable(true);
-        b->setStyleSheet(QStringLiteral("QPushButton:checked { background: #124f70; border: 2px solid #34b5ed; border-radius: 6px; }"));
+
         modes->addButton(b); modeRow->addWidget(b);
     }
     select->setChecked(true); modeRow->addWidget(fit); modeRow->addStretch();
@@ -612,7 +573,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
         auto* action=new QAction(tr(text),this);action->setObjectName(QString("vortia-sketch-%1-action").arg(id));
         if(!key.isEmpty()){action->setShortcut(key);action->setShortcutContext(Qt::WidgetWithChildrenShortcut);addAction(action);}
         connect(action,&QAction::triggered,this,callback);
-        auto* button=new QToolButton(sidebar);button->setObjectName(QString("vortia-sketch-%1").arg(id));const QIcon glyph(QString(":/vortia/icons/%1.svg").arg(id));action->setIcon(glyph.isNull()?style()->standardIcon(icon):glyph);button->setDefaultAction(action);button->setIconSize({22,22});button->setMinimumSize(38,36);button->setToolTip(action->text()+" · "+key.toString(QKeySequence::NativeText));editRow->addWidget(button);return action;
+        auto* button=new QToolButton(sidebar);button->setObjectName(QString("vortia-sketch-%1").arg(id));const auto glyph = uiIcon(QString(":/vortia/icons/%1.svg").arg(id));action->setIcon(glyph.isNull()?style()->standardIcon(icon):glyph);button->setDefaultAction(action);button->setIconSize({22,22});button->setMinimumSize(38,36);button->setToolTip(action->text()+" · "+key.toString(QKeySequence::NativeText));editRow->addWidget(button);return action;
     };
     undoAction_=editCommand("Undo","undo",QKeySequence::Undo,QStyle::SP_ArrowBack,[this](){undoEdit();});
     redoAction_=editCommand("Redo","redo",QKeySequence::Redo,QStyle::SP_ArrowForward,[this](){redoEdit();});
@@ -620,7 +581,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     pasteAction_=editCommand("Paste geometry…","paste",QKeySequence::Paste,QStyle::SP_DialogOpenButton,[this](){pasteGeometry();});
     deleteAction_=editCommand("Delete selected vertex","delete",{},QStyle::SP_TrashIcon,[this](){deleteSelectedPoint();});
     tools->addLayout(editRow);
-    auto* references=new QToolButton(sidebar);references->setObjectName("vortia-sketch-references");references->setText(tr("Drawing references"));references->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);references->setIcon(QIcon(":/vortia/icons/probe.svg"));references->setPopupMode(QToolButton::InstantPopup);
+    auto* references=new QToolButton(sidebar);references->setObjectName("vortia-sketch-references");references->setText(tr("Drawing references"));references->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);references->setIcon(uiIcon(":/vortia/icons/probe.svg"));references->setPopupMode(QToolButton::InstantPopup);
     auto* referenceMenu=new QMenu(references);references->setMenu(referenceMenu);QSettings preferences("Vortia","Vortia");
     const auto option=[&](const char* text,const char* key,bool SketchSnapOptions::*member,bool initial,const QKeySequence& shortcut=QKeySequence{}){
         auto* action=referenceMenu->addAction(tr(text));action->setObjectName(QString("vortia-snap-%1").arg(key));action->setCheckable(true);action->setChecked(preferences.value(QString("sketch/assistance/%1").arg(key),initial).toBool());canvas_->assistance.*member=action->isChecked();
@@ -650,6 +611,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     toolScroll->setWidgetResizable(true);
     toolScroll->setFrameShape(QFrame::NoFrame);
     toolScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    toolScroll->setObjectName("vortia-sketch-inspector");
     toolScroll->setMinimumWidth(305);
     toolScroll->setMaximumWidth(355);
     toolScroll->setWidget(sidebar);
@@ -1004,6 +966,10 @@ bool SketchEditorDialog::writeSketchFile(const QString& path) const {
     return file.open(QIODevice::WriteOnly)
         && file.write(contents) == contents.size()
         && file.commit();
+}
+
+void SketchEditorDialog::setToolPanelVisible(bool visible) {
+    if(auto* panel=findChild<QWidget*>("vortia-sketch-inspector"))panel->setVisible(visible);
 }
 
 void SketchEditorDialog::setEmbedded(bool embedded) {

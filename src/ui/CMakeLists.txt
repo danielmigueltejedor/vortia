@@ -8,6 +8,7 @@ add_library(vortia_ui STATIC
     include/vortia/ui/ProjectExplorerPanel.hpp
     include/vortia/ui/PropertiesPanel.hpp
     include/vortia/ui/ThemeManager.hpp
+    include/vortia/ui/UiIcon.hpp
     include/vortia/ui/SketchEditorDialog.hpp
     src/ApplicationPreferences.cpp
     src/ConsolePanel.cpp

@@ -75,6 +75,7 @@
 #include "vortia/ui/BoundaryPreview.hpp"
 #include "vortia/ui/MeshRegionsWidget.hpp"
 #include "vortia/ui/ThemeManager.hpp"
+#include "vortia/ui/UiIcon.hpp"
 #include <QClipboard>
 #include <QMimeData>
 
@@ -800,7 +801,7 @@ TEST(WorkspaceResources, RealTranslationContextsAndExplorerIcons) {
     EXPECT_EQ(explorer.topLevelItem(0)->text(0), QStringLiteral("Geometría"));
     const QStringList ids{"geometry", "mesh", "material", "boundary", "solver", "view"};
     for (int i = 0; i < ids.size(); ++i) {
-        const QIcon expected(":/vortia/icons/" + ids[i] + ".svg");
+        const auto expected=uiIcon(":/vortia/icons/" + ids[i] + ".svg");
         ASSERT_FALSE(expected.pixmap(24).isNull());
         EXPECT_EQ(explorer.topLevelItem(i)->icon(0).pixmap(24).toImage(), expected.pixmap(24).toImage());
     }
@@ -867,7 +868,9 @@ TEST(ApplicationPreferences, RoundTripAndInvalidValuesUseSafeDefaults) {
     QTemporaryDir dir;QSettings settings(dir.filePath("preferences.ini"),QSettings::IniFormat);
     auto p=ApplicationPreferences::load(settings);EXPECT_TRUE(p.snapToGrid);EXPECT_EQ(p.checkpointInterval,500);
     p.cfdZoomSensitivity=1.8;p.cfdPanSensitivity=.7;p.defaultProcesses=3;p.snapSpacing=.25;p.zoomSensitivity=1.7;p.automaticPreview=false;p.density="compact";
+    p.showToolLabels=false;p.showStageNumbers=false;p.automaticMeshPreview=false;
     p.save(settings);auto loaded=ApplicationPreferences::load(settings);
+    EXPECT_FALSE(loaded.showToolLabels);EXPECT_FALSE(loaded.showStageNumbers);EXPECT_FALSE(loaded.automaticMeshPreview);
     EXPECT_DOUBLE_EQ(loaded.cfdZoomSensitivity,1.8);EXPECT_DOUBLE_EQ(loaded.cfdPanSensitivity,.7);EXPECT_EQ(loaded.defaultProcesses,3);EXPECT_DOUBLE_EQ(loaded.snapSpacing,.25);EXPECT_FALSE(loaded.automaticPreview);
     EXPECT_EQ(loaded.flowDefaults().value("solver").toObject().value("processes").toInt(),3);
     settings.setValue("viewport/zoomSensitivity",10);settings.setValue("viewport/panSensitivity",QString("nan"));settings.setValue("calculation/processes",9000);settings.setValue("sketch/zoomSensitivity",QString("nan"));
@@ -916,13 +919,69 @@ TEST(WorkspaceFlow, InviscidModelDisablesUnusedTransportInputsAndPersists) {
 }
 TEST(Workspace, WorkflowRibbonContainsEachToolOnlyOnceAndKeepsFileTools) {
     MainWindow window;auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);
-    ASSERT_EQ(ribbon->count(),5);EXPECT_EQ(ribbon->tabText(1),MainWindow::tr("Geometry"));
-    EXPECT_EQ(ribbon->tabText(2),MainWindow::tr("Physics"));EXPECT_EQ(ribbon->tabText(3),MainWindow::tr("Calculation"));
+    ASSERT_EQ(ribbon->count(),6);EXPECT_EQ(ribbon->tabText(1),MainWindow::tr("Geometry"));
+    EXPECT_EQ(ribbon->tabText(2),MainWindow::tr("Mesh"));EXPECT_EQ(ribbon->tabText(3),MainWindow::tr("Physics"));EXPECT_EQ(ribbon->tabText(4),MainWindow::tr("Calculation"));
     std::map<QAction*,int> counts;
     for(auto* button:ribbon->findChildren<QToolButton*>("vortia-ribbon-button"))++counts[button->defaultAction()];
     for(auto [action,count]:counts){ASSERT_NE(action,nullptr);EXPECT_EQ(count,1)<<action->text().toStdString();}
     EXPECT_NE(window.findChild<QAction*>("vortia-view-latest-result"),nullptr);
     auto* save=window.findChild<QPushButton*>("vortia-sketch-save");ASSERT_NE(save,nullptr);EXPECT_TRUE(save->isHidden());
+}
+
+TEST(Workspace, PrecisionNavigationKeepsProjectAndViewStateSynchronized) {
+    MainWindow window;
+    const auto shape=makeRectangleSketch(300,50).value();
+    WorkspaceTestAccess::edit(window,shape,{});
+    const QJsonObject config{{"mesh",QJsonObject{{"sizeMm",12},{"wallSizeMm",2},{"wedgeAngle",5}}}};
+    WorkspaceTestAccess::flow(window,config);
+    const auto fingerprint=WorkspaceTestAccess::fingerprint(window);
+    auto* tools=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(tools,nullptr);
+    auto* stages=window.findChild<QButtonGroup*>("vortia-workflow-stages");ASSERT_NE(stages,nullptr);
+    ASSERT_EQ(stages->buttons().size(),6);EXPECT_TRUE(tools->tabBar()->isHidden());
+    for(int stage:{2,3,4,5,0,1}) {
+        auto* button=stages->button(stage);ASSERT_NE(button,nullptr);button->click();
+        EXPECT_EQ(tools->currentIndex(),stage);EXPECT_TRUE(button->isChecked());
+        EXPECT_EQ(WorkspaceTestAccess::fingerprint(window),fingerprint);
+        expectShape(WorkspaceTestAccess::editor(window).sketch(),shape);
+    }
+    tools->setCurrentIndex(5);EXPECT_EQ(stages->checkedId(),5);
+    EXPECT_EQ(WorkspaceTestAccess::flow(window),config);
+}
+
+TEST(Workspace, CentralMeshEditsPersistAndRemainOwnedByTheirProject) {
+    QTemporaryDir folder;auto project=Project::create(folder.filePath("mesh-ui").toStdString(),"mesh-ui");ASSERT_TRUE(project);
+    MainWindow window;project->setSetupJson(WorkspaceTestAccess::setupJson(window));ASSERT_TRUE(project->save());
+    ASSERT_TRUE(WorkspaceTestAccess::open(window,QString::fromStdString(project->rootDir().string())));
+    WorkspaceTestAccess::edit(window,makeRectangleSketch(300,50).value(),{});
+    WorkspaceTestAccess::flow(window,QJsonObject{{"mesh",QJsonObject{{"sizeMm",12},{"wallSizeMm",2},{"wedgeAngle",5}}},{"preparedHash","old"}});
+    auto* stages=window.findChild<QButtonGroup*>("vortia-workflow-stages");stages->button(2)->click();
+    auto* mesh=window.findChild<MeshRegionsWidget*>();ASSERT_NE(mesh,nullptr);
+    auto* global=window.findChild<QDoubleSpinBox*>("workspace-mesh-sizeMm");ASSERT_NE(global,nullptr);global->setValue(8);
+    EXPECT_DOUBLE_EQ(WorkspaceTestAccess::flow(window).value("mesh").toObject().value("sizeMm").toDouble(),8);
+    EXPECT_FALSE(WorkspaceTestAccess::flow(window).contains("preparedHash"));
+    ASSERT_TRUE(WorkspaceTestAccess::save(window));
+    stages->button(1)->click();stages->button(2)->click();EXPECT_EQ(window.findChild<MeshRegionsWidget*>(),mesh);
+    const int original=WorkspaceTestAccess::active(window);WorkspaceTestAccess::add(window,"other");
+    EXPECT_TRUE(WorkspaceTestAccess::flow(window).isEmpty());
+    WorkspaceTestAccess::select(window,original);stages->button(2)->click();
+    EXPECT_DOUBLE_EQ(window.findChild<QDoubleSpinBox*>("workspace-mesh-sizeMm")->value(),8);
+    MainWindow reopened;ASSERT_TRUE(WorkspaceTestAccess::open(reopened,QString::fromStdString(project->rootDir().string())));
+    EXPECT_DOUBLE_EQ(WorkspaceTestAccess::flow(reopened).value("mesh").toObject().value("sizeMm").toDouble(),8);
+}
+
+TEST(Workspace, PrecisionIconsResolveBothPalettesAfterCreation) {
+    const auto icon=uiIcon(":/vortia/icons/mesh.svg");
+    for(auto theme:{ThemeManager::Theme::Light,ThemeManager::Theme::Dark}) {
+        ThemeManager::apply(*qApp,theme);
+        const auto image=icon.pixmap({48,48},QIcon::Normal,QIcon::Off).toImage();
+        ASSERT_FALSE(image.isNull());const auto expected=QApplication::palette().color(QPalette::WindowText);
+        int opaque=0;
+        for(int y=0;y<image.height();++y)for(int x=0;x<image.width();++x) {
+            const auto pixel=image.pixelColor(x,y);if(pixel.alpha()<250)continue;
+            ++opaque;EXPECT_EQ(pixel.rgb(),expected.rgb());
+        }
+        EXPECT_GT(opaque,20);
+    }
 }
 
 TEST(Workspace, ToolSearchFiltersPublishedCommandsWithoutDuplicates) {
@@ -1019,7 +1078,7 @@ TEST(FieldTools, CancellingSectionRestoresPreviousPlaneAndCamera) {
 
 TEST(Workspace, RibbonMenusExposeTheirCommandsAndFieldPopupContainsOnlyData) {
     MainWindow window;
-    auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);ribbon->setCurrentIndex(4);
+    auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);ribbon->setCurrentIndex(5);
     QToolButton* files=nullptr;
     for(auto* button:ribbon->findChildren<QToolButton*>("vortia-ribbon-button")){
         ASSERT_NE(button->defaultAction(),nullptr);
@@ -1233,4 +1292,38 @@ TEST(Workspace, MeshOnlyAxisymmetricViewsEnableCutsWithoutInventingFields){
 
 TEST(FieldReports, ImportedSignedCellOrderingUsesPositiveGeometricMeasure){
     vtkNew<vtkPoints> points;points->InsertNextPoint(0,0,0);points->InsertNextPoint(0,1,0);points->InsertNextPoint(1,0,0);points->InsertNextPoint(0,0,1);vtkNew<vtkUnstructuredGrid> grid;grid->SetPoints(points);const vtkIdType ids[]={0,1,2,3};grid->InsertNextCell(VTK_TETRA,4,ids);vtkNew<vtkDoubleArray> p;p->SetName("p");p->InsertNextValue(7);grid->GetCellData()->AddArray(p);const auto report=fieldStatistics(grid,"p");EXPECT_EQ(report.cells,1u);EXPECT_EQ(report.excluded,0u);EXPECT_NEAR(report.measure,1.0/6,1e-12);EXPECT_DOUBLE_EQ(report.mean,7);
+}
+
+TEST(Workspace, NativePrecisionWorkspaceWhenRequested) {
+    const auto output=qEnvironmentVariable("VORTIA_PRECISION_QA");
+    if(output.isEmpty())GTEST_SKIP()<<"Optional native appearance review";
+    ASSERT_TRUE(QDir().mkpath(output));
+    QTranslator translator;ASSERT_TRUE(translator.load(QStringLiteral(VORTIA_TEST_QM)));qApp->installTranslator(&translator);
+    MainWindow window;window.resize(1440,900);
+    const auto sketch=qEnvironmentVariable("VORTIA_PRECISION_SKETCH");
+    if(!sketch.isEmpty())ASSERT_TRUE(WorkspaceTestAccess::editor(window).readSketchFile(sketch));
+    else WorkspaceTestAccess::edit(window,makeRectangleSketch(300,50).value(),{});
+    const auto configuration=qEnvironmentVariable("VORTIA_PRECISION_CONFIG");
+    if(!configuration.isEmpty())WorkspaceTestAccess::flow(window,QJsonDocument::fromJson(readFile(configuration)).object());
+    const auto data=qEnvironmentVariable("VORTIA_NATIVE_AXISYMMETRIC_VTM");
+    if(!data.isEmpty())WorkspaceTestAccess::result(window,data);
+    window.show();
+    auto* stages=window.findChild<QButtonGroup*>("vortia-workflow-stages");ASSERT_NE(stages,nullptr);
+    for(const auto theme:{ThemeManager::Theme::Dark,ThemeManager::Theme::Light}) {
+        ThemeManager::apply(*qApp,theme);
+        for(int stage:{1,2,5}) {
+            stages->button(stage)->click();QApplication::processEvents();
+            if(stage==2&&!qEnvironmentVariable("VORTIA_GMSH_RUNTIME").isEmpty()) {
+                auto* mesh=window.findChild<MeshRegionsWidget*>();ASSERT_NE(mesh,nullptr);
+                bool finished=false,success=false;
+                const auto connection=QObject::connect(mesh,&MeshRegionsWidget::previewFinished,[&](bool ok){finished=true;success=ok;});
+                if(!mesh->busy())mesh->requestPreview();
+                QElapsedTimer timer;timer.start();while(!finished&&timer.elapsed()<20000){QApplication::processEvents(QEventLoop::AllEvents,20);QThread::msleep(10);}
+                QObject::disconnect(connection);EXPECT_TRUE(finished);EXPECT_TRUE(success)<<mesh->findChild<QLabel*>("mesh-preview-status")->text().toStdString();
+            }
+            const auto file=QString("%1/%2-stage-%3.png").arg(output,ThemeManager::toName(theme)).arg(stage);
+            EXPECT_TRUE(window.grab().save(file));
+        }
+    }
+    qApp->removeTranslator(&translator);
 }

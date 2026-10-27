@@ -35,6 +35,7 @@ public:
     void setInteractionPreferences(bool snap,double spacing,bool grid,bool dimensions,double zoom);
     void setReadOnly(bool readOnly);
     void setEmbedded(bool embedded);
+    void setToolPanelVisible(bool visible);
     void loadSketch() { if(!readOnly_)load(); }
     void saveSketch() { save(); }
     [[nodiscard]] bool isReadOnly() const noexcept { return readOnly_; }

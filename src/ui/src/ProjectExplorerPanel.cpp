@@ -1,3 +1,4 @@
+#include "vortia/ui/UiIcon.hpp"
 #include "vortia/ui/ProjectExplorerPanel.hpp"
 
 #include <QApplication>
@@ -36,7 +37,7 @@ void ProjectExplorerPanel::buildTree() {
     // Match the actual Vortia engineering ribbon, instead of displaying
     // unrelated OS folder/drive icons in the project tree.
     const auto toolIcon = [](const QString& id, QStyle::StandardPixmap fallback) {
-        const QIcon bundled(QStringLiteral(":/vortia/icons/") + id + QStringLiteral(".svg"));
+        const auto bundled = uiIcon(QStringLiteral(":/vortia/icons/") + id + QStringLiteral(".svg"));
         return bundled.isNull() ? QApplication::style()->standardIcon(fallback) : bundled;
     };
     addNode(tr("Geometry"), GeometryNode)->setIcon(

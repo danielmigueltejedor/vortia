@@ -11,6 +11,8 @@ struct ApplicationPreferences {
     double zoomSensitivity=1,snapSpacing=1;
     double cfdZoomSensitivity=1,cfdPanSensitivity=1;
     bool snapToGrid=true,showGrid=true,showDimensions=true,rememberLayout=true;
+    bool showToolLabels=true,showStageNumbers=true;
+    bool automaticMeshPreview=true;
     bool showConsoleOnRun=false,showAssessmentOnRun=true,automaticPreview=true;
     static ApplicationPreferences load(QSettings&);
     void save(QSettings&) const;

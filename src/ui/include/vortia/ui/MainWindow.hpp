@@ -22,9 +22,11 @@
 #include <memory>
 
 class QTemporaryDir;
+class QStackedWidget;
 
 namespace vortia {
 class RunMonitor;
+class MeshRegionsWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -72,6 +74,9 @@ private:
     void setJobUiRunning(bool running);
     void buildMenusAndToolbar();
     void buildDocks();
+    void activateWorkflowStage(int stage);
+    void updateWorkflowInspector();
+    void rebuildMeshWorkspace();
     void updateNozzleNotice();
     void showFlowAssessment(const QJsonObject& report);
     void addProjectTab(const QString& name, CaseSetup setup,
@@ -143,6 +148,10 @@ private:
     QLabel* statusLabel_{nullptr};
     QTabWidget* propertiesTabs_{nullptr};
     QLabel* flowAssessment_{nullptr};
+    QStackedWidget* inspectorStack_{nullptr};
+    QLabel* workflowSummary_{nullptr};
+    QWidget* meshWorkspacePage_{nullptr};
+    MeshRegionsWidget* meshWorkspace_{nullptr};
     QLabel* nozzleNotice_{nullptr};
     QString lastVtmPath_;
     std::unique_ptr<QSettings> settings_;
