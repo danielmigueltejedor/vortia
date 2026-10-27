@@ -17,7 +17,8 @@ brew install cmake ninja qt vtk opencascade googletest nlohmann-json
 La instalación local completa de Vortia puede incluir OpenFOAM v2606 en
 `Vortia.app/Contents/Resources/OpenFOAM-v2606`. En ese caso basta con abrir
 Vortia: no hace falta instalar OpenFOAM.app, montar un disco ni abrir Terminal.
-El motor conserva sus bibliotecas, código fuente y licencias. Preferencias →
+La imagen incluida conserva su sistema de archivos sensible a mayúsculas,
+bibliotecas, código fuente y licencias. Preferencias →
 Almacenamiento y OpenFOAM permite seleccionar otro motor; deja esa ruta vacía
 para utilizar el integrado.
 
@@ -34,11 +35,11 @@ nativo para Apple Silicon:
 Para empaquetar el motor, antes de firmar Vortia:
 
 ```sh
-python3 packaging/macos/bundle_openfoam.py /Volumes/OpenFOAM-v2606 /ruta/Vortia.app
+python3 packaging/macos/bundle_openfoam.py /Applications/OpenFOAM-v2606.app/Contents/Resources/OpenFOAM-v2606.dmg /ruta/Vortia.app
 /ruta/Vortia.app/Contents/MacOS/vortia --verify-engine
 ```
 
-También se puede definir `VORTIA_BUNDLE_OPENFOAM_ROOT` al ejecutar el objetivo
+También se puede definir `VORTIA_BUNDLE_OPENFOAM_IMAGE` al ejecutar el objetivo
 `vortia_macos_bundle`. El paquete sin esta opción sigue siendo una compilación
 de desarrollo con motor externo, no una distribución autónoma.
 
@@ -69,7 +70,9 @@ cmake --build build-ui
 
 ## 5. Notas
 
-- El motor integrado no depende de una DMG montada ni de OpenFOAM.app externo.
+- Vortia incluye la imagen completa del motor y la activa automáticamente en modo
+  de solo lectura en `/Volumes/Vortia-OpenFOAM-v2606`, sin mostrarla en Finder.
+  No depende de OpenFOAM.app externo ni de montar un disco manualmente.
 - El compilador de los solucionadores experimentales de Vortia aún requiere las
   Xcode Command Line Tools si hay que recompilarlos en este Mac.
 - Los resultados se visualizan con `foamToVTK` + VTK (incluido en Vortia).

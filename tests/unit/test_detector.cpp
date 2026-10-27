@@ -151,6 +151,25 @@ TEST_F(DetectorTest, BundledEngineNeedsNoExternalInstallationOrActivation) {
     EXPECT_TRUE(runner.requests.empty());
 }
 
+TEST_F(DetectorTest, BundledImageIsActivatedBeforeSearchingExternalInstallations) {
+    const auto resources=dir_/"Vortia.app"/"Contents"/"Resources"/"OpenFOAM-v2606";
+    std::filesystem::create_directories(resources);
+    std::ofstream(resources/"volume")<<"fixture";
+    std::ofstream(resources/"OpenFOAM-v2606.dmg")<<"fixture";
+    const auto root=dir_/"Vortia-OpenFOAM-v2606";
+    ActivationRunner runner;
+    runner.respond=[&](const ProcessRequest& request){
+        EXPECT_EQ(request.executable,resources/"volume");
+        ProcessResult r;r.started=true;r.exitCode=0;
+        if(request.arguments.front()=="-show-prefix")r.stdOut=root.string()+"\n";
+        else fakeRoot("Vortia-OpenFOAM-v2606","WM_PROJECT_VERSION=v2606");
+        return r;
+    };
+    const auto found=Detector::discover(runner,{},resources,{dir_/"NoExternalApps"});
+    ASSERT_TRUE(found);ASSERT_EQ(found->size(),1U);EXPECT_EQ(found->front().rootDir,root);
+    EXPECT_EQ(runner.requests.size(),2U);
+}
+
 TEST_F(DetectorTest, NativeInstalledEnvironmentSmoke) {
     const char* nativeRoot=std::getenv("VORTIA_NATIVE_OF_ROOT");
     if(!nativeRoot)GTEST_SKIP()<<"Set VORTIA_NATIVE_OF_ROOT for real installed-tool verification";

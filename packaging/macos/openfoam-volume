@@ -1,0 +1,27 @@
+#!/bin/zsh -eu
+# Vortia's embedded OpenFOAM image preserves the engine's case-sensitive files.
+# No external OpenFOAM app is launched; never eject or replace an occupied volume.
+resources="${0:A:h}"
+volume="/Volumes/Vortia-OpenFOAM-v2606"
+image="$resources/OpenFOAM-v2606.dmg"
+volume_id="6ABC2229-BD7B-493E-867E-37B79030FF20"
+if [[ "$#" -eq 1 && "$1" == "-show-prefix" ]]; then
+    print -r -- "$volume"
+    exit 0
+fi
+if [[ "$#" -ne 2 || "$1" != "-quiet" || "$2" != "mount" ]]; then
+    print -u2 -- "Unsupported embedded engine operation"
+    exit 2
+fi
+if [[ -d "$volume" ]]; then
+    if [[ -f "$volume/.vol_id" && "$(< "$volume/.vol_id")" == "$volume_id" ]]; then
+        exit 0
+    fi
+    print -u2 -- "The embedded engine mount location is occupied: $volume"
+    exit 1
+fi
+/usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$volume" "$image" >/dev/null
+if [[ ! -f "$volume/.vol_id" || "$(< "$volume/.vol_id")" != "$volume_id" ]]; then
+    print -u2 -- "The embedded OpenFOAM image could not be verified"
+    exit 1
+fi

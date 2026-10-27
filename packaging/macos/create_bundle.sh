@@ -42,7 +42,7 @@ for size in 16 32 128 256 512; do
     sips -s format png -z "$retina" "$retina" "$native_png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$bundle/Contents/Resources/Vortia.icns"
-if [[ -n "${VORTIA_BUNDLE_OPENFOAM_ROOT:-}" ]]; then
-    python3 "$(dirname "$0")/bundle_openfoam.py" "$VORTIA_BUNDLE_OPENFOAM_ROOT" "$bundle"
+if [[ -n "${VORTIA_BUNDLE_OPENFOAM_IMAGE:-}" ]]; then
+    python3 "$(dirname "$0")/bundle_openfoam.py" "$VORTIA_BUNDLE_OPENFOAM_IMAGE" "$bundle"
 fi
 echo "Created $bundle (local build; distribution requires dependency packaging/signing)"

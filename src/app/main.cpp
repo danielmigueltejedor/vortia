@@ -19,7 +19,12 @@ int main(int argc, char* argv[]) {
     if (argc > 1 && QString::fromUtf8(argv[1]) == QStringLiteral("--verify-engine")) {
         QCoreApplication checkApp(argc,argv);
         vortia::PosixProcessRunner runner;
-        const auto installed=vortia::openfoam::Detector::probe(vortia::bundledOpenFoamRoot());
+        if(!std::filesystem::is_directory(vortia::bundledOpenFoamRoot())) {
+            qCritical()<<"This build has no integrated OpenFOAM engine";return 3;
+        }
+        const auto found=vortia::openfoam::Detector::discover(runner,{},vortia::bundledOpenFoamRoot());
+        if(!found || found->empty()){qCritical()<<"Integrated engine unavailable";return 3;}
+        const auto installed=vortia::openfoam::Detector::probe(found->front().rootDir);
         if(!installed){qCritical()<<QString::fromStdString(installed.error().describe());return 3;}
         const auto env=vortia::openfoam::Detector::captureEnvironment(*installed,runner);
         if(!env){qCritical()<<QString::fromStdString(env.error().describe());return 3;}
