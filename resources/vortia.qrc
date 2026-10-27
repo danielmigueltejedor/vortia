@@ -6,7 +6,6 @@
   </qresource>
   <qresource prefix="/vortia">
     <file alias="app-icon.png">icons/vortia.png</file>
-    <file alias="app-icon.svg">icons/vortia.svg</file>
   </qresource>
   <qresource prefix="/vortia/openfoam">
     <file alias="solver/vortiaCentralFoam.C">../examples/nozzle-video-2026/solver/vortiaCentralFoam.C</file>
