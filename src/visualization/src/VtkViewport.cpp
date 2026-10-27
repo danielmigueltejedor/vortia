@@ -128,7 +128,7 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
 
     // Main scene renderer.
     renderer_ = vtkSmartPointer<vtkRenderer>::New();
-    renderer_->SetBackground(0.13, 0.14, 0.16);
+    renderer_->SetBackground(0.0784, 0.1020, 0.1333);
     // Reserve the right side for the scientific legend; never overlap CFD geometry.
     renderer_->SetViewport(0.0, 0.0, 0.86, 1.0);
     renderWindow->AddRenderer(renderer_);
@@ -137,7 +137,7 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     // OpenGL text/color-bar fragments when Qt+VTK switches arrays repeatedly.
     legendRenderer_ = vtkSmartPointer<vtkRenderer>::New();
     legendRenderer_->SetViewport(0.86, 0.18, 1.0, 1.0);
-    legendRenderer_->SetBackground(0.13, 0.14, 0.16);
+    legendRenderer_->SetBackground(0.0784, 0.1020, 0.1333);
     legendRenderer_->InteractiveOff();
     renderWindow->AddRenderer(legendRenderer_);
 
@@ -168,7 +168,7 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     // Corner axes overlay: separate renderer with its own camera, so the
     // axes never steal mouse events and never spin on hover.
     cornerRenderer_ = vtkSmartPointer<vtkRenderer>::New();
-    cornerRenderer_->SetBackground(0.13, 0.14, 0.16);
+    cornerRenderer_->SetBackground(0.0784, 0.1020, 0.1333);
     cornerRenderer_->SetViewport(0.86, 0.0, 1.0, 0.18);
     cornerRenderer_->InteractiveOff();
     auto cornerCamera = vtkSmartPointer<vtkCamera>::New();
@@ -850,9 +850,9 @@ void VtkViewport::setDarkTheme(bool dark) {
     scalarBar_->GetTitleTextProperty()->SetColor(ink,ink,ink);
     scalarBar_->GetLabelTextProperty()->SetColor(ink,ink,ink);
     if (dark) {
-        renderer_->SetBackground(0.13, 0.14, 0.16);
-        legendRenderer_->SetBackground(0.13, 0.14, 0.16);
-        cornerRenderer_->SetBackground(0.13, 0.14, 0.16);
+        renderer_->SetBackground(0.0784, 0.1020, 0.1333);
+        legendRenderer_->SetBackground(0.0784, 0.1020, 0.1333);
+        cornerRenderer_->SetBackground(0.0784, 0.1020, 0.1333);
     } else {
         renderer_->SetBackground(0.93, 0.94, 0.96);
         legendRenderer_->SetBackground(0.93, 0.94, 0.96);

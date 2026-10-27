@@ -554,6 +554,150 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>The axisymmetric display exceeds its memory budget; use the original wedge</source><translation>La vista axisimétrica supera su límite de memoria; utiliza la cuña original</translation></message>
     <message><source>No meridional fluid section is available</source><translation>No hay una sección meridional del fluido disponible</translation></message>
     <message><source>Axisymmetric reconstruction needs a meridional XY section with radius Y &gt;= 0</source><translation>La reconstrucción axisimétrica necesita una sección XY con radio Y mayor o igual que cero</translation></message>
+    <message>
+        <source>Workflow</source>
+        <translation>Flujo de trabajo</translation>
+    </message>
+    <message>
+        <source>Vertices</source>
+        <translation>Vértices</translation>
+    </message>
+    <message>
+        <source>Segments</source>
+        <translation>Segmentos</translation>
+    </message>
+    <message>
+        <source>Profile</source>
+        <translation>Perfil</translation>
+    </message>
+    <message>
+        <source>Closed</source>
+        <translation>Cerrado</translation>
+    </message>
+    <message>
+        <source>Geometry units</source>
+        <translation>Unidades de geometría</translation>
+    </message>
+    <message>
+        <source>Not configured</source>
+        <translation>Sin configurar</translation>
+    </message>
+    <message>
+        <source>Global size</source>
+        <translation>Tamaño global</translation>
+    </message>
+    <message>
+        <source>Near-wall size</source>
+        <translation>Tamaño cerca de pared</translation>
+    </message>
+    <message>
+        <source>Wedge angle</source>
+        <translation>Ángulo de cuña</translation>
+    </message>
+    <message>
+        <source>Internal cuts</source>
+        <translation>Cortes interiores</translation>
+    </message>
+    <message>
+        <source>Saved regions</source>
+        <translation>Regiones guardadas</translation>
+    </message>
+    <message>
+        <source>Flow model</source>
+        <translation>Modelo de flujo</translation>
+    </message>
+    <message>
+        <source>Inviscid (Euler)</source>
+        <translation>No viscoso (Euler)</translation>
+    </message>
+    <message>
+        <source>Laminar</source>
+        <translation>Laminar</translation>
+    </message>
+    <message>
+        <source>Spalart–Allmaras</source>
+        <translation>Spalart–Allmaras</translation>
+    </message>
+    <message>
+        <source>Molecular weight</source>
+        <translation>Peso molecular</translation>
+    </message>
+    <message>
+        <source>Specific heat</source>
+        <translation>Calor específico</translation>
+    </message>
+    <message>
+        <source>Boundary segments</source>
+        <translation>Segmentos de contorno</translation>
+    </message>
+    <message>
+        <source>Safety iteration limit</source>
+        <translation>Límite de iteraciones</translation>
+    </message>
+    <message>
+        <source>Maximum Courant number</source>
+        <translation>Courant máximo</translation>
+    </message>
+    <message>
+        <source>Result data</source>
+        <translation>Datos de resultados</translation>
+    </message>
+    <message>
+        <source>No result loaded</source>
+        <translation>Sin resultados cargados</translation>
+    </message>
+    <message>
+        <source>Imported case dictionaries are preserved. Edit the source project to change its configuration.</source>
+        <translation>Se conservan los diccionarios del caso importado. Edita el proyecto original para cambiar su configuración.</translation>
+    </message>
+    <message>
+        <source>Use Mesh controls to preview cells and edit individual regions.</source>
+        <translation>Abre Controles de malla para previsualizar las celdas y editar cada región.</translation>
+    </message>
+    <message>
+        <source>Use Models and Boundaries to configure the selected project.</source>
+        <translation>Abre Modelos y Contornos para configurar el proyecto seleccionado.</translation>
+    </message>
+    <message>
+        <source>Search</source>
+        <translation>Buscar</translation>
+    </message>
+    <message>
+        <source>Configure the mesh to enable regional editing and cell preview.</source>
+        <translation>Configura la malla para editar sus regiones y previsualizar las celdas.</translation>
+    </message>
+    <message>
+        <source>Edit regional sizes and methods in the central mesh workspace. Preview does not run CFD.</source>
+        <translation>Edita los tamaños y métodos por región en el área central de malla. La previsualización no ejecuta CFD.</translation>
+    </message>
+    <message>
+        <source>Finish or cancel the mesh preview before changing flow settings.</source>
+        <translation>Termina o cancela la previsualización de malla antes de cambiar el flujo.</translation>
+    </message>
+    <message>
+        <source>Finish or cancel the mesh preview before starting a calculation.</source>
+        <translation>Termina o cancela la previsualización de malla antes de iniciar el cálculo.</translation>
+    </message>
+    <message>
+        <source>Preview cells</source>
+        <translation>Celdas previsualizadas</translation>
+    </message>
+    <message>
+        <source>Preview state</source>
+        <translation>Estado de previsualización</translation>
+    </message>
+    <message>
+        <source>Updating</source>
+        <translation>Actualizando</translation>
+    </message>
+    <message>
+        <source>Current</source>
+        <translation>Actualizada</translation>
+    </message>
+    <message>
+        <source>Needs update</source>
+        <translation>Pendiente de actualizar</translation>
+    </message>
 </context>
 <context>
     <name>vortia::PropertiesPanel</name>
@@ -1295,6 +1439,18 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>Turn off automatic visualization to finish calculations sooner. Use View latest result when you need it; numerical checkpoints are always retained.</source><translation>Desactiva la visualización automática para terminar antes el cálculo. Usa «Ver último resultado» cuando lo necesites; los estados numéricos se conservan siempre.</translation></message>
     <message><source>Vortia preferences</source><translation>Preferencias de Vortia</translation></message>
     <message><source>Zoom sensitivity</source><translation>Sensibilidad del zoom</translation></message>
+    <message>
+        <source>Show labels beside tool icons</source>
+        <translation>Mostrar nombres junto a los iconos de herramientas</translation>
+    </message>
+    <message>
+        <source>Show workflow stage numbers</source>
+        <translation>Mostrar los números de las etapas de trabajo</translation>
+    </message>
+    <message>
+        <source>Update mesh preview when entering Mesh</source>
+        <translation>Actualizar la previsualización al entrar en Malla</translation>
+    </message>
 </context>
 <context>
     <name>vortia::FieldTools</name>

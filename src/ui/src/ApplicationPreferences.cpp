@@ -42,6 +42,9 @@ ApplicationPreferences ApplicationPreferences::load(QSettings& s) {
     p.language=choice("language",p.language,{"system","en","es"});p.theme=choice("theme",p.theme,{"dark","light"});
     p.density=choice("ui/density",p.density,{"comfortable","compact"});
     p.interfaceScale=integer(s,"ui/scale",100,90,140);
+    p.showToolLabels=s.value("ui/showToolLabels",true).toBool();
+    p.showStageNumbers=s.value("ui/showStageNumbers",true).toBool();
+    p.automaticMeshPreview=s.value("mesh/automaticPreview",true).toBool();
     p.defaultProcesses=integer(s,"calculation/processes",0,0,8);
     p.checkpointInterval=integer(s,"calculation/checkpointInterval",500,1,200000);
     p.iterationLimit=integer(s,"calculation/iterationLimit",50000,1,200000);
@@ -61,6 +64,8 @@ ApplicationPreferences ApplicationPreferences::load(QSettings& s) {
 }
 void ApplicationPreferences::save(QSettings& s) const {
     s.setValue("language",language);s.setValue("theme",theme);s.setValue("ui/density",density);s.setValue("ui/scale",interfaceScale);
+    s.setValue("ui/showToolLabels",showToolLabels);s.setValue("ui/showStageNumbers",showStageNumbers);
+    s.setValue("mesh/automaticPreview",automaticMeshPreview);
     s.setValue("calculation/processes",defaultProcesses);s.setValue("calculation/checkpointInterval",checkpointInterval);
     s.setValue("calculation/iterationLimit",iterationLimit);s.setValue("console/lines",consoleLines);
     s.setValue("sketch/zoomSensitivity",zoomSensitivity);s.setValue("sketch/snapSpacing",snapSpacing);
@@ -76,8 +81,8 @@ QJsonObject ApplicationPreferences::flowDefaults() const {
 }
 std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent,const ApplicationPreferences& previous,bool running) {
     QDialog dialog(parent);dialog.setObjectName("vortia-preferences");dialog.setWindowTitle(tr("Vortia preferences"));dialog.resize(980,740);
-    dialog.setStyleSheet("QListWidget#preferences-navigation { border:0; background:transparent; } QListWidget#preferences-navigation::item { padding:16px 10px; border-radius:8px; margin:3px; } QListWidget#preferences-navigation::item:selected { background:#246b8e; color:white; } QGroupBox { border:1px solid palette(mid); border-radius:10px; margin-top:12px; padding:16px; } QGroupBox::title { subcontrol-origin:margin; left:14px; padding:0 6px; }");
-    auto* layout=new QVBoxLayout(&dialog);auto* title=new QLabel(tr("Make Vortia yours"),&dialog);title->setStyleSheet("font-size:24px; font-weight:600;");layout->addWidget(title);
+
+    auto* layout=new QVBoxLayout(&dialog);auto* title=new QLabel(tr("Make Vortia yours"),&dialog);title->setStyleSheet("font-size:20px; font-weight:500;");layout->addWidget(title);
     auto* body=new QHBoxLayout;layout->addLayout(body,1);
     auto* pages=new QStackedWidget(&dialog);pages->setObjectName("preferences-pages");
     auto* nav=new SettingsNavigation(&dialog,pages,"preferences-navigation");body->addWidget(nav);body->addWidget(pages,1);
@@ -97,6 +102,8 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     auto* density=new QComboBox(&dialog);density->setObjectName("preference-density");density->addItem(tr("Comfortable"),"comfortable");density->addItem(tr("Compact"),"compact");density->setCurrentIndex(std::max(0,density->findData(previous.density)));appearance->addRow(tr("Tool density"),density);
     auto* scale=spin(appearance,"scale","Interface size (%)",previous.interfaceScale,90,140);scale->setSingleStep(10);
     auto* remember=check(appearance,"remember-layout","Remember window and panel layout",previous.rememberLayout);
+    auto* labels=check(appearance,"tool-labels","Show labels beside tool icons",previous.showToolLabels);
+    auto* stages=check(appearance,"stage-numbers","Show workflow stage numbers",previous.showStageNumbers);
     info(appearance,"Appearance and navigation changes apply immediately. Language changes apply after restarting.");
     auto* sketch=page("Sketch and navigation","sketch","Sketch");
     auto* grid=check(sketch,"grid","Show construction grid",previous.showGrid);
@@ -106,6 +113,7 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     auto* zoom=real(sketch,"zoom","Zoom sensitivity",previous.zoomSensitivity,.25,3);
     auto* cfdZoom=real(sketch,"cfd-zoom","CFD zoom sensitivity",previous.cfdZoomSensitivity,.25,3);
     auto* cfdPan=real(sketch,"cfd-pan","CFD pan sensitivity",previous.cfdPanSensitivity,.25,3);
+    auto* meshPreview=check(sketch,"mesh-preview","Update mesh preview when entering Mesh",previous.automaticMeshPreview);
     info(sketch,"These options change interaction and display. They do not alter saved geometry or numerical units.");
     auto* calculation=page("Calculation and results","solver","Calculation");
     auto* cpu=spin(calculation,"processes","Default CPU processes",previous.defaultProcesses,0,8);cpu->setSpecialValueText(tr("Automatic"));
@@ -138,6 +146,8 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     });
     if(dialog.exec()!=QDialog::Accepted)return {};
     auto p=previous;p.language=language->currentData().toString();p.theme=theme->currentData().toString();p.density=density->currentData().toString();p.interfaceScale=scale->value();
+    p.showToolLabels=labels->isChecked();p.showStageNumbers=stages->isChecked();
+    p.automaticMeshPreview=meshPreview->isChecked();
     p.rememberLayout=remember->isChecked();p.showGrid=grid->isChecked();p.showDimensions=dimensions->isChecked();p.snapToGrid=snap->isChecked();p.snapSpacing=spacing->value();p.zoomSensitivity=zoom->value();
     p.cfdZoomSensitivity=cfdZoom->value();p.cfdPanSensitivity=cfdPan->value();
     p.defaultProcesses=cpu->value();p.iterationLimit=limit->value();p.checkpointInterval=interval->value();p.consoleLines=lines->value();p.automaticPreview=preview->isChecked();p.showAssessmentOnRun=assessment->isChecked();p.showConsoleOnRun=console->isChecked();

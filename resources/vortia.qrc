@@ -6,6 +6,7 @@
   </qresource>
   <qresource prefix="/vortia">
     <file alias="app-icon.png">icons/vortia.png</file>
+    <file alias="app-icon.svg">icons/vortia.svg</file>
   </qresource>
   <qresource prefix="/vortia/openfoam">
     <file alias="solver/vortiaCentralFoam.C">../examples/nozzle-video-2026/solver/vortiaCentralFoam.C</file>
@@ -25,6 +26,20 @@
     <file alias="solver/LICENSE.md">../examples/nozzle-video-2026/solver/LICENSE.md</file>
   </qresource>
   <qresource prefix="/vortia/icons">
+    <file alias="select.svg">icons/ui/select.svg</file>
+    <file alias="dimension.svg">icons/ui/dimension.svg</file>
+    <file alias="line.svg">icons/ui/line.svg</file>
+    <file alias="rectangle.svg">icons/ui/rectangle.svg</file>
+    <file alias="circle.svg">icons/ui/circle.svg</file>
+    <file alias="nozzle.svg">icons/ui/nozzle.svg</file>
+    <file alias="vertex-add.svg">icons/ui/vertex-add.svg</file>
+    <file alias="vertex-move.svg">icons/ui/vertex-move.svg</file>
+    <file alias="segment-split.svg">icons/ui/segment-split.svg</file>
+    <file alias="profile-close.svg">icons/ui/profile-close.svg</file>
+    <file alias="fillet.svg">icons/ui/fillet.svg</file>
+    <file alias="radius.svg">icons/ui/radius.svg</file>
+    <file alias="check.svg">icons/ui/check.svg</file>
+    <file alias="search.svg">icons/ui/search.svg</file>
     <file alias="mesh-cut.svg">icons/ui/mesh-cut.svg</file>
     <file alias="coordinates.svg">icons/ui/coordinates.svg</file>
     <file alias="chart.svg">icons/ui/chart.svg</file>

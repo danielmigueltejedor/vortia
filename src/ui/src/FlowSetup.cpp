@@ -1,3 +1,4 @@
+#include "vortia/ui/UiIcon.hpp"
 #include "vortia/ui/FlowSetup.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
 #include "vortia/ui/BoundaryPreview.hpp"
@@ -69,14 +70,7 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     dialog.setObjectName("vortia-flow-setup");
     dialog.setWindowTitle(tr("Flow configuration"));
     dialog.resize(1120, 800);
-    dialog.setStyleSheet(QStringLiteral(
-        "QListWidget#flow-navigation { border: 0; background: transparent; font-size: 14px; }"
-        "QListWidget#flow-navigation::item { padding: 16px 10px; border-radius: 9px; margin-bottom: 6px; }"
-        "QListWidget#flow-navigation::item:selected { background: #246b8e; color: white; }"
-        "QLabel#flow-title { font-size: 25px; font-weight: 600; }"
-        "QGroupBox { border: 1px solid palette(mid); border-radius: 10px; margin-top: 12px; padding: 16px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; }"
-        "QDoubleSpinBox, QComboBox, QLineEdit { min-height: 28px; }"));
+    dialog.setStyleSheet("QLabel#flow-title {font-size:20px;font-weight:500;}");
     auto* layout = new QVBoxLayout(&dialog);
     auto* title = new QLabel(tr("Set up your flow"),&dialog);
     title->setObjectName("flow-title");layout->addWidget(title);
@@ -142,7 +136,7 @@ QJsonObject editFlowSetup(QWidget* parent, const Sketch2D& shape, const QJsonObj
     auto* preview=new BoundaryPreview(shape,table,boundaryPage);
     auto* previewTools=new QHBoxLayout;
     auto* navigationHint=new QLabel(tr("Pinch or wheel to zoom · drag or swipe to pan · double click or F to fit"),boundaryPage);navigationHint->setWordWrap(true);previewTools->addWidget(navigationHint,1);
-    auto* fitPreview=new QToolButton(boundaryPage);fitPreview->setObjectName("flow-boundary-fit");fitPreview->setText(tr("Fit boundaries"));fitPreview->setIcon(QIcon(":/vortia/icons/fit.svg"));fitPreview->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);previewTools->addWidget(fitPreview);
+    auto* fitPreview=new QToolButton(boundaryPage);fitPreview->setObjectName("flow-boundary-fit");fitPreview->setText(tr("Fit boundaries"));fitPreview->setIcon(uiIcon(":/vortia/icons/fit.svg"));fitPreview->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);previewTools->addWidget(fitPreview);
     QObject::connect(fitPreview,&QToolButton::clicked,preview,&BoundaryPreview::fitView);
     boundaryLayout->addLayout(previewTools);boundaryLayout->addWidget(preview);
     auto* details=new QLabel(boundaryPage);details->setObjectName("flow-boundary-details");details->setWordWrap(true);details->setTextInteractionFlags(Qt::TextSelectableByMouse);boundaryLayout->addWidget(details);
