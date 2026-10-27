@@ -4,6 +4,8 @@ add_library(vortia_visualization STATIC
     include/vortia/visualization/VtkInteractorStyle.hpp
     include/vortia/visualization/VtkViewport.hpp
     src/VtkInteractorStyle.cpp
+    src/AxisymmetricDisplay.cpp
+    src/FieldStatistics.cpp
     src/LineSampling.cpp
     src/VtkViewport.cpp)
 

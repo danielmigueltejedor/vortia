@@ -1,5 +1,17 @@
 // Navigation is controlled exclusively by Qt; VTK is only the renderer.
 #include "vortia/visualization/VtkViewport.hpp"
+#include "vortia/visualization/AxisymmetricDisplay.hpp"
+#include <vtkArrowSource.h>
+#include <vtkGlyph3DMapper.h>
+#include <vtkMaskPoints.h>
+#include <QLabel>
+#include <QPainter>
+#include <QFile>
+#include <QFileInfo>
+#include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
 
 #include <vtkActor.h>
 #include <vtkAppendPolyData.h>
@@ -192,6 +204,7 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     setFocusPolicy(Qt::StrongFocus);
     setToolTip(tr("Pinch to zoom · two fingers to pan · drag to orbit · Shift/Space + drag to pan · F to fit"));
     setMinimumSize(320, 240);
+    reconstructionNotice_=new QLabel(this);reconstructionNotice_->setObjectName("vortia-axisymmetric-notice");reconstructionNotice_->setAttribute(Qt::WA_TransparentForMouseEvents);reconstructionNotice_->setStyleSheet("QLabel { color: #e5f4ff; background: rgba(18,34,45,210); padding: 6px 9px; border-radius: 5px; }");reconstructionNotice_->move(10,10);reconstructionNotice_->hide();
     cameraRenderTimer_ = new QTimer(this);
     cameraRenderTimer_->setSingleShot(true);
     connect(cameraRenderTimer_, &QTimer::timeout, this, [this]() {
@@ -397,6 +410,8 @@ void VtkViewport::syncCornerCamera() {
 
 void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
     currentData_ = nullptr;
+    revolvedData_=nullptr;reconstructionFailure_.clear();sourceWedgeAngle_=0;axisymmetricDisplay_=false;velocityVectors_=false;
+    if(vectorsActor_){renderer_->RemoveActor(vectorsActor_);vectorsActor_=nullptr;}updateReconstructionNotice();
     sliceData_=nullptr;sliceEnabled_=false;
     emit fieldDataChanged();
     loadedFile_.clear();
@@ -421,6 +436,8 @@ void VtkViewport::showTriangleMesh(const TriangleMesh* mesh) {
 
 void VtkViewport::showBoxDomain(const BoxDomain* box) {
     currentData_ = nullptr;
+    revolvedData_=nullptr;reconstructionFailure_.clear();sourceWedgeAngle_=0;axisymmetricDisplay_=false;velocityVectors_=false;
+    if(vectorsActor_){renderer_->RemoveActor(vectorsActor_);vectorsActor_=nullptr;}updateReconstructionNotice();
     sliceData_=nullptr;sliceEnabled_=false;
     emit fieldDataChanged();
     loadedFile_.clear();
@@ -459,9 +476,9 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
     if (asData == nullptr)
         return;
     const bool newData=asData!=currentData_.GetPointer();
-    if(newData){sliceEnabled_=false;sliceData_=nullptr;}
+    if(newData){sliceEnabled_=false;sliceData_=nullptr;revolvedData_=nullptr;reconstructionFailure_.clear();sourceWedgeAngle_=0;axisymmetricDisplay_=false;velocityVectors_=false;if(vectorsActor_){renderer_->RemoveActor(vectorsActor_);vectorsActor_=nullptr;}updateReconstructionNotice();}
     currentData_ = asData;
-    auto* displayData=sliceEnabled_?sliceData_.GetPointer():asData;
+    auto* displayData=sliceEnabled_?sliceData_.GetPointer():analysisData();
     currentField_ = scalarField;
     if (scalarBar_) scalarBar_->SetVisibility(false);
 
@@ -629,8 +646,11 @@ void VtkViewport::showDataSet(vtkObject* data, const std::string& scalarField) {
     geometryActor_ = vtkSmartPointer<vtkActor>::New();
     geometryActor_->SetMapper(mapper);
     geometryActor_->GetProperty()->SetEdgeVisibility(edgesVisible_);
+    geometryActor_->GetProperty()->SetLighting(!sliceEnabled_);
     if(wireframe_)geometryActor_->GetProperty()->SetRepresentationToWireframe();
     renderer_->AddActor(geometryActor_);
+    refreshVelocityVectors(displayData);
+    updateReconstructionNotice();
     if (resetViewOnNextData_) {
         // Thin extruded 2D cases are best presented face-on, not at an
         // accidental isometric angle inherited from an empty scene.
@@ -669,10 +689,60 @@ void VtkViewport::loadVtmFile(const std::string& path, const std::string& scalar
             if(resetViewOnNextData_){sliceEnabled_=false;sliceData_=nullptr;}
             showDataSet(reader->GetOutput(), scalarField);
             loadedFile_ = path;
+            // Only generated axisymmetric cases opt into automatic revolution.
+            QDir directory=QFileInfo(QString::fromStdString(path)).absoluteDir();
+            for(int level=0;level<5;++level){
+                QFile marker(directory.filePath(".vortia-flow-case"));
+                if(marker.open(QIODevice::ReadOnly)&&marker.readAll().trimmed()=="vortia-axisymmetric-flow-v1"){
+                    QFile report(directory.filePath("mesh-report.json")),control(directory.filePath("system/controlDict"));
+                    if(report.open(QIODevice::ReadOnly)&&report.size()<4*1024*1024&&control.open(QIODevice::ReadOnly)&&control.size()<1024*1024){
+                        const auto settings=QJsonDocument::fromJson(report.readAll()).object();
+                        if(QRegularExpression("\\bnoSwirl\\s+true\\s*;").match(QString::fromUtf8(control.readAll())).hasMatch()){
+                            try{setAxisymmetricSource(settings.value("wedgeAngle").toDouble());}
+                            catch(const std::exception& error){reconstructionFailure_=tr(error.what());updateReconstructionNotice();emit viewToolsChanged();}
+                        }
+                    }
+                    break;
+                }
+                if(!directory.cdUp())break;
+            }
         }
     } catch (...) {
         // Swallow; the caller logs the failure.
     }
+}
+
+vtkDataObject* VtkViewport::analysisData() const {return axisymmetricDisplay_?revolvedData_.GetPointer():currentData_.GetPointer();}
+void VtkViewport::updateReconstructionNotice(){
+    if(!reconstructionNotice_)return;
+    reconstructionNotice_->setVisible(axisymmetricAvailable());
+    if(axisymmetricAvailable()){reconstructionNotice_->setText(axisymmetricDisplay_?tr("360° axisymmetric reconstruction · display only"):tr("Original computational wedge · %1°").arg(sourceWedgeAngle_));reconstructionNotice_->setToolTip(reconstructionFailure_);if(!reconstructionFailure_.isEmpty())reconstructionNotice_->setText(tr("360° display unavailable · original wedge shown"));reconstructionNotice_->adjustSize();reconstructionNotice_->raise();}
+}
+void VtkViewport::setAxisymmetricSource(double angle){
+    if(!std::isfinite(angle)||angle<.1||angle>5)throw std::runtime_error("Invalid axisymmetric wedge angle");
+    sourceWedgeAngle_=angle;reconstructionFailure_.clear();updateReconstructionNotice();
+    setAxisymmetricDisplay(true);emit viewToolsChanged();
+}
+void VtkViewport::setAxisymmetricDisplay(bool enabled){
+    if(enabled&&!axisymmetricAvailable())throw std::runtime_error("No generated axisymmetric source is loaded");
+    if(enabled==axisymmetricDisplay_)return;
+    if(enabled&&!revolvedData_)revolvedData_=revolveAxisymmetricField(currentData_);
+    axisymmetricDisplay_=enabled;sliceEnabled_=false;sliceData_=nullptr;resetViewOnNextData_=true;
+    showDataSet(currentData_,currentField_);resetViewOnNextData_=false;updateReconstructionNotice();emit viewToolsChanged();
+}
+void VtkViewport::setVelocityVectors(bool enabled){
+    velocityVectors_=enabled;refreshVelocityVectors(sliceEnabled_?sliceData_.GetPointer():analysisData());finishCameraChange();
+}
+void VtkViewport::refreshVelocityVectors(vtkDataObject* data){
+    if(vectorsActor_){renderer_->RemoveActor(vectorsActor_);vectorsActor_=nullptr;}if(!velocityVectors_||!data)return;
+    vtkNew<vtkCellDataToPointData> points;points->SetInputData(fluidDataSet(data));points->Update();auto* values=points->GetOutput()->GetPointData()->GetArray("U");
+    if(!values||values->GetNumberOfComponents()!=3)return;
+    double range[2];values->GetRange(range,-1);if(!std::isfinite(range[1])||range[1]<=1e-15)return;
+    vtkNew<vtkMaskPoints> mask;mask->SetInputConnection(points->GetOutputPort());mask->SetOnRatio(static_cast<int>(std::clamp<vtkIdType>((points->GetOutput()->GetNumberOfPoints()+1199)/1200,1,2147483647)));mask->SetMaximumNumberOfPoints(1200);mask->RandomModeOff();mask->Update();
+    vtkNew<vtkArrowSource> arrow;arrow->SetTipResolution(6);arrow->SetShaftResolution(6);
+    vtkNew<vtkGlyph3DMapper> glyphs;glyphs->SetInputConnection(mask->GetOutputPort());glyphs->SetSourceConnection(arrow->GetOutputPort());glyphs->SetOrientationArray("U");glyphs->SetOrientationModeToDirection();glyphs->OrientOn();glyphs->SetScaleArray("U");glyphs->SetScaleModeToScaleByMagnitude();
+    const auto bounds=vortia::fieldBounds(data);const double extent=std::max({bounds[1]-bounds[0],bounds[3]-bounds[2],bounds[5]-bounds[4]});glyphs->SetScaleFactor(extent*.035/range[1]);glyphs->ScalarVisibilityOff();
+    vectorsActor_=vtkSmartPointer<vtkActor>::New();vectorsActor_->SetMapper(glyphs);vectorsActor_->GetProperty()->SetColor(.94,.73,.27);renderer_->AddActor(vectorsActor_);
 }
 
 void VtkViewport::showCellEdges(bool enabled) {
@@ -687,7 +757,7 @@ void VtkViewport::showCellEdges(bool enabled) {
 void VtkViewport::setWireframe(bool enabled) {
     wireframe_=enabled;
     if(geometryActor_){if(enabled)geometryActor_->GetProperty()->SetRepresentationToWireframe();else geometryActor_->GetProperty()->SetRepresentationToSurface();}
-    update();
+    finishCameraChange();
 }
 bool VtkViewport::parallelProjection() const {return renderer_->GetActiveCamera()->GetParallelProjection();}
 void VtkViewport::setParallelProjection(bool enabled) {
@@ -700,7 +770,7 @@ void VtkViewport::setParallelProjection(bool enabled) {
 vtkSmartPointer<vtkCamera> VtkViewport::copyCamera() const {auto copy=vtkSmartPointer<vtkCamera>::New();copy->DeepCopy(renderer_->GetActiveCamera());return copy;}
 void VtkViewport::restoreCamera(vtkCamera* camera) {if(camera){renderer_->GetActiveCamera()->DeepCopy(camera);finishCameraChange();}}
 void VtkViewport::setSlicePlane(int axis,double position) {
-    auto candidate=sliceField(currentData_,axis,position);sliceData_=candidate;sliceEnabled_=true;sliceAxis_=axis;slicePosition_=position;
+    auto candidate=sliceField(analysisData(),axis,position);sliceData_=candidate;sliceEnabled_=true;sliceAxis_=axis;slicePosition_=position;
     resetViewOnNextData_=false;showDataSet(currentData_,currentField_);
 }
 void VtkViewport::clearSlicePlane() {
@@ -709,8 +779,14 @@ void VtkViewport::clearSlicePlane() {
 std::vector<std::string> VtkViewport::availableFields() const {
     if(!currentData_)return {};try{return fieldNames(currentData_);}catch(const std::exception&){return {};}
 }
-LineSample VtkViewport::probePoint(Vec3 point,const std::string& field) const {return sampleFieldPoint(currentData_,point,field);}
-QImage VtkViewport::captureImage() {if(auto* window=renderWindow())window->Render();return grabFramebuffer();}
+LineSample VtkViewport::probePoint(Vec3 point,const std::string& field) const {return sampleFieldPoint(analysisData(),point,field);}
+QImage VtkViewport::captureImage() {
+    if(auto* window=renderWindow())window->Render();auto image=grabFramebuffer();
+    if(axisymmetricAvailable()&&!image.isNull()){
+        const double scale=static_cast<double>(image.width())/std::max(1,width());image.setDevicePixelRatio(1);QPainter painter(&image);painter.scale(scale,scale);painter.setFont(font());const auto text=reconstructionNotice_->text();const int textWidth=painter.fontMetrics().horizontalAdvance(text);painter.fillRect(QRectF(10,10,textWidth+18,28),QColor(18,34,45,220));painter.setPen(QColor("#e5f4ff"));painter.drawText(QPointF(19,29),text);
+    }
+    return image;
+}
 
 void VtkViewport::setColorField(const std::string& fieldName) {
     if (currentData_ == nullptr)
@@ -744,7 +820,7 @@ void VtkViewport::setViewXY() {
 void VtkViewport::setViewXZ() {
     auto* cam = renderer_->GetActiveCamera();
     cam->ParallelProjectionOn();
-    cam->SetPosition(0, 1, 0);
+    cam->SetPosition(0, -1, 0);
     cam->SetFocalPoint(0, 0, 0);
     cam->SetViewUp(0, 0, 1);
     renderer_->ResetCamera();

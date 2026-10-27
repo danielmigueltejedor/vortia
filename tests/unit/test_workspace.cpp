@@ -49,6 +49,14 @@
 #include <QTableWidget>
 #include <vtkNew.h>
 #include <vtkImageData.h>
+#include <vtkPlaneSource.h>
+#include <vtkRectilinearGrid.h>
+#include <vtkCellData.h>
+#include <vtkCellSizeFilter.h>
+#include <vtkDataSetSurfaceFilter.h>
+#include <vtkFeatureEdges.h>
+#include "vortia/visualization/AxisymmetricDisplay.hpp"
+#include "vortia/visualization/FieldStatistics.hpp"
 #include <vtkMultiBlockDataSet.h>
 #include <vtkXMLMultiBlockDataWriter.h>
 #include <vtkDoubleArray.h>
@@ -1177,4 +1185,52 @@ TEST(MeshRegions, AnOpenSketchCannotStartTheMesher){Sketch2D shape;ASSERT_TRUE(s
 
 TEST(MeshRegions, ProjectSaveAndReopenRetainIndependentZoneControls){
     QTemporaryDir folder;auto project=Project::create(folder.filePath("zones").toStdString(),"zones");ASSERT_TRUE(project);MainWindow first;project->setSetupJson(WorkspaceTestAccess::setupJson(first));ASSERT_TRUE(project->save());ASSERT_TRUE(WorkspaceTestAccess::open(first,QString::fromStdString(project->rootDir().string())));WorkspaceTestAccess::edit(first,boundaryExample(),{});auto cfg=assignedExample();QJsonObject mesh{{"sizeMm",10},{"wallSizeMm",2},{"wedgeAngle",5},{"engine","occ-regions-v1"},{"partitions",QJsonArray{QJsonObject{{"from",QJsonArray{20,0}},{"to",QJsonArray{20,5}}}}},{"regions",QJsonArray{QJsonObject{{"id","nozzle"},{"name","Tobera"},{"seed",QJsonArray{5,5}},{"sizeMm",2},{"method","quads"}},QJsonObject{{"id","external"},{"name","Exterior"},{"seed",QJsonArray{25,3}},{"sizeMm",15},{"method","triangles"}}}}};cfg.insert("mesh",mesh);WorkspaceTestAccess::flow(first,cfg);ASSERT_TRUE(WorkspaceTestAccess::save(first));MainWindow reopened;ASSERT_TRUE(WorkspaceTestAccess::open(reopened,QString::fromStdString(project->rootDir().string())));EXPECT_EQ(WorkspaceTestAccess::flow(reopened).value("mesh"),mesh);expectShape(WorkspaceTestAccess::editor(reopened).sketch(),boundaryExample());
+}
+
+namespace {
+vtkSmartPointer<vtkPolyData> meridionalTestField(double inner=0){
+    vtkNew<vtkPlaneSource> plane;plane->SetOrigin(0,inner,0);plane->SetPoint1(2,inner,0);plane->SetPoint2(0,1,0);plane->SetXResolution(2);plane->SetYResolution(2);plane->Update();auto data=vtkSmartPointer<vtkPolyData>::New();data->DeepCopy(plane->GetOutput());
+    vtkNew<vtkDoubleArray> pressure;pressure->SetName("p");vtkNew<vtkDoubleArray> velocity;velocity->SetName("U");velocity->SetNumberOfComponents(3);
+    for(vtkIdType i=0;i<data->GetNumberOfPoints();++i){double p[3];data->GetPoint(i,p);pressure->InsertNextValue(100+p[0]+p[1]);velocity->InsertNextTuple3(10,2*p[1],0);}data->GetPointData()->AddArray(pressure);data->GetPointData()->AddArray(velocity);return data;
+}
+vtkSmartPointer<vtkRectilinearGrid> unequalCells(){
+    auto grid=vtkSmartPointer<vtkRectilinearGrid>::New();grid->SetDimensions(3,2,2);vtkNew<vtkDoubleArray> x;for(double value:{0.,1.,4.})x->InsertNextValue(value);vtkNew<vtkDoubleArray> yz;yz->InsertNextValue(0);yz->InsertNextValue(1);grid->SetXCoordinates(x);grid->SetYCoordinates(yz);grid->SetZCoordinates(yz);vtkNew<vtkDoubleArray> p;p->SetName("p");p->InsertNextValue(10);p->InsertNextValue(20);grid->GetCellData()->AddArray(p);vtkNew<vtkDoubleArray> u;u->SetName("U");u->SetNumberOfComponents(3);u->InsertNextTuple3(3,4,0);u->InsertNextTuple3(0,0,10);grid->GetCellData()->AddArray(u);return grid;
+}
+}
+TEST(AxisymmetricDisplay, ClosesTheSeamMergesTheAxisAndRotatesSavedVectors){
+    for(double inner:{0.,.25}){auto source=meridionalTestField(inner);const auto before=source->GetNumberOfPoints();auto result=revolveAxisymmetricField(source);EXPECT_EQ(result->GetPointData()->GetNormals(),nullptr);EXPECT_NE(source->GetPointData()->GetNormals(),nullptr);const auto bounds=fieldBounds(result);EXPECT_NEAR(bounds[2],-1,1e-10);EXPECT_NEAR(bounds[3],1,1e-10);EXPECT_NEAR(bounds[4],-1,1e-10);EXPECT_NEAR(bounds[5],1,1e-10);
+        const auto top=sampleFieldPoint(result,{.5,0,.5},"p"),side=sampleFieldPoint(result,{.5,.5,0},"p");ASSERT_TRUE(top.valid);ASSERT_TRUE(side.valid);EXPECT_NEAR(top.value,101,1e-7);EXPECT_NEAR(side.value,top.value,1e-7);EXPECT_NEAR(sampleFieldPoint(result,{.5,0,.5},"Uy").value,0,1e-7);EXPECT_NEAR(sampleFieldPoint(result,{.5,0,.5},"Uz").value,1,1e-7);EXPECT_NEAR(sampleFieldPoint(result,{.5,0,-.5},"Uz").value,-1,1e-7);
+        vtkNew<vtkCellSizeFilter> sizes;sizes->SetInputData(result);sizes->Update();auto* volumes=vtkDataSet::SafeDownCast(sizes->GetOutput())->GetCellData()->GetArray("Volume");ASSERT_NE(volumes,nullptr);for(vtkIdType i=0;i<volumes->GetNumberOfTuples();++i)EXPECT_GT(volumes->GetComponent(i,0),0);
+        vtkNew<vtkDataSetSurfaceFilter> surface;surface->SetInputData(result);vtkNew<vtkFeatureEdges> edges;edges->SetInputConnection(surface->GetOutputPort());edges->BoundaryEdgesOn();edges->FeatureEdgesOff();edges->ManifoldEdgesOff();edges->NonManifoldEdgesOn();edges->Update();EXPECT_EQ(edges->GetOutput()->GetNumberOfCells(),0);
+        EXPECT_NEAR(fieldStatistics(result,"p").measure,2*std::numbers::pi*(1-inner*inner),.012);EXPECT_EQ(source->GetNumberOfPoints(),before);EXPECT_DOUBLE_EQ(source->GetPointData()->GetArray("U")->GetComponent(0,2),0);
+    }
+}
+TEST(FieldReports, WeightOriginalCellsByMeasureAndRetainSourceValues){
+    auto grid=unequalCells();const auto p=fieldStatistics(grid,"p",2);EXPECT_EQ(p.cells,2u);EXPECT_FALSE(p.pointAverages);EXPECT_EQ(p.dimension,3);EXPECT_DOUBLE_EQ(p.minimum,10);EXPECT_DOUBLE_EQ(p.maximum,20);EXPECT_DOUBLE_EQ(p.measure,4);EXPECT_DOUBLE_EQ(p.mean,17.5);EXPECT_NEAR(p.standardDeviation,std::sqrt(18.75),1e-10);EXPECT_DOUBLE_EQ(p.integral,70);ASSERT_EQ(p.histogram.size(),2u);EXPECT_DOUBLE_EQ(p.histogram[0].measure,1);EXPECT_DOUBLE_EQ(p.histogram[1].measure,3);EXPECT_NEAR(fieldStatistics(grid,"|U|").mean,8.75,1e-12);EXPECT_DOUBLE_EQ(grid->GetCellData()->GetArray("p")->GetComponent(1,0),20);
+    grid->GetCellData()->GetArray("p")->SetComponent(1,0,std::numeric_limits<double>::quiet_NaN());const auto skipped=fieldStatistics(grid,"p");EXPECT_EQ(skipped.cells,1u);EXPECT_EQ(skipped.excluded,1u);EXPECT_DOUBLE_EQ(skipped.mean,10);EXPECT_THROW(fieldStatistics(grid,"missing"),std::runtime_error);
+    EXPECT_THROW(fieldStatistics(grid,"p",0),std::runtime_error);
+}
+TEST(AxisymmetricDisplay, ViewportSectionsFollowTheFullRevolutionWithoutChangingSourceReports){
+    VtkViewport viewport;auto source=meridionalTestField();viewport.showDataSet(source,"p");EXPECT_FALSE(viewport.axisymmetricAvailable());viewport.setAxisymmetricSource(5);ASSERT_TRUE(viewport.axisymmetricDisplay());EXPECT_LT(viewport.fieldBounds()[4],-.99);const auto report=viewport.statistics("p");EXPECT_DOUBLE_EQ(report.measure,2);viewport.setSlicePlane(1,0);viewport.setViewXZ();EXPECT_TRUE(viewport.probePoint({.5,0,-.5},"p").valid);viewport.setColorField("Uz");EXPECT_TRUE(viewport.axisymmetricDisplay());EXPECT_TRUE(viewport.sliceEnabled());viewport.setVelocityVectors(true);EXPECT_TRUE(viewport.velocityVectors());EXPECT_EQ(viewport.renderWindow()->GetRenderers()->GetFirstRenderer()->GetActors()->GetNumberOfItems(),2);viewport.setVelocityVectors(false);EXPECT_EQ(viewport.renderWindow()->GetRenderers()->GetFirstRenderer()->GetActors()->GetNumberOfItems(),1);viewport.setAxisymmetricDisplay(false);EXPECT_FALSE(viewport.sliceEnabled());EXPECT_DOUBLE_EQ(viewport.fieldBounds()[4],0);EXPECT_DOUBLE_EQ(viewport.statistics("p").measure,report.measure);viewport.showDataSet(unequalCells(),"p");EXPECT_FALSE(viewport.axisymmetricAvailable());EXPECT_FALSE(viewport.velocityVectors());
+}
+TEST(FieldReports, StatisticsDialogSwitchesFieldsAndShowsOriginalMeasure){
+    VtkViewport viewport;viewport.showDataSet(unequalCells(),"p");QTimer::singleShot(0,[&](){auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(dialog,nullptr);auto* table=dialog->findChild<QTableWidget*>("statistics-values");ASSERT_NE(table,nullptr);EXPECT_EQ(QLocale().toDouble(table->item(2,1)->text()),17.5);auto* field=dialog->findChild<QComboBox*>("statistics-field");ASSERT_NE(field,nullptr);field->setCurrentIndex(field->findData("|U|"));EXPECT_EQ(QLocale().toDouble(table->item(2,1)->text()),8.75);EXPECT_NE(dialog->findChild<QWidget*>("field-histogram"),nullptr);dialog->reject();});showFieldStatistics(nullptr,&viewport,"p");
+}
+TEST(AxisymmetricDisplay, NativeViewsAndReportsWhenExplicitlyRequested){
+    const auto path=qEnvironmentVariable("VORTIA_NATIVE_AXISYMMETRIC_VTM"),output=qEnvironmentVariable("VORTIA_UI_ARTIFACT_DIR");if(path.isEmpty()||output.isEmpty())GTEST_SKIP()<<"Optional native saved-field reconstruction QA";
+    QTranslator translator;ASSERT_TRUE(translator.load(QStringLiteral(VORTIA_TEST_QM)));qApp->installTranslator(&translator);ThemeManager::apply(*qApp,ThemeManager::Theme::Dark);ASSERT_TRUE(QDir().mkpath(output));
+    MainWindow window;window.resize(1280,850);window.show();QApplication::processEvents();WorkspaceTestAccess::result(window,path);auto* viewport=window.findChild<VtkViewport*>();ASSERT_NE(viewport,nullptr);ASSERT_TRUE(viewport->axisymmetricAvailable());ASSERT_TRUE(viewport->axisymmetricDisplay());EXPECT_LT(viewport->fieldBounds()[4],0);EXPECT_TRUE(window.findChild<QAction*>("vortia-axisymmetric-display")->isChecked());
+    window.findChild<QAction*>("vortia-longitudinal-side")->trigger();QApplication::processEvents();EXPECT_TRUE(viewport->sliceEnabled());EXPECT_EQ(viewport->slicePlaneState().axis,2);EXPECT_TRUE(window.grab().save(output+"/CFD-seccion-lateral.png"));
+    window.findChild<QAction*>("vortia-longitudinal-top")->trigger();QApplication::processEvents();EXPECT_EQ(viewport->slicePlaneState().axis,1);EXPECT_GT(viewport->copyCamera()->GetDirectionOfProjection()[1],.99);EXPECT_TRUE(window.grab().save(output+"/CFD-seccion-superior.png"));viewport->clearSlicePlane();viewport->setViewIsometric();QApplication::processEvents();EXPECT_TRUE(window.grab().save(output+"/CFD-revolucion-360.png"));EXPECT_TRUE(viewport->captureImage().save(output+"/Revolucion-exportada.png"));
+    QTimer::singleShot(0,[&](){auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(dialog,nullptr);QApplication::processEvents();EXPECT_TRUE(dialog->grab().save(output+"/CFD-estadisticas.png"));dialog->reject();});showFieldStatistics(&window,viewport,"p");VtkViewport glyphs;glyphs.resize(900,650);glyphs.show();QApplication::processEvents();glyphs.showDataSet(meridionalTestField(),"p");glyphs.setAxisymmetricSource(5);glyphs.setSlicePlane(2,0);glyphs.setViewXY();glyphs.setVelocityVectors(true);QApplication::processEvents();EXPECT_EQ(glyphs.renderWindow()->GetRenderers()->GetFirstRenderer()->GetActors()->GetNumberOfItems(),2);EXPECT_TRUE(glyphs.captureImage().save(output+"/Vectores-campo-sintetico.png"));qApp->removeTranslator(&translator);
+}
+
+TEST(Workspace, MeshOnlyAxisymmetricViewsEnableCutsWithoutInventingFields){
+    QTemporaryDir folder;auto source=meridionalTestField();source->GetPointData()->Initialize();source->GetCellData()->Initialize();vtkNew<vtkMultiBlockDataSet> data;data->SetBlock(0,source);const auto path=folder.filePath("mesh.vtm");vtkNew<vtkXMLMultiBlockDataWriter> writer;writer->SetFileName(path.toStdString().c_str());writer->SetInputData(data);ASSERT_EQ(writer->Write(),1);writeFile(folder.filePath(".vortia-flow-case"),"vortia-axisymmetric-flow-v1\n");writeFile(folder.filePath("mesh-report.json"),"{\"wedgeAngle\":5}");QDir().mkpath(folder.filePath("system"));writeFile(folder.filePath("system/controlDict"),"noSwirl true;\n");
+    MainWindow window;WorkspaceTestAccess::result(window,path);auto* view=window.findChild<VtkViewport*>();ASSERT_NE(view,nullptr);ASSERT_TRUE(view->axisymmetricDisplay());EXPECT_TRUE(view->availableFields().empty());EXPECT_TRUE(window.findChild<QAction*>("vortia-axisymmetric-display")->isEnabled());EXPECT_TRUE(window.findChild<QAction*>("vortia-section-menu")->isEnabled());EXPECT_FALSE(window.findChild<QAction*>("vortia-statistics-action")->isEnabled());auto* top=window.findChild<QAction*>("vortia-longitudinal-top");ASSERT_TRUE(top->isEnabled());top->trigger();EXPECT_TRUE(view->sliceEnabled());EXPECT_EQ(view->slicePlaneState().axis,1);
+    ASSERT_TRUE(QFile::remove(folder.filePath(".vortia-flow-case")));WorkspaceTestAccess::result(window,path);EXPECT_FALSE(view->axisymmetricAvailable());EXPECT_FALSE(top->isEnabled());EXPECT_DOUBLE_EQ(view->fieldBounds()[4],0);
+}
+
+TEST(FieldReports, ImportedSignedCellOrderingUsesPositiveGeometricMeasure){
+    vtkNew<vtkPoints> points;points->InsertNextPoint(0,0,0);points->InsertNextPoint(0,1,0);points->InsertNextPoint(1,0,0);points->InsertNextPoint(0,0,1);vtkNew<vtkUnstructuredGrid> grid;grid->SetPoints(points);const vtkIdType ids[]={0,1,2,3};grid->InsertNextCell(VTK_TETRA,4,ids);vtkNew<vtkDoubleArray> p;p->SetName("p");p->InsertNextValue(7);grid->GetCellData()->AddArray(p);const auto report=fieldStatistics(grid,"p");EXPECT_EQ(report.cells,1u);EXPECT_EQ(report.excluded,0u);EXPECT_NEAR(report.measure,1.0/6,1e-12);EXPECT_DOUBLE_EQ(report.mean,7);
 }

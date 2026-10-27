@@ -20,8 +20,7 @@
 #include <algorithm>
 #include <stdexcept>
 namespace vortia {
-namespace {
-vtkDataSet* volume(vtkDataObject* data) {
+vtkDataSet* fluidDataSet(vtkDataObject* data) {
     vtkDataSet* best=nullptr;
     int bestDimension=-1;
     const auto consider=[&](vtkDataSet* candidate) {
@@ -43,12 +42,11 @@ vtkDataSet* volume(vtkDataObject* data) {
     if(!best||best->GetNumberOfCells()==0)throw std::runtime_error("No field data is loaded");
     return best;
 }
-}
 std::array<double,6> fieldBounds(vtkDataObject* data) {
-    std::array<double,6> bounds{};volume(data)->GetBounds(bounds.data());return bounds;
+    std::array<double,6> bounds{};fluidDataSet(data)->GetBounds(bounds.data());return bounds;
 }
 std::vector<std::string> fieldNames(vtkDataObject* data) {
-    auto* source=volume(data);std::set<std::string> names;
+    auto* source=fluidDataSet(data);std::set<std::string> names;
     const auto add=[&](vtkFieldData* fields){
         for(int i=0;i<fields->GetNumberOfArrays();++i)if(auto* a=fields->GetArray(i)) {
             if(!a->GetName())continue;const std::string name=a->GetName();
@@ -61,7 +59,7 @@ std::vector<std::string> fieldNames(vtkDataObject* data) {
 }
 LineSample sampleFieldPoint(vtkDataObject* data,Vec3 point,const std::string& requested) {
     for(int i=0;i<3;++i)if(!std::isfinite(point[i]))throw std::runtime_error("Invalid sample coordinates");
-    vtkNew<vtkCellDataToPointData> converted;converted->SetInputData(volume(data));converted->Update();
+    vtkNew<vtkCellDataToPointData> converted;converted->SetInputData(fluidDataSet(data));converted->Update();
     vtkNew<vtkPoints> points;points->SetDataTypeToDouble();points->InsertNextPoint(point.x,point.y,point.z);
     vtkNew<vtkPolyData> input;input->SetPoints(points);
     vtkNew<vtkProbeFilter> probe;probe->SetInputData(input);probe->SetSourceConnection(converted->GetOutputPort());probe->Update();
@@ -77,7 +75,7 @@ LineSample sampleFieldPoint(vtkDataObject* data,Vec3 point,const std::string& re
 }
 vtkSmartPointer<vtkPolyData> sliceField(vtkDataObject* data,int axis,double position) {
     if(axis<0||axis>2||!std::isfinite(position))throw std::runtime_error("Invalid section plane");
-    auto* source=volume(data);double bounds[6];source->GetBounds(bounds);
+    auto* source=fluidDataSet(data);double bounds[6];source->GetBounds(bounds);
     double origin[3]={(bounds[0]+bounds[1])/2,(bounds[2]+bounds[3])/2,(bounds[4]+bounds[5])/2};
     double normal[3]={0,0,0};normal[axis]=1;origin[axis]=position;
     vtkNew<vtkPlane> plane;plane->SetNormal(normal);plane->SetOrigin(origin);
@@ -93,7 +91,7 @@ std::vector<LineSample> sampleFieldLine(vtkDataObject* data,Vec3 start,Vec3 end,
         length2+=(end[i]-start[i])*(end[i]-start[i]);
     }
     if(points<2||points>10000||length2<=0)throw std::runtime_error("Invalid sampling line");
-    vtkNew<vtkCellDataToPointData> converted;converted->SetInputData(volume(data));converted->Update();
+    vtkNew<vtkCellDataToPointData> converted;converted->SetInputData(fluidDataSet(data));converted->Update();
     vtkNew<vtkLineSource> line;line->SetPoint1(start.x,start.y,start.z);line->SetPoint2(end.x,end.y,end.z);line->SetResolution(points-1);
     vtkNew<vtkProbeFilter> probe;probe->SetInputConnection(line->GetOutputPort());probe->SetSourceConnection(converted->GetOutputPort());probe->Update();
     auto* result=probe->GetOutput();

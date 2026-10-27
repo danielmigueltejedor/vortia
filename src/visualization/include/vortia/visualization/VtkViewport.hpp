@@ -3,6 +3,7 @@
 #include "vortia/geometry/BoxDomain.hpp"
 #include "vortia/geometry/TriangleMesh.hpp"
 #include "vortia/visualization/LineSampling.hpp"
+#include "vortia/visualization/FieldStatistics.hpp"
 
 #include <QVTKOpenGLNativeWidget.h>
 #include <QPointF>
@@ -19,6 +20,7 @@ class vtkScalarBarActor;
 class vtkOrientationMarkerWidget;
 class vtkRenderer;
 class QTimer;
+class QLabel;
 
 namespace vortia {
 
@@ -48,11 +50,20 @@ public:
 
     /// Re-colors the currently loaded dataset by the given field name.
     void setColorField(const std::string& fieldName);
-    std::array<double,6> fieldBounds() const {return vortia::fieldBounds(currentData_);}
+    std::array<double,6> fieldBounds() const {return vortia::fieldBounds(analysisData());}
     std::vector<LineSample> sampleLine(Vec3 start,Vec3 end,int points,const std::string& field) const {
-        return sampleFieldLine(currentData_,start,end,points,field);
+        return sampleFieldLine(analysisData(),start,end,points,field);
     }
     void showCellEdges(bool enabled);
+    bool hasDataSet() const {return currentData_!=nullptr;}
+    bool axisymmetricAvailable() const {return sourceWedgeAngle_>0;}
+    bool axisymmetricDisplay() const {return axisymmetricDisplay_;}
+    void setAxisymmetricSource(double wedgeAngle);
+    void setAxisymmetricDisplay(bool enabled);
+    bool velocityVectors() const {return velocityVectors_;}
+    void setVelocityVectors(bool enabled);
+    FieldStatistics statistics(const std::string& field) const {return fieldStatistics(currentData_,field);}
+
     void setNavigationMode(NavigationMode mode);
     void setNavigationPreferences(double zoom,double pan);
     NavigationMode navigationMode() const {return navigationMode_;}
@@ -72,6 +83,7 @@ public:
 
 signals:
     void fieldDataChanged();
+    void viewToolsChanged();
 
 public:
     void clearScene();
@@ -93,6 +105,9 @@ protected:
     void keyReleaseEvent(QKeyEvent* event) override;
 
 private:
+    vtkDataObject* analysisData() const;
+    void refreshVelocityVectors(vtkDataObject*);
+    void updateReconstructionNotice();
     void syncCornerCamera();
     void cancelPointerDrag();
     void panCamera(QPointF pixels);
@@ -112,6 +127,12 @@ private:
     vtkSmartPointer<vtkActor> domainActor_;
     vtkSmartPointer<vtkDataObject> currentData_;
     vtkSmartPointer<vtkDataObject> sliceData_;
+    vtkSmartPointer<vtkDataObject> revolvedData_;
+    vtkSmartPointer<vtkActor> vectorsActor_;
+    QLabel* reconstructionNotice_;
+    QString reconstructionFailure_;
+    double sourceWedgeAngle_{0};
+    bool axisymmetricDisplay_{false},velocityVectors_{false};
     std::string currentField_;
     std::string loadedFile_;
     bool resetViewOnNextData_{true};

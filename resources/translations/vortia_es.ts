@@ -539,6 +539,21 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     <message><source>View latest result</source><translation>Ver último resultado</translation></message>
     <message><source>Visualization export did not finish. The native calculation fields are retained.</source><translation>La exportación de la visualización no ha terminado. Los campos nativos del cálculo se conservan.</translation></message>
     <message><source>foamToVTK is unavailable in the selected engine.</source><translation>foamToVTK no está disponible en el motor seleccionado.</translation></message>
+    <message><source>Side · XY</source><translation>Lateral · XY</translation></message>
+    <message><source>Top · XZ</source><translation>Superior · XZ</translation></message>
+    <message><source>Front · YZ</source><translation>Frontal · YZ</translation></message>
+    <message><source>Longitudinal section · side</source><translation>Sección longitudinal · lateral</translation></message>
+    <message><source>Longitudinal section · top</source><translation>Sección longitudinal · superior</translation></message>
+    <message><source>Statistics and histogram…</source><translation>Estadísticas e histograma…</translation></message>
+    <message><source>Axisymmetric revolution · 360°</source><translation>Revolución axisimétrica · 360°</translation></message>
+    <message><source>Velocity vectors</source><translation>Vectores de velocidad</translation></message>
+    <message><source>Reconstruct the saved axisymmetric field around X for display. This does not run a 3D simulation.</source><translation>Reconstruye visualmente el campo axisimétrico guardado alrededor de X. No ejecuta una simulación 3D.</translation></message>
+    <message><source>Revolution unavailable</source><translation>Revolución no disponible</translation></message>
+    <message><source>Section unavailable</source><translation>Sección no disponible</translation></message>
+    <message><source>No generated axisymmetric source is loaded</source><translation>No hay cargado un resultado axisimétrico generado por Vortia</translation></message>
+    <message><source>The axisymmetric display exceeds its memory budget; use the original wedge</source><translation>La vista axisimétrica supera su límite de memoria; utiliza la cuña original</translation></message>
+    <message><source>No meridional fluid section is available</source><translation>No hay una sección meridional del fluido disponible</translation></message>
+    <message><source>Axisymmetric reconstruction needs a meridional XY section with radius Y &gt;= 0</source><translation>La reconstrucción axisimétrica necesita una sección XY con radio Y mayor o igual que cero</translation></message>
 </context>
 <context>
     <name>vortia::PropertiesPanel</name>
@@ -1323,6 +1338,28 @@ Valor: %2</translation></message>
     <message><source>The loaded result does not contain this field</source><translation>El resultado cargado no contiene este campo</translation></message>
     <message><source>Invalid section plane</source><translation>Plano de corte no válido</translation></message>
     <message><source>The plane does not intersect the loaded fluid mesh</source><translation>El plano no intersecta la malla del fluido cargada</translation></message>
+    <message><source>Statistics and histogram</source><translation>Estadísticas e histograma</translation></message>
+    <message><source>Reports use the original calculated fluid block, including the original wedge for axisymmetric cases. The 360° display does not multiply report totals. Histogram bins are weighted by cell volume or area.</source><translation>Los informes usan el dominio calculado original: la cuña en los casos axisimétricos. La vista de 360° no multiplica los totales. El histograma se pondera por volumen o área de celda.</translation></message>
+    <message><source>Measure</source><translation>Medida</translation></message>
+    <message><source>Value</source><translation>Valor</translation></message>
+    <message><source>Export report CSV…</source><translation>Exportar informe CSV…</translation></message>
+    <message><source>Calculated volume (m³)</source><translation>Volumen calculado (m³)</translation></message>
+    <message><source>Calculated area (m²)</source><translation>Área calculada (m²)</translation></message>
+    <message><source>Calculated length (m)</source><translation>Longitud calculada (m)</translation></message>
+    <message><source>Minimum cell value</source><translation>Valor mínimo de celda</translation></message>
+    <message><source>Maximum cell value</source><translation>Valor máximo de celda</translation></message>
+    <message><source>Weighted mean</source><translation>Media ponderada</translation></message>
+    <message><source>Weighted standard deviation</source><translation>Desviación típica ponderada</translation></message>
+    <message><source>Field integral over calculated measure</source><translation>Integral del campo sobre el dominio calculado</translation></message>
+    <message><source>Valid cells</source><translation>Celdas válidas</translation></message>
+    <message><source>Excluded cells</source><translation>Celdas excluidas</translation></message>
+    <message><source>Cell values are averages of the stored point values. Non-finite, ghost and zero-measure cells are excluded. This report does not establish convergence.</source><translation>Los valores de celda son promedios de los valores guardados en sus puntos. Se excluyen las celdas fantasma, no finitas o de medida nula. Este informe no acredita convergencia.</translation></message>
+    <message><source>Uses stored cell values. Non-finite, ghost and zero-measure cells are excluded. This report does not establish convergence.</source><translation>Usa los valores guardados por celda. Se excluyen las celdas fantasma, no finitas o de medida nula. Este informe no acredita convergencia.</translation></message>
+    <message><source>Export statistics</source><translation>Exportar estadísticas</translation></message>
+    <message><source>The report could not be saved.</source><translation>No se ha podido guardar el informe.</translation></message>
+    <message><source>No finite measured cells are available for this field</source><translation>Este campo no tiene celdas válidas con medida finita</translation></message>
+    <message><source>The loaded fluid mesh has no measurable cells</source><translation>La malla cargada no contiene celdas medibles</translation></message>
+    <message><source>The stored field has incomplete cell or point values</source><translation>El campo guardado tiene valores de celda o punto incompletos</translation></message>
 </context>
 <context>
     <name>vortia::VtkViewport</name>
@@ -1330,6 +1367,14 @@ Valor: %2</translation></message>
     <message><source>Pinch to zoom · two fingers to pan · drag to orbit · Shift/Space + drag to pan · F to fit</source><translation>Pellizca para ampliar · dos dedos para desplazar · arrastra para orbitar · Mayús/Espacio + arrastre para desplazar · F para encuadrar</translation></message>
     <message><source>Pressure (Pa)</source><translation>Presión (Pa)</translation></message>
     <message><source>Temperature (K)</source><translation>Temperatura (K)</translation></message>
+    <message><source>360° axisymmetric reconstruction · display only</source><translation>Reconstrucción axisimétrica 360° · solo visualización</translation></message>
+    <message><source>Original computational wedge · %1°</source><translation>Cuña calculada original · %1°</translation></message>
+    <message><source>360° display unavailable · original wedge shown</source><translation>Vista de 360° no disponible · se muestra la cuña original</translation></message>
+    <message><source>The axisymmetric display exceeds its memory budget; use the original wedge</source><translation>La vista axisimétrica supera su límite de memoria; utiliza la cuña original</translation></message>
+    <message><source>No meridional fluid section is available</source><translation>No hay una sección meridional del fluido disponible</translation></message>
+    <message><source>Axisymmetric reconstruction needs a meridional XY section with radius Y &gt;= 0</source><translation>La reconstrucción axisimétrica necesita una sección XY con radio Y mayor o igual que cero</translation></message>
+    <message><source>Invalid axisymmetric wedge angle</source><translation>El ángulo de la cuña axisimétrica no es válido</translation></message>
+    <message><source>The meridional section has no revolvable cells</source><translation>La sección meridional no tiene celdas que puedan revolucionarse</translation></message>
 </context>
 <context>
     <name>vortia::RunMonitor</name>
