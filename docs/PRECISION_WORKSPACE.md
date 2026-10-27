@@ -1,10 +1,11 @@
 # Precision workspace
 
-Vortia uses the original Precision identity: neutral tool ink, thin rounded
-symbols, and a restrained teal accent. All SVG tools are editable resources;
-the application mark is also provided as SVG and a 1024 px PNG. No icon font or
-network dependency is required. Icons resolve normal, checked and disabled ink
-against the current Qt palette, including a live appearance change.
+Vortia retains its original application logo in Finder, the Dock and the
+workspace. Precision applies to the interface tool icons: neutral ink, thin
+rounded symbols, and a restrained teal accent. Tool SVGs are editable resources;
+no icon font or network dependency is required. Icons resolve normal, checked
+and disabled ink against the current Qt palette, including a live appearance
+change.
 
 The left navigation exposes Project, Geometry, Mesh, Physics, Calculation and
 Results (Option/Alt + 1–6). The former tall ribbon is a compact contextual bar.
