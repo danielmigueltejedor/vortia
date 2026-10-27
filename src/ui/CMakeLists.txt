@@ -9,6 +9,7 @@ add_library(vortia_ui STATIC
     include/vortia/ui/PropertiesPanel.hpp
     include/vortia/ui/ThemeManager.hpp
     include/vortia/ui/UiIcon.hpp
+    include/vortia/ui/FlowSetup.hpp
     include/vortia/ui/SketchEditorDialog.hpp
     src/ApplicationPreferences.cpp
     src/ConsolePanel.cpp
@@ -52,3 +53,9 @@ target_link_libraries(vortia_ui
 set_target_properties(vortia_ui PROPERTIES
     AUTOMOC ON AUTOUIC ON AUTORCC ON)
 target_compile_features(vortia_ui PUBLIC cxx_std_20)
+
+if(APPLE)
+    enable_language(OBJCXX)
+    target_sources(vortia_ui PRIVATE src/MacWindow.mm)
+    target_link_libraries(vortia_ui PRIVATE "-framework AppKit")
+endif()

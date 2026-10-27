@@ -7,6 +7,8 @@
 #include "vortia/ui/RunMonitor.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
 #include <QActionGroup>
+#include <QWindow>
+#include <QMouseEvent>
 #include <QButtonGroup>
 #include <QPushButton>
 #include <QStackedWidget>
@@ -120,12 +122,30 @@ CaseSetup makeCavity() {
 
 } // namespace
 
+#ifdef Q_OS_MACOS
+void hideNativeWindowTitle(QWidget*);
+#endif
+
+void MainWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    hideNativeWindowTitle(this);
+#endif
+}
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     settings_ = std::make_unique<QSettings>(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
     setup_ = makeCavity();
 
     setWindowTitle(tr("Vortia — Engineering the Flow"));
     resize(1280, 800);
+#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    // Keep AppKit's real traffic lights and fullscreen behavior. The document
+    // header occupies the titlebar, reserving space beside the native controls.
+    setWindowFlags(windowFlags()|Qt::ExpandedClientAreaHint|Qt::NoTitleBarBackgroundHint);
+    setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea,false);
+    setAttribute(Qt::WA_LayoutOnEntireRect,true);
+#endif
 
     buildMenusAndToolbar();
     buildDocks();
@@ -167,7 +187,23 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setProjectState(tr("New project: draw a closed fluid domain, then configure its mesh and flow."));
 }
 
+bool MainWindow::eventFilter(QObject* object,QEvent* event) {
+#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    if(event->type()==QEvent::MouseButtonPress||event->type()==QEvent::MouseButtonDblClick) {
+        auto* mouse=static_cast<QMouseEvent*>(event);
+        const bool header=object->objectName()=="vortia-document-header"||object->objectName()=="vortia-native-window-controls-space";
+        const bool emptyTabs=object==projectTabs_&&projectTabs_->tabAt(mouse->position().toPoint())<0;
+        if(mouse->button()==Qt::LeftButton&&(header||emptyTabs)) {
+            if(event->type()==QEvent::MouseButtonDblClick) {if(isMaximized())showNormal();else showMaximized();return true;}
+            if(windowHandle())return windowHandle()->startSystemMove();
+        }
+    }
+#endif
+    return QMainWindow::eventFilter(object,event);
+}
+
 MainWindow::~MainWindow() {
+    clearFlowEditors();
     auto* preview=meshWorkspace_;meshWorkspace_=nullptr;delete preview;
     // Stop/join the worker before documents release their temporary case dirs.
     delete jobController_;
@@ -247,19 +283,9 @@ void MainWindow::buildMenusAndToolbar() {
     themeAction_->setIcon(toolIcon(QStringLiteral("settings"), QStyle::SP_DesktopIcon));
 
 
-    auto* meshEditor = new QAction(toolIcon(QStringLiteral("mesh"), QStyle::SP_FileDialogDetailedView), tr("Mesh"), this);
     auto* materialsEditor = new QAction(toolIcon(QStringLiteral("material"), QStyle::SP_DriveHDIcon), tr("Materials"), this);
     auto* boundaryEditor = new QAction(toolIcon(QStringLiteral("boundary"), QStyle::SP_DirLinkIcon), tr("Boundaries"), this);
     auto* solverEditor = new QAction(toolIcon(QStringLiteral("solver"), QStyle::SP_ComputerIcon), tr("Solver"), this);
-    auto* sketchEditor = new QAction(toolIcon(QStringLiteral("sketch"), QStyle::SP_FileDialogDetailedView), tr("2D Sketch…"), this);
-    sketchEditor->setToolTip(tr("Draw a dimensioned polyline with split segments and exact mm lengths."));
-    connect(sketchEditor, &QAction::triggered, this, [this]() {
-        if (workspaceTabs_ && sketchEditor_)
-            activateWorkflowStage(1);
-    });
-
-    connect(meshEditor, &QAction::triggered, this,
-            [this]() { onNodeActivated(ProjectExplorerPanel::MeshNode); });
     connect(materialsEditor, &QAction::triggered, this,
             [this]() { onNodeActivated(ProjectExplorerPanel::MaterialsNode); });
     connect(boundaryEditor, &QAction::triggered, this,
@@ -329,6 +355,7 @@ void MainWindow::buildMenusAndToolbar() {
     workflow->addWidget(navigator);
     connect(tabs,&QTabWidget::currentChanged,this,[this,stages](int index){
         if(auto* button=stages->button(index)){QSignalBlocker block(button);button->setChecked(true);}
+        setContextToolsVisible(index!=1&&index!=3);
         updateWorkflowInspector();
     });
     stages->button(0)->setChecked(true);
@@ -377,8 +404,8 @@ void MainWindow::buildMenusAndToolbar() {
     };
 
     newProject->setIconText(tr("New"));openProject->setIconText(tr("Open"));saveProject->setIconText(tr("Save"));
-    importFluent->setIconText(tr("Fluent case"));sketchEditor->setIconText(tr("Edit sketch"));
-    generateMesh->setIconText(tr("Generate mesh"));meshEditor->setIconText(tr("Mesh controls"));
+    importFluent->setIconText(tr("Fluent case"));
+    generateMesh->setIconText(tr("Generate mesh"));
     materialsEditor->setIconText(tr("Models"));boundaryEditor->setIconText(tr("Boundaries"));
     solverEditor->setIconText(tr("Run controls"));runAction_->setIconText(tr("Run"));cancelAction_->setIconText(tr("Stop"));
     openResults->setIconText(tr("Open results"));searchTool->setIconText(tr("Search"));
@@ -399,17 +426,17 @@ void MainWindow::buildMenusAndToolbar() {
     connect(saveSketch,&QAction::triggered,this,[this](){sketchEditor_->saveSketch();});
     connect(planar,&QAction::triggered,this,[this](){sketchEditor_->exportNozzleMesh();});
     connect(wedge,&QAction::triggered,this,[this](){sketchEditor_->exportWedgeMesh();});
-    auto* sketchFilesAction=new QAction(toolIcon("save",QStyle::SP_DialogSaveButton),tr("Sketch files…"),this);
-    sketchFilesAction->setMenu(sketchFiles);sketchFilesAction->setToolTip(tr("Import/export CAD sketches or standalone block meshes. Generate mesh builds the CFD domain."));
-    addGroup(geometryPage,tr("Sketch"),{sketchEditor,sketchFilesAction});
+    sketchFiles->setTitle(tr("Sketch files…"));sketchFiles->setIcon(toolIcon("sketch",QStyle::SP_FileIcon));fileMenu->insertMenu(importStl,sketchFiles);
+    Q_UNUSED(geometryPage);
     auto* meshPage=newPage(tr("Mesh"));
-    addGroup(meshPage,tr("Mesh"),{meshEditor,generateMesh});
+    addGroup(meshPage,tr("Mesh"),{generateMesh});
 
     auto* physicsPage=newPage(tr("Physics"));
-    addGroup(physicsPage,tr("Physical setup"),{materialsEditor,boundaryEditor});
+    simMenu->addActions({materialsEditor,boundaryEditor});
+    Q_UNUSED(physicsPage);
 
     auto* simPage=newPage(tr("Calculation"));
-    addGroup(simPage,tr("Controls"),{solverEditor});
+    simMenu->addAction(solverEditor);
     addGroup(simPage,tr("Execution"),{runAction_,cancelAction_});
     auto* viewLatest=new QAction(toolIcon("view",QStyle::SP_DialogApplyButton),tr("View latest result"),this);
     viewLatest->setIconText(tr("View latest"));
@@ -425,14 +452,15 @@ void MainWindow::buildMenusAndToolbar() {
     connect(edgeAction,&QAction::toggled,this,[this](bool enabled){viewport_->showCellEdges(enabled);});
 
     auto* fields = new QWidget(this);
-    auto* fv = new QVBoxLayout(fields);
+    auto* fv = new QHBoxLayout(fields);
     fv->setContentsMargins(0, 0, 0, 0);
     fv->setSpacing(7);
     auto* fieldTitle = new QLabel(tr("DISPLAY FIELD"), fields);
     fieldTitle->setObjectName(QStringLiteral("vortia-ribbon-group"));
-    fv->addWidget(fieldTitle);
+    fieldTitle->hide();
     fieldCombo_ = new QComboBox(fields);
     fieldCombo_->setObjectName(QStringLiteral("vortia-field-selector"));
+    fieldCombo_->setAccessibleName(tr("Display field"));
     fieldCombo_->setMinimumWidth(160);fieldCombo_->setMaximumWidth(230);
     fieldCombo_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);fieldCombo_->setMinimumContentsLength(14);
     for(const auto& field:std::vector<std::pair<QString,QString>>{
@@ -489,10 +517,13 @@ void MainWindow::buildMenusAndToolbar() {
     connect(image,&QAction::triggered,this,[this](){exportViewportImage(this,viewport_);});addGroup(resultsPage,tr("Export"),{image});resultMenu->addAction(image);
 
     auto* monitors=new QAction(toolIcon("chart",QStyle::SP_FileDialogDetailedView),tr("Calculation monitors"),this);monitors->setObjectName("vortia-open-monitors");monitors->setIconText(tr("Monitors"));
-    connect(monitors,&QAction::triggered,this,[this](){workspaceTabs_->setCurrentWidget(runMonitor_);if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(5);});
-    resultMenu->addSeparator();resultMenu->addAction(monitors);addGroup(resultsPage,tr("Tracking"),{monitors});
+    connect(monitors,&QAction::triggered,this,[this](){activateWorkflowStage(4);});
+    resultMenu->addSeparator();resultMenu->addAction(monitors);
 
-    toolbar->addWidget(tabs);
+    auto* topBar=new QWidget(toolbar);topBar->setObjectName("vortia-top-bar");
+    topBar->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);
+    auto* topLayout=new QVBoxLayout(topBar);topLayout->setContentsMargins(0,0,0,0);topLayout->setSpacing(0);topLayout->addWidget(tabs);
+    toolbar->addWidget(topBar);
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("vortia-status-text"));
     statusBar()->addWidget(statusLabel_, 1);
@@ -502,14 +533,93 @@ void MainWindow::activateWorkflowStage(int stage) {
     auto* tools=findChild<QTabWidget*>("vortia-ribbon");
     if(!tools||stage<0||stage>=tools->count()||!workspaceTabs_)return;
     tools->setCurrentIndex(stage);
-    if(stage==1||stage==3)workspaceTabs_->setCurrentWidget(sketchEditor_);
-    if(stage==2){rebuildMeshWorkspace();workspaceTabs_->setCurrentWidget(meshWorkspacePage_);}
+    if(stage==1)workspaceTabs_->setCurrentWidget(sketchEditor_);
+    const bool legacy=!useExistingCase_&&!usesSketchFlow();
+    if(stage==3&&!legacy){rebuildPhysicsWorkspace();workspaceTabs_->setCurrentWidget(physicsWorkspacePage_);}
+    if(stage==2&&!legacy){rebuildMeshWorkspace();workspaceTabs_->setCurrentWidget(meshWorkspacePage_);}
+    if(legacy&&(stage==2||stage==3)){workspaceTabs_->setCurrentWidget(viewport_);properties_->showNode(stage==2?ProjectExplorerPanel::MeshNode:ProjectExplorerPanel::MaterialsNode);}
     sketchEditor_->setToolPanelVisible(stage!=3);
-    if(stage==4)workspaceTabs_->setCurrentWidget(runMonitor_);
+    if(stage==4){rebuildCalculationControls();workspaceTabs_->setCurrentWidget(runMonitor_);}
+    if(legacy&&stage==4)properties_->showNode(ProjectExplorerPanel::SolverNode);
     if(stage==5)workspaceTabs_->setCurrentWidget(viewport_);
     if(stage<=3)propertiesTabs_->setCurrentIndex(0);
-    if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->setVisible(stage!=1);
+    if(stage==4&&!projectSwitchLocked())propertiesTabs_->setCurrentIndex(0);
+    if(stage==5&&propertiesTabs_->isTabVisible(1))propertiesTabs_->setCurrentIndex(1);
+    if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->setVisible(stage==0||stage==4||(legacy&&(stage==2||stage==3))||(stage==5&&propertiesTabs_->isTabVisible(1)));
+    setContextToolsVisible(stage!=1&&stage!=3);
     updateWorkflowInspector();
+}
+
+void MainWindow::setContextToolsVisible(bool visible) {
+    auto* toolbar=findChild<QToolBar*>("vortia-main-toolbar");
+    if(!toolbar)return;
+    if(findChild<QWidget*>("vortia-document-header")) {
+        auto* ribbon=findChild<QTabWidget*>("vortia-ribbon");ribbon->setVisible(visible);
+        auto* topBar=findChild<QWidget*>("vortia-top-bar");
+        const int height=42+(visible?ribbon->height():0);
+        topBar->setFixedHeight(height);toolbar->setFixedHeight(height+1);toolbar->show();
+    } else toolbar->setVisible(visible);
+}
+
+bool MainWindow::usesSketchFlow() const {
+    return !useExistingCase_&&(!flowConfig_.isEmpty()||sketchEditor_->sketch().segmentCount()
+        ||projectRoot_.empty()||!std::filesystem::exists(projectRoot_/"case/system/controlDict"));
+}
+
+void MainWindow::clearFlowEditors() {
+    auto* physics=physicsEditor_;physicsEditor_=nullptr;delete physics;
+    auto* calculation=calculationEditor_;calculationEditor_=nullptr;delete calculation;
+}
+
+void MainWindow::rebuildPhysicsWorkspace() {
+    if(physicsEditor_||!physicsWorkspacePage_)return;
+    if(!useExistingCase_&&!usesSketchFlow())return;
+    auto* layout=physicsWorkspacePage_->layout();
+    while(auto* item=layout->takeAt(0)){delete item->widget();delete item;}
+    if(useExistingCase_){
+        auto* info=new QLabel(tr("Imported case dictionaries are preserved. Edit the source project to change its configuration."),physicsWorkspacePage_);
+        info->setWordWrap(true);layout->addWidget(info);return;
+    }
+    auto* editor=new FlowSetupPanel(sketchEditor_->sketch(),flowConfig_,physicsWorkspacePage_,preferences_.flowDefaults(),FlowSetupPanel::View::Physics);
+    physicsEditor_=editor;editor->setObjectName("vortia-physics-editor");layout->addWidget(editor);
+    editor->setEnabled(!projectSwitchLocked());const int document=activeProjectTab_;
+    connect(editor,&FlowSetupPanel::configurationEdited,this,[this,editor,document](const QJsonObject& values){
+        if(physicsEditor_==editor&&document==activeProjectTab_)applyFlowEdits(values,true);
+    });
+}
+
+void MainWindow::rebuildCalculationControls() {
+    if(calculationEditor_||!usesSketchFlow())return;
+    auto* editor=new FlowSetupPanel(sketchEditor_->sketch(),flowConfig_,inspectorStack_,preferences_.flowDefaults(),FlowSetupPanel::View::Calculation);
+    calculationEditor_=editor;editor->setObjectName("vortia-calculation-editor");inspectorStack_->addWidget(editor);
+    editor->setEnabled(!projectSwitchLocked());const int document=activeProjectTab_;
+    connect(editor,&FlowSetupPanel::configurationEdited,this,[this,editor,document](const QJsonObject& values){
+        if(calculationEditor_==editor&&document==activeProjectTab_)applyFlowEdits(values,false);
+    });
+}
+
+void MainWindow::applyFlowEdits(const QJsonObject& values,bool physics) {
+    if(useExistingCase_||projectSwitchLocked())return;
+    const auto before=flowConfig_;
+    auto next=before.isEmpty()?values:before;
+    const auto keys=physics?QStringList{"material","boundaries","boundaryGeometry","boundaryVersions","unmappedBoundaries"}:QStringList{"initial","solver"};
+    for(const auto& key:keys)if(values.contains(key)) {
+        if(values.value(key).isObject()) {
+            auto section=next.value(key).toObject();const auto edited=values.value(key).toObject();
+            for(auto i=edited.begin();i!=edited.end();++i) {
+                if(i.value().isObject()){auto nested=section.value(i.key()).toObject();const auto fields=i.value().toObject();for(auto j=fields.begin();j!=fields.end();++j)nested.insert(j.key(),j.value());section.insert(i.key(),nested);}
+                else section.insert(i.key(),i.value());
+            }
+            next.insert(key,section);
+        } else next.insert(key,values.value(key));
+    }
+    if(next==before)return;
+    const auto prepared=before.value("preparedHash").toString();
+    if(!prepared.isEmpty()&&prepared==flowFingerprint(true))next.insert("preparedHash",flowFingerprint());
+    for(const auto* key:{"material","initial","boundaries","mesh"})if(next.value(key)!=before.value(key)){next.remove("preparedHash");break;}
+    flowConfig_=next;dirty_=true;properties_->setEnabled(false);
+    if(meshWorkspace_)meshWorkspace_->setBoundaries(flowConfig_.value("boundaries").toArray());
+    storeCurrentTab();refreshProjectTabTitle();updateNozzleNotice();
 }
 
 void MainWindow::rebuildMeshWorkspace() {
@@ -524,12 +634,11 @@ void MainWindow::rebuildMeshWorkspace() {
     auto* layout=qobject_cast<QVBoxLayout*>(meshWorkspacePage_->layout());
     meshWorkspace_=nullptr;
     while(auto* item=layout->takeAt(0)){delete item->widget();delete item;}
-    if(useExistingCase_||flowConfig_.isEmpty()) {
+    if(useExistingCase_) {
         auto* text=new QLabel(useExistingCase_
             ?tr("Imported case dictionaries are preserved. Edit the source project to change its configuration.")
             :tr("Configure the mesh to enable regional editing and cell preview."),meshWorkspacePage_);
         text->setWordWrap(true);layout->addWidget(text);
-        if(!useExistingCase_){auto* setup=new QPushButton(tr("Mesh controls"),meshWorkspacePage_);layout->addWidget(setup);connect(setup,&QPushButton::clicked,this,[this](){configureFlow(0);});}
         layout->addStretch();return;
     }
     auto* globals=new QWidget(meshWorkspacePage_);auto* fields=new QHBoxLayout(globals);fields->setContentsMargins(0,0,0,0);
@@ -545,11 +654,13 @@ void MainWindow::rebuildMeshWorkspace() {
     auto* angle=number("wedgeAngle",tr("Wedge angle"),5,.1,5,QString::fromUtf8(" °"));
     layout->addWidget(globals);
     auto* regions=new MeshRegionsWidget(sketchEditor_->sketch(),mesh,meshWorkspacePage_);meshWorkspace_=regions;
+    regions->setGlobalSettings(QJsonObject{{"sizeMm",size->value()},{"wallSizeMm",wall->value()},{"wedgeAngle",angle->value()}});
     regions->setBoundaries(flowConfig_.value("boundaries").toArray());layout->addWidget(regions,1);
     const int document=activeProjectTab_;
     connect(regions,&MeshRegionsWidget::settingsChanged,this,[this,regions,document](){
         if(meshWorkspace_!=regions||document!=activeProjectTab_||projectSwitchLocked())return;
         const auto edited=regions->meshSettings();if(flowConfig_.value("mesh").toObject()==edited)return;
+        if(flowConfig_.isEmpty())flowConfig_=defaultFlowConfiguration(sketchEditor_->sketch(),{},preferences_.flowDefaults());
         flowConfig_.insert("mesh",edited);flowConfig_.remove("preparedHash");dirty_=true;
         storeCurrentTab();refreshProjectTabTitle();updateNozzleNotice();
     });
@@ -567,9 +678,11 @@ void MainWindow::updateWorkflowInspector() {
     if(!workflowSummary_||!sketchEditor_||!inspectorStack_)return;
     auto* tools=findChild<QTabWidget*>("vortia-ribbon");if(!tools)return;
     const int stage=tools->currentIndex();
+    propertiesTabs_->setTabText(0,stage==4?tr("Run controls"):tr("Project"));
     const auto& shape=sketchEditor_->sketch();
     const bool sketchFlow=!flowConfig_.isEmpty()||shape.segmentCount()>0||projectRoot_.empty();
-    inspectorStack_->setCurrentIndex(stage<=1||sketchFlow||useExistingCase_?1:0);
+    if(stage==4&&calculationEditor_)inspectorStack_->setCurrentWidget(calculationEditor_);
+    else inspectorStack_->setCurrentIndex(stage<=1||sketchFlow||useExistingCase_?1:0);
     QString html=QString("<h3>%1</h3>").arg(tools->tabText(stage).toHtmlEscaped());
     const auto project=activeProjectTab_>=0?documents_[static_cast<std::size_t>(activeProjectTab_)].name:tr("Unsaved project");
     html+=QString("<p>%1</p>").arg(project.toHtmlEscaped());
@@ -623,7 +736,19 @@ void MainWindow::buildDocks() {
     projectTabs_->setDocumentMode(true);
     projectTabs_->setExpanding(false);
     projectTabs_->setUsesScrollButtons(true);
+#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    auto* topBar=findChild<QWidget*>("vortia-top-bar");
+    auto* header=new QWidget(topBar);header->setObjectName("vortia-document-header");header->setFixedHeight(42);
+    auto* row=new QHBoxLayout(header);row->setContentsMargins(0,0,0,0);row->setSpacing(0);
+    auto* trafficSpace=new QWidget(header);trafficSpace->setObjectName("vortia-native-window-controls-space");
+    trafficSpace->setFixedWidth(84);row->addWidget(trafficSpace);
+    projectTabs_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);row->addWidget(projectTabs_,1);
+    qobject_cast<QVBoxLayout*>(topBar->layout())->insertWidget(0,header);
+    // The header has a native titlebar hit target even in its unused tab area.
+    header->installEventFilter(this);trafficSpace->installEventFilter(this);projectTabs_->installEventFilter(this);
+#else
     centralLayout->addWidget(projectTabs_);
+#endif
     nozzleNotice_ = new QLabel(central);
     nozzleNotice_->setObjectName(QStringLiteral("vortia-nozzle-validation-notice"));
     nozzleNotice_->setWordWrap(true);
@@ -645,10 +770,13 @@ void MainWindow::buildDocks() {
     runMonitor_=new RunMonitor(workspaceTabs_);workspaceTabs_->addTab(runMonitor_,tr("Monitors"));
     meshWorkspacePage_=new QWidget(workspaceTabs_);meshWorkspacePage_->setObjectName("vortia-mesh-workspace");
     new QVBoxLayout(meshWorkspacePage_);workspaceTabs_->addTab(meshWorkspacePage_,tr("Mesh"));
+    physicsWorkspacePage_=new QWidget(workspaceTabs_);physicsWorkspacePage_->setObjectName("vortia-physics-workspace");
+    new QVBoxLayout(physicsWorkspacePage_);workspaceTabs_->addTab(physicsWorkspacePage_,tr("Physics"));
     connect(sketchEditor_, &SketchEditorDialog::closeRequested, this,
             [this]() { workspaceTabs_->setCurrentWidget(viewport_); });
     connect(sketchEditor_, &SketchEditorDialog::sketchChanged, this, [this]() {
         dirty_ = true;
+        clearFlowEditors();
         if(meshWorkspace_){delete meshWorkspace_;meshWorkspace_=nullptr;}
         if(activeProjectTab_>=0&&!flowConfig_.isEmpty()){const auto& doc=documents_[static_cast<std::size_t>(activeProjectTab_)];const auto& history=sketchEditor_->editHistory();const bool remember=history.revision!=doc.editHistory.revision;flowConfig_=reconcileFlowBoundaries(doc.sketch,sketchEditor_->sketch(),flowConfig_,remember);}
         flowConfig_.remove("preparedHash");
@@ -700,8 +828,7 @@ void MainWindow::buildDocks() {
     propsDock->setWidget(propertiesContainer);
     addDockWidget(Qt::RightDockWidgetArea, propsDock);
     connect(workspaceTabs_,&QTabWidget::currentChanged,this,[this,propsDock](int){
-        if(workspaceTabs_->currentWidget()==runMonitor_)if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))
-            if(ribbon->currentIndex()!=4)ribbon->setCurrentIndex(5);
+        if(workspaceTabs_->currentWidget()==runMonitor_)if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(4);
         if(workspaceTabs_->currentWidget()==meshWorkspacePage_){
             if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(2);
             if(!meshWorkspace_)rebuildMeshWorkspace();
@@ -883,8 +1010,9 @@ void MainWindow::activateProjectTab(int index) {
             lastVtmPath_.clear();
         }
     }
+    clearFlowEditors();
     if(meshWorkspace_){delete meshWorkspace_;meshWorkspace_=nullptr;}
-    if(meshWorkspacePage_&&workspaceTabs_->currentWidget()==meshWorkspacePage_)rebuildMeshWorkspace();
+    if(auto* tools=findChild<QTabWidget*>("vortia-ribbon"))activateWorkflowStage(tools->currentIndex());
     refreshProjectTabTitle();
     setProjectState(tr("Active project: %1").arg(tab.name));
 }
@@ -1241,7 +1369,7 @@ void MainWindow::onNodeActivated(int nodeId) {
     const bool sketchWorkflow=!useExistingCase_&&(!flowConfig_.isEmpty()||sketchEditor_->sketch().segmentCount()
         ||projectRoot_.empty()||!std::filesystem::exists(projectRoot_/"case/system/controlDict"));
     if (sketchWorkflow) {
-        if (nodeId==ProjectExplorerPanel::MeshNode) { configureFlow(0);return; }
+        if (nodeId==ProjectExplorerPanel::MeshNode) { activateWorkflowStage(2);return; }
         if (nodeId==ProjectExplorerPanel::MaterialsNode) { configureFlow(1);return; }
         if (nodeId==ProjectExplorerPanel::BoundaryConditionsNode) { configureFlow(2);return; }
         if (nodeId==ProjectExplorerPanel::SolverNode) { configureFlow(3);return; }
@@ -1272,29 +1400,10 @@ void MainWindow::onValidationReport(const QString& text) {
 }
 
 void MainWindow::configureFlow(int page) {
-    if (projectSwitchLocked()) return;
-    if(meshWorkspace_&&meshWorkspace_->busy()){setProjectState(tr("Finish or cancel the mesh preview before changing flow settings."));return;}
-    if (useExistingCase_) {
-        QMessageBox::information(this,tr("Imported case"),tr("Open the editable source project to change geometry and flow settings. Existing imported case files are preserved."));
-        return;
-    }
-    const auto edited=editFlowSetup(this,sketchEditor_->sketch(),flowConfig_,page,preferences_.flowDefaults());
-    if (edited.isEmpty()) return;
-    // Migrate a verified pre-resume fingerprint before changing runtime controls.
-    // Physics/geometry edits still invalidate it after the source project is saved.
-    if(flowConfig_.value("preparedHash").toString()==flowFingerprint(true))
-        flowConfig_.insert("preparedHash",flowFingerprint());
-    auto old=flowConfig_; old.remove("activeCase"); old.remove("preparedHash");old.remove("preparedEngine");
-    if (old!=edited) {
-        const auto active=flowConfig_.value("activeCase"),prepared=flowConfig_.value("preparedHash"),engine=flowConfig_.value("preparedEngine");
-        flowConfig_=edited;
-        if(!active.isUndefined())flowConfig_.insert("activeCase",active);
-        if(!prepared.isUndefined())flowConfig_.insert("preparedHash",prepared);
-        if(!engine.isUndefined())flowConfig_.insert("preparedEngine",engine);
-    }
-    dirty_=true;properties_->setEnabled(false);storeCurrentTab();refreshProjectTabTitle();updateNozzleNotice();
-    if(meshWorkspace_){delete meshWorkspace_;meshWorkspace_=nullptr;}
-    if(workspaceTabs_->currentWidget()==meshWorkspacePage_)rebuildMeshWorkspace();
+    if(page==0){activateWorkflowStage(2);return;}
+    if(page==3){activateWorkflowStage(4);return;}
+    activateWorkflowStage(3);
+    if(physicsEditor_)physicsEditor_->selectPage(page==2?2:1);
 }
 
 bool MainWindow::ensureFlowEnvironment() {
@@ -1336,7 +1445,7 @@ bool MainWindow::ensureFlowCase(bool force) {
     if (!sketchEditor_->sketch().closed()) {
         QMessageBox::warning(this,tr("Invalid fluid domain"),tr("Close the fluid contour before generating its mesh."));return false;
     }
-    if (flowConfig_.isEmpty()) { configureFlow(0); if (flowConfig_.isEmpty()) return false; }
+    if(flowConfig_.isEmpty()){flowConfig_=defaultFlowConfiguration(sketchEditor_->sketch(),{},preferences_.flowDefaults());dirty_=true;storeCurrentTab();refreshProjectTabTitle();}
     flowConfig_=normalizedFlowConfiguration(sketchEditor_->sketch(),flowConfig_);
     const auto boundariesReady=[this](){bool inlet=false,outlet=false;const auto boundaries=flowConfig_.value("boundaries").toArray();if(boundaries.size()!=static_cast<qsizetype>(sketchEditor_->sketch().segmentCount()))return false;for(const auto& value:boundaries){const auto kind=value.toObject().value("type").toString();if(kind=="unassigned"||kind.isEmpty())return false;inlet=inlet||kind=="inlet";outlet=outlet||kind=="outlet";}return inlet&&outlet;};
     if(!boundariesReady()){configureFlow(2);flowConfig_=normalizedFlowConfiguration(sketchEditor_->sketch(),flowConfig_);if(!boundariesReady()){setProjectState(tr("Assign the highlighted boundaries, including a total-pressure inlet and a pressure outlet, before generating the case."));return false;}}
@@ -1420,7 +1529,7 @@ void MainWindow::onRun() {
         QMessageBox::information(this,tr("Fluid domain required"),tr("Draw a closed fluid contour or open an existing configured project before calculating."));return;
     }
     if (!useExistingCase_ && sketchEditor_->sketch().segmentCount() && flowConfig_.isEmpty()) {
-        configureFlow(1); if (flowConfig_.isEmpty()) return;
+        flowConfig_=defaultFlowConfiguration(sketchEditor_->sketch(),{},preferences_.flowDefaults());dirty_=true;storeCurrentTab();refreshProjectTabTitle();
     }
     std::filesystem::path caseDir;
     std::string detectedSolver;
@@ -1497,8 +1606,7 @@ void MainWindow::onRun() {
         if(!error.isEmpty()){QMessageBox::warning(this,tr("Run failed"),error);return;}
     }
     runMonitor_->beginRun(QString::fromStdString(caseDir.string()));
-    workspaceTabs_->setCurrentWidget(runMonitor_);
-    if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(5);
+    activateWorkflowStage(4);
     setJobUiRunning(true);
 
     JobController::JobSpec spec;
@@ -1562,8 +1670,8 @@ void MainWindow::updateNozzleNotice() {
     const bool nozzle = !caseDir.empty() && openfoam::isNozzlePracticeCase(caseDir);
     nozzleNotice_->setVisible(nozzle || generic);
     flowAssessment_->setVisible(generic);propertiesTabs_->setTabVisible(1,generic);
-    propertiesTabs_->setTabVisible(0,!generic);propertiesTabs_->tabBar()->setVisible(!generic);
-    if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->setWindowTitle(generic?tr("Numerical assessment"):tr("Properties"));
+    propertiesTabs_->setTabVisible(0,true);propertiesTabs_->tabBar()->setVisible(generic);
+    if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->setWindowTitle(tr("Inspector"));
     if (generic) {
         if(!jobController_ || !projectSwitchLocked()) {
             QJsonObject report;
@@ -1659,10 +1767,13 @@ bool MainWindow::projectSwitchLocked() const {
 }
 
 void MainWindow::setJobUiRunning(bool running) {
+    if(physicsEditor_)physicsEditor_->setEnabled(!running&&!useExistingCase_);
+    if(calculationEditor_)calculationEditor_->setEnabled(!running&&!useExistingCase_);
     if(meshWorkspacePage_)meshWorkspacePage_->setEnabled(!running);
     if(running)if(auto* console=findChild<QDockWidget*>("vortia-dock-console"))console->setVisible(preferences_.showConsoleOnRun);
     if(running&&(!flowConfig_.isEmpty()||propertiesTabs_->isTabVisible(1))) {
         showFlowAssessment(QJsonObject{{"status","warming"}});
+        if(preferences_.showAssessmentOnRun)propertiesTabs_->setCurrentIndex(1);
         if(preferences_.showAssessmentOnRun)if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->show();
     }
     runAction_->setEnabled(!running);
@@ -1798,7 +1909,7 @@ void MainWindow::applyPreferences() {
     ThemeManager::apply(*qApp,ThemeManager::fromName(preferences_.theme));
     const bool compact=preferences_.density=="compact";
     qApp->setStyleSheet(qApp->styleSheet()+QString("\nQWidget { font-size:%1px; }").arg(13*preferences_.interfaceScale/100));
-    if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setFixedHeight((compact?62:72)*preferences_.interfaceScale/100);
+    if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setFixedHeight((compact?44:50)*preferences_.interfaceScale/100);
     for(auto* button:findChildren<QToolButton*>("vortia-ribbon-button")) {
         button->setIconSize(QSize(20,20));button->setMinimumSize(QSize(0,compact?28:34));
         button->setToolButtonStyle(preferences_.showToolLabels?Qt::ToolButtonTextBesideIcon:Qt::ToolButtonIconOnly);
@@ -1806,10 +1917,10 @@ void MainWindow::applyPreferences() {
     if(auto* navigation=findChild<QWidget*>("vortia-workflow-navigation")) {
         navigation->setFixedWidth(164*preferences_.interfaceScale/100);
         for(auto* button:navigation->findChildren<QToolButton*>())if(button->property("stageIndex").isValid()) {
-            const int stage=button->property("stageIndex").toInt();const auto title=button->property("stageTitle").toString();
-            button->setText(preferences_.showStageNumbers?QString("%1  %2").arg(stage+1,2,10,QChar('0')).arg(title):title);
+            button->setText(button->property("stageTitle").toString());
         }
     }
+    if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))setContextToolsVisible(ribbon->currentIndex()!=1&&ribbon->currentIndex()!=3);
     console_->setMaximumBlockCount(preferences_.consoleLines);
     viewport_->setNavigationPreferences(preferences_.cfdZoomSensitivity,preferences_.cfdPanSensitivity);
     sketchEditor_->setInteractionPreferences(preferences_.snapToGrid,preferences_.snapSpacing,

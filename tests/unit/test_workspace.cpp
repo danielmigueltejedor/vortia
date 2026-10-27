@@ -14,6 +14,8 @@
 #include <QCheckBox>
 #include <QSpinBox>
 #include <QButtonGroup>
+#include <QPointer>
+#include <QToolBar>
 #include <QToolButton>
 #include <QMenu>
 #include <QSettings>
@@ -83,7 +85,9 @@ namespace vortia {
 // Exercise document operations directly without native file-picker automation.
 struct WorkspaceTestAccess {
     static QString fingerprint(MainWindow& w,bool legacy=false) {return w.flowFingerprint(legacy);}
-    static void configure(MainWindow& w) {w.configureFlow(3);}
+    static void configure(MainWindow& w,int page=3) {w.configureFlow(page);}
+    static FlowSetupPanel* physics(MainWindow& w){return w.physicsEditor_;}
+    static FlowSetupPanel* calculation(MainWindow& w){return w.calculationEditor_;}
     static void result(MainWindow& w,const QString& path) {w.onResultsReady(path);}
     static auto bounds(MainWindow& w) {return w.viewport_->fieldBounds();}
     static int actors(MainWindow& w) {
@@ -604,19 +608,17 @@ TEST(WorkspaceFlow, RuntimeEditsKeepTheCaseAndMigrateLegacyFingerprints) {
     WorkspaceTestAccess::flow(window,cfg);
     cfg.insert("preparedHash",WorkspaceTestAccess::fingerprint(window,true));WorkspaceTestAccess::flow(window,cfg);
     const auto expected=WorkspaceTestAccess::fingerprint(window);
-    QTimer::singleShot(0,[](){
-        auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);
-        d->findChild<QDoubleSpinBox*>("flow-solver-iterations")->setValue(5000);
-        d->findChild<QDoubleSpinBox*>("flow-solver-processes")->setValue(2);
-        d->findChild<QDoubleSpinBox*>("flow-convergence-fieldTolerance")->setValue(.0005);d->accept();
-    });
     WorkspaceTestAccess::configure(window);
+    auto* controls=WorkspaceTestAccess::calculation(window);ASSERT_NE(controls,nullptr);
+    controls->findChild<QDoubleSpinBox*>("flow-solver-iterations")->setValue(5000);
+    controls->findChild<QDoubleSpinBox*>("flow-solver-processes")->setValue(2);
+    controls->findChild<QDoubleSpinBox*>("flow-convergence-fieldTolerance")->setValue(.0005);
     EXPECT_EQ(WorkspaceTestAccess::flow(window).value("activeCase").toString(),"/saved/existing/case");
     EXPECT_EQ(WorkspaceTestAccess::flow(window).value("preparedHash").toString(),expected);
     EXPECT_EQ(WorkspaceTestAccess::fingerprint(window),expected);
     EXPECT_EQ(WorkspaceTestAccess::flow(window).value("solver").toObject().value("iterations").toInt(),5000);
-    QTimer::singleShot(0,[](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());d->findChild<QDoubleSpinBox*>("flow-material-Cp")->setValue(1501);d->accept();});
-    WorkspaceTestAccess::configure(window);
+    WorkspaceTestAccess::configure(window,1);
+    WorkspaceTestAccess::physics(window)->findChild<QDoubleSpinBox*>("flow-material-Cp")->setValue(1501);
     EXPECT_NE(WorkspaceTestAccess::fingerprint(window),expected);
     WorkspaceTestAccess::edit(window,makeRectangleSketch(300,50).value(),{});
     EXPECT_TRUE(WorkspaceTestAccess::flow(window).value("preparedHash").toString().isEmpty());
@@ -805,6 +807,10 @@ TEST(WorkspaceResources, RealTranslationContextsAndExplorerIcons) {
         ASSERT_FALSE(expected.pixmap(24).isNull());
         EXPECT_EQ(explorer.topLevelItem(i)->icon(0).pixmap(24).toImage(), expected.pixmap(24).toImage());
     }
+    FlowSetupPanel physics(makeRectangleSketch(300,50).value(),{},nullptr,{},FlowSetupPanel::View::Physics);
+    EXPECT_EQ(physics.findChild<QTabBar*>("flow-physics-sections")->tabText(0),QStringLiteral("Modelos"));
+    FlowSetupPanel calculation(makeRectangleSketch(300,50).value(),{},nullptr,{},FlowSetupPanel::View::Calculation);
+    EXPECT_EQ(calculation.findChild<QCheckBox*>("flow-convergence-enabled")->text(),QStringLiteral("Parada automática"));
     qApp->removeTranslator(&translator);
 }
 } // namespace
@@ -868,9 +874,9 @@ TEST(ApplicationPreferences, RoundTripAndInvalidValuesUseSafeDefaults) {
     QTemporaryDir dir;QSettings settings(dir.filePath("preferences.ini"),QSettings::IniFormat);
     auto p=ApplicationPreferences::load(settings);EXPECT_TRUE(p.snapToGrid);EXPECT_EQ(p.checkpointInterval,500);
     p.cfdZoomSensitivity=1.8;p.cfdPanSensitivity=.7;p.defaultProcesses=3;p.snapSpacing=.25;p.zoomSensitivity=1.7;p.automaticPreview=false;p.density="compact";
-    p.showToolLabels=false;p.showStageNumbers=false;p.automaticMeshPreview=false;
+    p.showToolLabels=false;p.automaticMeshPreview=false;
     p.save(settings);auto loaded=ApplicationPreferences::load(settings);
-    EXPECT_FALSE(loaded.showToolLabels);EXPECT_FALSE(loaded.showStageNumbers);EXPECT_FALSE(loaded.automaticMeshPreview);
+    EXPECT_FALSE(loaded.showToolLabels);EXPECT_FALSE(loaded.automaticMeshPreview);
     EXPECT_DOUBLE_EQ(loaded.cfdZoomSensitivity,1.8);EXPECT_DOUBLE_EQ(loaded.cfdPanSensitivity,.7);EXPECT_EQ(loaded.defaultProcesses,3);EXPECT_DOUBLE_EQ(loaded.snapSpacing,.25);EXPECT_FALSE(loaded.automaticPreview);
     EXPECT_EQ(loaded.flowDefaults().value("solver").toObject().value("processes").toInt(),3);
     settings.setValue("viewport/zoomSensitivity",10);settings.setValue("viewport/panSensitivity",QString("nan"));settings.setValue("calculation/processes",9000);settings.setValue("sketch/zoomSensitivity",QString("nan"));
@@ -986,6 +992,69 @@ TEST(Workspace, PrecisionIconsResolveBothPalettesAfterCreation) {
         }
         EXPECT_GT(opaque,20);
     }
+}
+
+TEST(Workspace, ContextualStagesHaveNoNumbersOrRedundantLaunchers) {
+    QSettings settings("Vortia","Vortia");settings.setValue("ui/showStageNumbers",true);
+    MainWindow window;auto* stages=window.findChild<QButtonGroup*>("vortia-workflow-stages");ASSERT_NE(stages,nullptr);
+    auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);
+    for(auto* button:stages->buttons())EXPECT_EQ(button->text(),button->property("stageTitle").toString());
+    EXPECT_TRUE(ribbon->widget(1)->findChildren<QToolButton*>("vortia-ribbon-button").isEmpty());
+    EXPECT_TRUE(ribbon->widget(3)->findChildren<QToolButton*>("vortia-ribbon-button").isEmpty());
+    const auto meshTools=ribbon->widget(2)->findChildren<QToolButton*>("vortia-ribbon-button");
+    ASSERT_EQ(meshTools.size(),1);EXPECT_EQ(meshTools.front()->defaultAction()->objectName(),"vortia-generate-flow-mesh");
+    stages->button(2)->click();EXPECT_NE(window.findChild<QDoubleSpinBox*>("workspace-mesh-sizeMm"),nullptr);
+    EXPECT_EQ(QApplication::activeModalWidget(),nullptr);
+    WorkspaceTestAccess::configure(window,1);
+    auto* physics=WorkspaceTestAccess::physics(window);ASSERT_NE(physics,nullptr);
+    EXPECT_EQ(QApplication::activeModalWidget(),nullptr);
+    auto* sections=physics->findChild<QTabBar*>("flow-physics-sections");ASSERT_NE(sections,nullptr);EXPECT_EQ(sections->count(),2);
+    EXPECT_TRUE(ribbon->isHidden()||window.findChild<QToolBar*>("vortia-main-toolbar")->isHidden());
+    settings.remove("ui/showStageNumbers");
+}
+
+TEST(WorkspaceFlow, EmbeddedPhysicsAndCalculationPreserveOtherSectionsAndProjects) {
+    MainWindow window;const auto shape=makeRectangleSketch(300,50).value();WorkspaceTestAccess::edit(window,shape,{});
+    auto config=defaultFlowConfiguration(shape);auto mesh=config.value("mesh").toObject();mesh.insert("customControl","retain");config.insert("mesh",mesh);
+    config.insert("activeCase","/saved/original/case");WorkspaceTestAccess::flow(window,config);
+    WorkspaceTestAccess::configure(window,1);auto* physics=WorkspaceTestAccess::physics(window);ASSERT_NE(physics,nullptr);
+    QPointer<FlowSetupPanel> previousPhysics=physics;
+    physics->findChild<QDoubleSpinBox*>("flow-material-Cp")->setValue(1501);
+    auto* table=physics->findChild<QTableWidget*>("flow-boundaries");ASSERT_NE(table,nullptr);
+    table->setCurrentCell(1,0); // callback must remain valid after the panel constructor returned
+    auto* kind=static_cast<QComboBox*>(table->cellWidget(1,2));kind->setCurrentIndex(kind->findData("outlet"));
+    EXPECT_EQ(WorkspaceTestAccess::flow(window).value("mesh"),config.value("mesh"));
+    EXPECT_EQ(WorkspaceTestAccess::flow(window).value("solver"),config.value("solver"));
+    EXPECT_EQ(WorkspaceTestAccess::flow(window).value("activeCase"),config.value("activeCase"));
+    EXPECT_DOUBLE_EQ(WorkspaceTestAccess::flow(window).value("material").toObject().value("Cp").toDouble(),1501);
+    WorkspaceTestAccess::configure(window,3);auto* controls=WorkspaceTestAccess::calculation(window);ASSERT_NE(controls,nullptr);
+    QPointer<FlowSetupPanel> previousControls=controls;
+    controls->findChild<QDoubleSpinBox*>("flow-solver-iterations")->setValue(9000);
+    EXPECT_DOUBLE_EQ(WorkspaceTestAccess::flow(window).value("material").toObject().value("Cp").toDouble(),1501);
+    EXPECT_EQ(WorkspaceTestAccess::flow(window).value("mesh"),config.value("mesh"));
+    const auto saved=WorkspaceTestAccess::flow(window);const int original=WorkspaceTestAccess::active(window);
+    WorkspaceTestAccess::lock(window,true);EXPECT_FALSE(controls->isEnabled());EXPECT_FALSE(physics->isEnabled());
+    controls->findChild<QDoubleSpinBox*>("flow-solver-iterations")->setValue(12000);
+    EXPECT_EQ(WorkspaceTestAccess::flow(window),saved);WorkspaceTestAccess::lock(window,false);
+    WorkspaceTestAccess::add(window,"Other");EXPECT_TRUE(previousPhysics.isNull());EXPECT_TRUE(previousControls.isNull());
+    EXPECT_TRUE(WorkspaceTestAccess::flow(window).isEmpty());
+    WorkspaceTestAccess::select(window,original);WorkspaceTestAccess::configure(window,1);
+    EXPECT_DOUBLE_EQ(WorkspaceTestAccess::physics(window)->findChild<QDoubleSpinBox*>("flow-material-Cp")->value(),1501);
+    EXPECT_EQ(WorkspaceTestAccess::flow(window),saved);
+}
+
+TEST(WorkspaceFlow, LegacyCavityKeepsItsOwnControlsAfterSwitchingFromPhysics) {
+    QTemporaryDir folder;auto project=Project::create(folder.filePath("legacy").toStdString(),"legacy");ASSERT_TRUE(project);
+    MainWindow window;project->setSetupJson(WorkspaceTestAccess::setupJson(window));ASSERT_TRUE(project->save());
+    QDir().mkpath(folder.filePath("legacy/case/system"));writeFile(folder.filePath("legacy/case/system/controlDict"),"legacy case");
+    ASSERT_TRUE(WorkspaceTestAccess::open(window,QString::fromStdString(project->rootDir().string())));
+    const int legacy=WorkspaceTestAccess::active(window);const auto setup=WorkspaceTestAccess::setupJson(window);
+    WorkspaceTestAccess::add(window,"Sketch");WorkspaceTestAccess::edit(window,makeRectangleSketch(300,50).value(),{});
+    WorkspaceTestAccess::configure(window,1);ASSERT_NE(WorkspaceTestAccess::physics(window),nullptr);
+    WorkspaceTestAccess::select(window,legacy);EXPECT_EQ(WorkspaceTestAccess::physics(window),nullptr);
+    WorkspaceTestAccess::configure(window,3);EXPECT_EQ(WorkspaceTestAccess::calculation(window),nullptr);
+    EXPECT_TRUE(WorkspaceTestAccess::flow(window).isEmpty());EXPECT_EQ(WorkspaceTestAccess::setupJson(window),setup);
+    EXPECT_TRUE(WorkspaceTestAccess::physicsEnabled(window));
 }
 
 TEST(Workspace, ToolSearchFiltersPublishedCommandsWithoutDuplicates) {
@@ -1315,7 +1384,7 @@ TEST(Workspace, NativePrecisionWorkspaceWhenRequested) {
     auto* stages=window.findChild<QButtonGroup*>("vortia-workflow-stages");ASSERT_NE(stages,nullptr);
     for(const auto theme:{ThemeManager::Theme::Dark,ThemeManager::Theme::Light}) {
         ThemeManager::apply(*qApp,theme);
-        for(int stage:{1,2,5}) {
+        for(int stage:{1,2,3,4,5}) {
             stages->button(stage)->click();QApplication::processEvents();
             if(stage==2&&!qEnvironmentVariable("VORTIA_GMSH_RUNTIME").isEmpty()) {
                 auto* mesh=window.findChild<MeshRegionsWidget*>();ASSERT_NE(mesh,nullptr);
@@ -1325,6 +1394,12 @@ TEST(Workspace, NativePrecisionWorkspaceWhenRequested) {
                 QElapsedTimer timer;timer.start();while(!finished&&timer.elapsed()<20000){QApplication::processEvents(QEventLoop::AllEvents,20);QThread::msleep(10);}
                 QObject::disconnect(connection);EXPECT_TRUE(finished);EXPECT_TRUE(success)<<mesh->findChild<QLabel*>("mesh-preview-status")->text().toStdString();
             }
+#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+            auto* header=window.findChild<QWidget*>("vortia-document-header");ASSERT_NE(header,nullptr);
+            EXPECT_EQ(header->mapTo(&window,QPoint(0,0)),QPoint(0,0));
+            auto* tools=window.findChild<QTabWidget*>("vortia-ribbon");
+            if(tools->isVisible())EXPECT_GE(tools->mapTo(&window,QPoint(0,0)).y(),header->height());
+#endif
             const auto file=QString("%1/%2-stage-%3.png").arg(output,ThemeManager::toName(theme)).arg(stage);
             EXPECT_TRUE(window.grab().save(file));
         }

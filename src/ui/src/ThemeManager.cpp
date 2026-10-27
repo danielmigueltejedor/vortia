@@ -30,6 +30,7 @@ void ThemeManager::apply(QApplication& app, Theme theme) {
 QWidget {font-size:13px;}
 QMainWindow {background:%1;}
 QToolBar {background:%1;border:0;border-bottom:1px solid %5;spacing:5px;padding:3px 5px;}
+QToolBar#vortia-main-toolbar {padding:0;}
 QToolBar::separator {background:%5;width:1px;margin:4px 8px;}
 QToolBar#vortia-workflow-toolbar {border:0;border-right:1px solid %5;padding:0;background:%1;}
 QWidget#vortia-workflow-navigation {background:%1;}
