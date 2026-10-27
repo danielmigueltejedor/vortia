@@ -973,7 +973,7 @@ void SketchEditorDialog::setToolPanelVisible(bool visible) {
 }
 
 void SketchEditorDialog::setEmbedded(bool embedded) {
-    for(const auto* name:{"vortia-sketch-load","vortia-sketch-save","vortia-sketch-dismiss","vortia-sketch-export","vortia-sketch-export-wedge"})
+    for(const auto* name:{"vortia-sketch-intro","vortia-sketch-load","vortia-sketch-save","vortia-sketch-dismiss","vortia-sketch-export","vortia-sketch-export-wedge"})
         if(auto* widget=findChild<QWidget*>(name))widget->setVisible(!embedded);
 }
 

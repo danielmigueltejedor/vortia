@@ -27,6 +27,7 @@ class QStackedWidget;
 namespace vortia {
 class RunMonitor;
 class MeshRegionsWidget;
+class FlowSetupPanel;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -37,6 +38,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    bool eventFilter(QObject*, QEvent*) override;
 
 private slots:
     void onNewProject();
@@ -77,6 +79,11 @@ private:
     void activateWorkflowStage(int stage);
     void updateWorkflowInspector();
     void rebuildMeshWorkspace();
+    void rebuildPhysicsWorkspace();
+    void rebuildCalculationControls();
+    void clearFlowEditors();
+    void applyFlowEdits(const QJsonObject&, bool physics);
+    bool usesSketchFlow() const;
     void updateNozzleNotice();
     void showFlowAssessment(const QJsonObject& report);
     void addProjectTab(const QString& name, CaseSetup setup,
@@ -152,6 +159,9 @@ private:
     QLabel* workflowSummary_{nullptr};
     QWidget* meshWorkspacePage_{nullptr};
     MeshRegionsWidget* meshWorkspace_{nullptr};
+    QWidget* physicsWorkspacePage_{nullptr};
+    FlowSetupPanel* physicsEditor_{nullptr};
+    FlowSetupPanel* calculationEditor_{nullptr};
     QLabel* nozzleNotice_{nullptr};
     QString lastVtmPath_;
     std::unique_ptr<QSettings> settings_;

@@ -698,6 +698,14 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
         <source>Needs update</source>
         <translation>Pendiente de actualizar</translation>
     </message>
+    <message>
+        <source>Inspector</source>
+        <translation>Inspector</translation>
+    </message>
+    <message>
+        <source>Display field</source>
+        <translation>Campo representado</translation>
+    </message>
 </context>
 <context>
     <name>vortia::PropertiesPanel</name>
@@ -973,6 +981,7 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
         <name>vortia::FlowSetup</name>
+    <message><source>Automatic stop</source><translation>Parada automática</translation></message>
     <message><source>Global size (mm)</source><translation>Tamaño global (mm)</translation></message>
     <message><source>Near-wall size (mm)</source><translation>Cerca de pared (mm)</translation></message>
     <message><source>Wedge angle (°)</source><translation>Ángulo de cuña (°)</translation></message>

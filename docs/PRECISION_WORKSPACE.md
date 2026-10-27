@@ -8,7 +8,7 @@ and disabled ink against the current Qt palette, including a live appearance
 change.
 
 The left navigation exposes Project, Geometry, Mesh, Physics, Calculation and
-Results (Option/Alt + 1–6). The former tall ribbon is a compact contextual bar.
+Results (Option/Alt + 1–6). Stage labels have no numeric prefixes. The former tall ribbon is a compact contextual bar, hidden when the workspace already contains its tools.
 Commands reuse their existing QAction instances, shortcuts and enabled states.
 Wide command groups remain accessible by horizontal scrolling. Search and
 Preferences have one persistent location at the bottom of the navigation.
@@ -26,17 +26,38 @@ prepared-mesh fingerprint. They are saved through the ordinary project save
 operation. Imported case dictionaries remain protected. Solver execution and
 flow configuration wait for an active mesh preview to finish or be cancelled.
 
-The inspector shows the selected project's saved configuration with units,
-while Geometry retains its drawing controls. The project explorer and detailed
+Geometry opens directly in the drawing editor, without an Edit Sketch launcher.
+Mesh controls and the actual regional preview share the central workspace.
+Physics has Models and Boundaries tabs in the central area. Calculation places
+initialization, solver and convergence controls beside the live monitors. There
+is no second setup dialog in the normal workflow. Native menu/search commands
+route to these same controls. Edits preserve other configuration sections and
+are saved with the owning project. Switching projects rebuilds the editors;
+running a job locks their inputs. Imported dictionaries and legacy cavity-case
+forms retain their existing protected/specific behavior.
+
+The inspector shows context-specific controls or the selected project's saved
+configuration with units. The project explorer and detailed
 console remain available in View. The first layout migration preserves the
 previous layout bytes under `window/prePrecisionState`; later user layouts are
 retained normally.
 
-Preferences add tool labels, stage numbers and automatic initial/stale mesh
-previews. Existing density, interface scale and navigation controls still apply.
+Preferences add tool labels and automatic initial/stale mesh previews.
+The retired stage-number preference is ignored and removed on the next save. Existing density, interface scale and navigation controls still apply.
 Light/dark themes use the same surfaces, controls and accent hierarchy. The
 experimental-CFD notice and numerical assessments remain visible when relevant.
 
 This release changes the workspace and mesh editing access. It does not add a
 new turbulence model or establish Fluent parity, physical validation, mesh
 independence, or convergence of the user's nozzle calculation.
+
+Visual references: [SimScale mesh workflow](https://www.simscale.com/docs/tutorials/tutorial-fluid-flow-through-a-valve/)
+and [ParaView properties](https://docs.paraview.org/en/v5.13.1/Tutorials/SelfDirectedTutorial/basicUsage.html).
+The design inference is to keep navigation short, place controls beside their
+working view and expose each setting in one primary location. These references
+guide the layout; they do not imply equivalent solver capabilities.
+
+On macOS with Qt 6.9 or later, the document tabs extend into the native titlebar.
+The real AppKit close/minimize/fullscreen controls retain an 84-point reserved
+area, while blank header space supports window dragging and double-click zoom.
+Other platforms and older Qt versions retain their regular window frame.
