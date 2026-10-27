@@ -944,7 +944,11 @@ TEST(Workspace, PrecisionNavigationKeepsProjectAndViewStateSynchronized) {
         EXPECT_EQ(WorkspaceTestAccess::fingerprint(window),fingerprint);
         expectShape(WorkspaceTestAccess::editor(window).sketch(),shape);
     }
-    tools->setCurrentIndex(5);EXPECT_EQ(stages->checkedId(),5);
+    stages->button(2)->setChecked(true);EXPECT_EQ(tools->currentIndex(),2);
+    auto* editors=window.findChild<QTabWidget*>("vortia-editor-tabs");ASSERT_NE(editors,nullptr);
+    auto* selected=editors->currentWidget();
+    tools->setCurrentIndex(5);EXPECT_EQ(stages->checkedId(),5);EXPECT_EQ(editors->currentWidget(),selected);
+    stages->button(5)->click();EXPECT_NE(editors->currentWidget(),selected);
     EXPECT_EQ(WorkspaceTestAccess::flow(window),config);
 }
 

@@ -313,6 +313,9 @@ void MainWindow::buildMenusAndToolbar() {
         button->setMinimumHeight(42); button->setShortcut(QKeySequence(QString("Alt+%1").arg(i+1)));
         button->setToolTip(names[i]+" · "+button->shortcut().toString(QKeySequence::NativeText));
         stages->addButton(button,i); navLayout->addWidget(button);
+        connect(button,&QToolButton::toggled,this,[this,i](bool checked){if(checked)activateWorkflowStage(i);});
+        // A normal press may also reactivate the current stage (e.g. return
+        // from a monitor). Accessibility can change checked without clicked.
         connect(button,&QToolButton::clicked,this,[this,i](){activateWorkflowStage(i);});
     }
     navLayout->addStretch(1);
@@ -325,7 +328,7 @@ void MainWindow::buildMenusAndToolbar() {
     }
     workflow->addWidget(navigator);
     connect(tabs,&QTabWidget::currentChanged,this,[this,stages](int index){
-        if(auto* button=stages->button(index))button->setChecked(true);
+        if(auto* button=stages->button(index)){QSignalBlocker block(button);button->setChecked(true);}
         updateWorkflowInspector();
     });
     stages->button(0)->setChecked(true);
