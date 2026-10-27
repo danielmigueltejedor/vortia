@@ -53,3 +53,9 @@ target_link_libraries(vortia_ui
 set_target_properties(vortia_ui PROPERTIES
     AUTOMOC ON AUTOUIC ON AUTORCC ON)
 target_compile_features(vortia_ui PUBLIC cxx_std_20)
+
+if(APPLE)
+    enable_language(OBJCXX)
+    target_sources(vortia_ui PRIVATE src/MacWindow.mm)
+    target_link_libraries(vortia_ui PRIVATE "-framework AppKit")
+endif()

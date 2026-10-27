@@ -122,6 +122,17 @@ CaseSetup makeCavity() {
 
 } // namespace
 
+#ifdef Q_OS_MACOS
+void hideNativeWindowTitle(QWidget*);
+#endif
+
+void MainWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    hideNativeWindowTitle(this);
+#endif
+}
+
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     settings_ = std::make_unique<QSettings>(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
     setup_ = makeCavity();
