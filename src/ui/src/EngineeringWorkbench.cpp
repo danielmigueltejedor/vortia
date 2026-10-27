@@ -14,6 +14,7 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QLocale>
 #include <QPushButton>
 #include <QSaveFile>
@@ -67,7 +68,7 @@ EngineeringWorkbench::EngineeringWorkbench(vtkDataObject* data,double angle,cons
     choices->addWidget(note(workTr("Baseline"),comparePage));choices->addWidget(baseline_,1);choices->addWidget(metric_,2);compareLayout->addLayout(choices);
     comparison_=new QTableWidget(comparePage);comparison_->setObjectName("engineering-comparison");setupTable(comparison_,{workTr("Analysis"),workTr("Value"),workTr("Change from baseline (%)"),workTr("Source / sample fingerprint")});compareLayout->addWidget(comparison_,1);
     comparisonStatus_=note({},comparePage);comparisonStatus_->setObjectName("engineering-comparison-status");compareLayout->addWidget(comparisonStatus_);
-    auto* compareButtons=new QHBoxLayout;auto* import=new QPushButton(workTr("Import report JSON…"),comparePage);import->setObjectName("engineering-import");compareButtons->addWidget(import);auto* remove=new QPushButton(workTr("Remove selected snapshot"),comparePage);remove->setObjectName("engineering-remove");compareButtons->addWidget(remove);auto* exportComparison=new QPushButton(workTr("Export comparison CSV…"),comparePage);exportComparison->setObjectName("engineering-export-comparison");compareButtons->addWidget(exportComparison);
+    auto* compareButtons=new QHBoxLayout;auto* import=new QPushButton(workTr("Import report JSON…"),comparePage);import->setObjectName("engineering-import");compareButtons->addWidget(import);auto* remove=new QPushButton(workTr("Remove selected snapshot"),comparePage);remove->setObjectName("engineering-remove");compareButtons->addWidget(remove);remove->setEnabled(false);connect(comparison_,&QTableWidget::itemSelectionChanged,remove,[this,remove](){remove->setEnabled(!comparison_->selectedItems().isEmpty());});auto* exportComparison=new QPushButton(workTr("Export comparison CSV…"),comparePage);exportComparison->setObjectName("engineering-export-comparison");compareButtons->addWidget(exportComparison);
     connect(exportComparison,&QPushButton::clicked,this,[this](){if(comparisons_.isEmpty())return;const auto path=QFileDialog::getSaveFileName(this,workTr("Export comparison"),{},"CSV (*.csv)");if(path.isEmpty())return;const auto bytes=engineeringComparisonCsv(comparisons_,metric_->currentData().toString(),baseline_->currentIndex());QSaveFile file(path);if(!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()||!file.commit())comparisonStatus_->setText(workTr("The engineering report could not be saved."));});
     compareButtons->addStretch();compareLayout->addLayout(compareButtons);tabs->addTab(comparePage,workTr("Comparisons"));
     auto* reportPage=new QWidget(tabs);auto* reportLayout=new QVBoxLayout(reportPage);reportPreview_=new QTextBrowser(reportPage);reportPreview_->setObjectName("engineering-report-preview");reportPreview_->setOpenExternalLinks(false);reportLayout->addWidget(reportPreview_,1);
@@ -101,7 +102,9 @@ void EngineeringWorkbench::refreshComparison(){
     int selected=baseline_->currentIndex();{QSignalBlocker blocked(baseline_);baseline_->clear();for(const auto& value:comparisons_)baseline_->addItem(value.toObject().value("payload").toObject().value("label").toString());baseline_->setCurrentIndex(std::clamp(selected,0,std::max(0,static_cast<int>(comparisons_.size())-1)));}
     comparison_->setRowCount(comparisons_.size());QStringList warnings;const auto key=metric_->currentData().toString();const auto baseline=baseline_->currentIndex()>=0?comparisons_[baseline_->currentIndex()].toObject():QJsonObject{};const double reference=baseline.value("payload").toObject().value("metrics").toObject().value(key).toDouble();
     for(int i=0;i<comparisons_.size();++i){const auto item=comparisons_[i].toObject(),payload=item.value("payload").toObject();const double value=payload.value("metrics").toObject().value(key).toDouble();const auto warning=engineeringComparisonWarning(baseline,item);if(!warning.isEmpty()&&!warnings.contains(warning))warnings.append(warning);comparison_->setItem(i,0,new QTableWidgetItem(payload.value("label").toString()));comparison_->setItem(i,1,new QTableWidgetItem(QLocale().toString(value,'g',11)));comparison_->setItem(i,2,new QTableWidgetItem(reference!=0?QLocale().toString(100*(value-reference)/std::abs(reference),'g',8):workTr("Undefined: zero baseline")));comparison_->setItem(i,3,new QTableWidgetItem(payload.value("source").toObject().value("project").toString()+" · "+payload.value("sampleFingerprint").toString().left(16)));}
-    comparisonStatus_->setText(warnings.isEmpty()?workTr("Snapshots retain their original definitions. A percentage change does not establish mesh independence or physical validity."):warnings.join('\n'));add_->setEnabled(!report_.isEmpty()&&comparisons_.size()<64);
+    comparisonStatus_->setText(warnings.isEmpty()?workTr("Snapshots retain their original definitions. A percentage change does not establish mesh independence or physical validity."):warnings.join('\n'));bool included=false;for(const auto& item:comparisons_)included=included||(!report_.isEmpty()&&item.toObject().value("sha256")==report_.value("sha256"));
+    add_->setEnabled(!report_.isEmpty()&&!included&&comparisons_.size()<64);
+    if(auto* button=findChild<QPushButton*>("engineering-export-comparison"))button->setEnabled(!comparisons_.isEmpty());
 }
 void EngineeringWorkbench::importReports(){
     const auto paths=QFileDialog::getOpenFileNames(this,workTr("Import engineering reports"),{},"JSON (*.json)");int invalid=0;
@@ -110,6 +113,6 @@ void EngineeringWorkbench::importReports(){
 }
 void EngineeringWorkbench::exportReport(){
     if(report_.isEmpty())return;QString filter;const auto path=QFileDialog::getSaveFileName(this,workTr("Export engineering report"),{},"HTML (*.html);;JSON (*.json);;CSV (*.csv)",&filter);if(path.isEmpty())return;
-    const QByteArray bytes=filter.startsWith("JSON")?QJsonDocument(report_).toJson(QJsonDocument::Indented):filter.startsWith("CSV")?engineeringReportCsv(report_):engineeringReportHtml(report_).toUtf8();QSaveFile file(path);if(!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()||!file.commit())status_->setText(workTr("The engineering report could not be saved."));
+    const QByteArray bytes=filter.startsWith("JSON")?QJsonDocument(report_).toJson(QJsonDocument::Indented):filter.startsWith("CSV")?engineeringReportCsv(report_):engineeringReportHtml(report_).toUtf8();QSaveFile file(path);if(!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()||!file.commit())QMessageBox::warning(this,workTr("Export engineering report"),workTr("The engineering report could not be saved."));
 }
 }

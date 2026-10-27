@@ -147,6 +147,7 @@ TEST(EngineeringWorkbench, EditingInvalidatesCurrentReportButRetainsComparisonSn
     workbench.evaluate();
     ASSERT_TRUE(validEngineeringReport(workbench.currentReport()));auto* add=workbench.findChild<QPushButton*>("engineering-add-comparison");
     ASSERT_NE(add,nullptr);add->click();
+    EXPECT_FALSE(add->isEnabled());
     EXPECT_EQ(workbench.findChild<QTableWidget*>("engineering-comparison")->rowCount(),1);auto* area=workbench.findChild<QDoubleSpinBox*>("engineering-reference-area");area->setValue(12);
     EXPECT_TRUE(workbench.currentReport().isEmpty());
     EXPECT_FALSE(workbench.findChild<QPushButton*>("engineering-export")->isEnabled());
