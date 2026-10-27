@@ -112,6 +112,13 @@ TEST(EngineeringSection, CoincidentConflictsAndGhostCellsAreHandledExplicitly){
     EXPECT_NO_THROW(analyzeSection(a,constant));
 }
 
+TEST(EngineeringSection, MalformedSourceArraysAreRejectedBeforeVtkInterpolation){
+    auto source=box();source->GetCellData()->GetArray("p")->SetNumberOfTuples(0);
+    EXPECT_THROW(analyzeSection(source,options()),std::runtime_error);
+    auto geometry=box();geometry->SetOrigin(std::numeric_limits<double>::quiet_NaN(),0,0);
+    EXPECT_THROW(analyzeSection(geometry,options()),std::runtime_error);
+}
+
 TEST(EngineeringReport, IntegrityEscapingRoundTripAndReferenceComparison){
     auto o=options();const auto r=analyzeSection(box(),o);const auto report=makeEngineeringReport(o,r,{{"project","<script>unsafe</script>"}},"=1+2 <b>variant</b>");
     ASSERT_TRUE(validEngineeringReport(report));

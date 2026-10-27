@@ -29,7 +29,7 @@ namespace {
 void require(bool valid,const char* message){if(!valid)throw std::runtime_error(message);}
 std::vector<vtkDataSet*> volumes(vtkDataObject* data) {
     std::vector<vtkDataSet*> result;std::set<vtkDataSet*> seen;
-    const auto add=[&](vtkDataObject* item){auto* ds=vtkDataSet::SafeDownCast(item);if(ds&&ds->GetNumberOfCells()&&ds->GetCell(0)->GetCellDimension()==3&&seen.insert(ds).second)result.push_back(ds);};
+    const auto add=[&](vtkDataObject* item){auto* ds=vtkDataSet::SafeDownCast(item);if(!ds||!seen.insert(ds).second)return;for(vtkIdType i=0;i<ds->GetNumberOfCells();++i)if(ds->GetCell(i)->GetCellDimension()==3){result.push_back(ds);break;}};
     add(data);if(auto* composite=vtkCompositeDataSet::SafeDownCast(data)) {
         auto iterator=vtkSmartPointer<vtkCompositeDataIterator>::Take(composite->NewIterator());
         for(iterator->InitTraversal();!iterator->IsDoneWithTraversal();iterator->GoToNextItem())add(iterator->GetCurrentDataObject());
@@ -74,6 +74,11 @@ SectionAnalysis analyzeSection(vtkDataObject* data,const SectionOptions& o) {
     long double areaSum=0,mass=0,forward=0,reverse=0,volume=0,pressure=0,density=0,normalVelocity=0,momentum=0,load=0,power=0;
     for(auto* source:sources) {
         double bounds[6];source->GetBounds(bounds);if(o.position<bounds[2*o.axis]||o.position>bounds[2*o.axis+1])continue;
+        // Validate source tuple counts before VTK interpolates/copies arrays.
+        // Checking only the cut output is too late for malformed input arrays.
+        (void)Field(source,"p",1);(void)Field(source,"U",3);if(o.useDensityField)(void)Field(source,"rho",1);
+        if(auto* ghosts=source->GetCellData()->GetArray(vtkDataSetAttributes::GhostArrayName()))require(ghosts->GetNumberOfTuples()>=source->GetNumberOfCells(),"The section contains an incomplete field");
+        for(vtkIdType point=0;point<source->GetNumberOfPoints();++point){double xyz[3];source->GetPoint(point,xyz);for(double value:xyz)require(std::isfinite(value),"The section contains non-finite geometry");}
         vtkNew<vtkPlane> plane;double origin[3]={0,0,0},normal[3]={0,0,0};origin[o.axis]=o.position;normal[o.axis]=1;plane->SetOrigin(origin);plane->SetNormal(normal);
         vtkNew<vtkCutter> cutter;cutter->SetInputData(source);cutter->SetCutFunction(plane);cutter->Update();
         vtkNew<vtkTriangleFilter> triangulated;triangulated->SetInputConnection(cutter->GetOutputPort());triangulated->PassLinesOff();triangulated->PassVertsOff();triangulated->Update();
