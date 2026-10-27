@@ -3,6 +3,7 @@
 #include "vortia/physics/CaseSetupJson.hpp"
 #include "vortia/ui/ResultFiles.hpp"
 #include "vortia/ui/FlowSetup.hpp"
+#include "vortia/ui/EngineeringWorkbench.hpp"
 #include "vortia/ui/ConsolePanel.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
 #include <QJsonDocument>
@@ -1405,4 +1406,15 @@ TEST(Workspace, NativePrecisionWorkspaceWhenRequested) {
         }
     }
     qApp->removeTranslator(&translator);
+}
+
+TEST(WorkspaceFlow, EngineeringWorkspacePersistsWithoutInvalidatingPreparedPhysics) {
+    QTemporaryDir folder;auto project=Project::create(folder.filePath("engineering").toStdString(),"engineering");ASSERT_TRUE(project);
+    MainWindow window;project->setSetupJson(WorkspaceTestAccess::setupJson(window));ASSERT_TRUE(project->save());ASSERT_TRUE(WorkspaceTestAccess::open(window,QString::fromStdString(project->rootDir().string())));
+    WorkspaceTestAccess::edit(window,boundaryExample(),{});WorkspaceTestAccess::flow(window,assignedExample());
+    window.findChild<VtkViewport*>()->showDataSet(unequalCells(),"p");auto* action=window.findChild<QAction*>("vortia-engineering-analysis");ASSERT_NE(action,nullptr);ASSERT_TRUE(action->isEnabled());
+    const auto fingerprint=WorkspaceTestAccess::fingerprint(window);
+    QTimer::singleShot(0,[](){auto* dialog=dynamic_cast<EngineeringWorkbench*>(QApplication::activeModalWidget());ASSERT_NE(dialog,nullptr);dialog->findChild<QComboBox*>("engineering-density-mode")->setCurrentIndex(1);dialog->evaluate();ASSERT_FALSE(dialog->currentReport().isEmpty());dialog->findChild<QPushButton*>("engineering-add-comparison")->click();dialog->findChild<QPushButton*>("engineering-save-project")->click();dialog->reject();});action->trigger();
+    EXPECT_EQ(WorkspaceTestAccess::fingerprint(window),fingerprint);const auto state=WorkspaceTestAccess::flow(window).value("engineering");EXPECT_EQ(state.toObject().value("comparisons").toArray().size(),1);ASSERT_TRUE(WorkspaceTestAccess::save(window));
+    MainWindow reopened;ASSERT_TRUE(WorkspaceTestAccess::open(reopened,QString::fromStdString(project->rootDir().string())));EXPECT_EQ(WorkspaceTestAccess::flow(reopened).value("engineering"),state);
 }
