@@ -7,11 +7,13 @@
 #include "vortia/ui/EngineeringWorkbench.hpp"
 #include <QDateTime>
 #include "vortia/ui/RunMonitor.hpp"
+#include "vortia/ui/RunDiagnostics.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
 #include <QActionGroup>
 #include <QWindow>
 #include <QMouseEvent>
 #include <QButtonGroup>
+#include <QGridLayout>
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QJsonArray>
@@ -157,6 +159,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(jobController_, &JobController::outputReceived, console_, &ConsolePanel::appendSolverOutput);
     connect(jobController_, &JobController::jobFinished, console_, &ConsolePanel::flushOutput);
     connect(jobController_, &JobController::jobFinished, this, &MainWindow::onJobFinished);
+    connect(jobController_, &JobController::diagnosticReady,this,[this](const QString& json){
+        const auto diagnostic=QJsonDocument::fromJson(json.toUtf8()).object();
+        if(diagnostic.value("status")=="failed") {
+            showRunDiagnostic(diagnostic);propertiesTabs_->setCurrentIndex(1);
+            if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->show();
+        }
+    });
     connect(jobController_, &JobController::assessmentUpdated,this,[this](const QString& report){
         showFlowAssessment(QJsonDocument::fromJson(report.toUtf8()).object());
     });
@@ -836,8 +845,35 @@ void MainWindow::buildDocks() {
     summaryScroll->setWidgetResizable(true);summaryScroll->setWidget(workflowSummary_);inspectorStack_->addWidget(summaryScroll);
     propertiesTabs_->addTab(inspectorStack_,tr("Properties"));
     auto* assessmentScroll=new QScrollArea(propertiesTabs_);assessmentScroll->setWidgetResizable(true);
-    assessmentScroll->setFrameShape(QFrame::NoFrame);assessmentScroll->setWidget(flowAssessment_);
-    propertiesTabs_->addTab(assessmentScroll,tr("Run assessment"));propertiesTabs_->setTabVisible(1,false);
+    assessmentScroll->setFrameShape(QFrame::NoFrame);
+    auto* assessmentContent=new QWidget(assessmentScroll);auto* assessmentLayout=new QVBoxLayout(assessmentContent);
+    assessmentLayout->setContentsMargins(0,0,0,0);assessmentLayout->addWidget(flowAssessment_);
+    recoveryControls_=new QWidget(propertiesTabs_);recoveryControls_->setObjectName("vortia-recovery-controls");
+    auto* recoveryLayout=new QGridLayout(recoveryControls_);recoveryLayout->setContentsMargins(0,0,0,0);
+    int recoveryIndex=0;
+    const auto recoveryAction=[&](const char* name,const char* label,const char* icon,auto action){
+        auto* button=new QPushButton(uiIcon(QString(":/vortia/icons/%1.svg").arg(icon)),tr(label),recoveryControls_);
+        button->setObjectName(name);
+        if(recoveryIndex==0)recoveryLayout->addWidget(button,0,0,1,2);
+        else recoveryLayout->addWidget(button,1+(recoveryIndex-1)/2,(recoveryIndex-1)%2);
+        ++recoveryIndex;connect(button,&QPushButton::clicked,this,action);
+    };
+    recoveryAction("vortia-prepare-restart","Prepare fresh restart","solver",[this](){prepareDiagnosticRestart();});
+    recoveryAction("vortia-review-calculation","Review calculation","solver",[this](){activateWorkflowStage(4);});
+    recoveryAction("vortia-review-boundaries","Review boundary conditions","boundary",[this](){configureFlow(2);});
+    recoveryAction("vortia-review-mesh","Review mesh","mesh",[this](){activateWorkflowStage(2);});
+    recoveryAction("vortia-save-diagnostic","Save diagnostic…","save",[this](){
+        const auto path=QFileDialog::getSaveFileName(this,tr("Save diagnostic"),{},"JSON (*.json)");if(path.isEmpty())return;
+        QSaveFile file(path);const auto bytes=QJsonDocument(runDiagnostic_).toJson();
+        if(!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()||!file.commit())
+            QMessageBox::warning(this,tr("Save diagnostic"),tr("The diagnostic could not be saved."));
+    });
+    recoveryControls_->hide();assessmentLayout->addStretch();
+    assessmentScroll->setWidget(assessmentContent);
+    auto* assessmentPage=new QWidget(propertiesTabs_);auto* assessmentPageLayout=new QVBoxLayout(assessmentPage);
+    assessmentPageLayout->setContentsMargins(0,0,0,0);assessmentPageLayout->addWidget(assessmentScroll,1);
+    assessmentPageLayout->addWidget(recoveryControls_);
+    propertiesTabs_->addTab(assessmentPage,tr("Run assessment"));propertiesTabs_->setTabVisible(1,false);
     propertiesLayout->addWidget(propertiesTabs_,1);
     propsDock->setWidget(propertiesContainer);
     addDockWidget(Qt::RightDockWidgetArea, propsDock);
@@ -1675,6 +1711,7 @@ void MainWindow::onCancel() {
 }
 
 void MainWindow::updateNozzleNotice() {
+    if(!projectSwitchLocked()){runDiagnostic_={};if(recoveryControls_)recoveryControls_->hide();}
     updateWorkflowInspector();
     const auto caseDir = useExistingCase_ ? existingCaseDir_ :
         (!flowConfig_.isEmpty() ? std::filesystem::path(flowConfig_.value("activeCase").toString().toStdString()) :
@@ -1706,6 +1743,8 @@ void MainWindow::updateNozzleNotice() {
                 if(parsed&&parsed->iteration==latest)report=QJsonDocument::fromJson(bytes).object();
             }
             showFlowAssessment(report);
+            const auto diagnostic=loadRunDiagnostic(QString::fromStdString(caseDir.string()));
+            if(!diagnostic.isEmpty())showRunDiagnostic(diagnostic);
         }
         QString text=tr("Experimental CFD · numerical checks are automatic. Physical validation and mesh independence remain to be established.");
         if (!useExistingCase_ && flowConfig_.value("activeCase").toString().isEmpty())
@@ -1733,6 +1772,7 @@ void MainWindow::updateNozzleNotice() {
 
 void MainWindow::showFlowAssessment(const QJsonObject& r) {
     if(!flowAssessment_)return;
+    runDiagnostic_={};if(recoveryControls_)recoveryControls_->hide();
     flowAssessment_->setVisible(true);propertiesTabs_->setTabVisible(1,true);
     const auto state=r.value("status").toString();
     QString title=tr("Automatic numerical checks"),detail;
@@ -1764,10 +1804,43 @@ void MainWindow::showFlowAssessment(const QJsonObject& r) {
     flowAssessment_->setText(QString("<p style='color:%1;font-size:16px'><b>%2</b></p><p>%3</p>%4").arg(color,title,detail,rows));
 }
 
+void MainWindow::showRunDiagnostic(const QJsonObject& diagnostic) {
+    runDiagnostic_=diagnostic;
+    flowAssessment_->setVisible(true);propertiesTabs_->setTabVisible(1,true);
+    flowAssessment_->setText(runDiagnosticHtml(diagnostic,flowConfig_.value("solver").toObject().value("maxCo").toDouble(-1)));
+    recoveryControls_->show();recoveryControls_->setEnabled(!projectSwitchLocked());
+    auto* restart=findChild<QPushButton*>("vortia-prepare-restart");
+    restart->setVisible(offersFreshFlowStart(diagnostic));
+    restart->setEnabled(!useExistingCase_&&!flowConfig_.isEmpty()&&conservativeRestartConfiguration(flowConfig_).has_value());
+    restart->setToolTip(tr("Creates a new mesh and initial fields with a conservative Courant limit. Keeps the failed case and does not start a calculation."));
+    for(const auto* name:{"vortia-review-calculation","vortia-review-boundaries","vortia-review-mesh"})
+        findChild<QPushButton*>(name)->setEnabled(!useExistingCase_);
+}
+
+void MainWindow::prepareDiagnosticRestart() {
+    if(projectSwitchLocked()||useExistingCase_||!offersFreshFlowStart(runDiagnostic_))return;
+    const auto next=conservativeRestartConfiguration(flowConfig_);if(!next)return;
+    if(projectRoot_.empty()&&!saveProject())return;
+    const auto previous=flowConfig_;
+    const auto oldCase=previous.value("activeCase").toString();
+    flowConfig_=*next;
+    if(!ensureFlowCase(true)) {
+        flowConfig_=previous;dirty_=true;storeCurrentTab();saveProject();
+        rebuildCalculationControls();updateNozzleNotice();
+        setProjectState(tr("The fresh restart was not prepared. The previous case and controls were retained."));return;
+    }
+    rebuildCalculationControls();updateNozzleNotice();
+    const auto newCase=flowConfig_.value("activeCase").toString();
+    console_->appendSolverOutput(tr("Fresh restart prepared: %1\nFailed case retained: %2\n").arg(newCase,oldCase));
+    activateWorkflowStage(4);
+    setProjectState(tr("Fresh initial fields prepared with acoustic Courant %1. Review the controls, then press Run Simulation.")
+        .arg(flowConfig_.value("solver").toObject().value("maxCo").toDouble(),0,'g',4));
+}
+
 void MainWindow::onJobFinished(bool success, const QString& summary) {
     setJobUiRunning(false);
     updateNozzleNotice();
-    if(!success&&propertiesTabs_->isTabVisible(1))showFlowAssessment(QJsonObject{{"status","interrupted"},{"message",summary}});
+    if(!success&&runDiagnostic_.isEmpty()&&propertiesTabs_->isTabVisible(1))showFlowAssessment(QJsonObject{{"status","interrupted"},{"message",summary}});
     setProjectState(success ? tr("Run finished: %1").arg(summary)
                            : tr("Run failed: %1").arg(summary));
     const bool unmet=flowAssessment_&&flowAssessment_->isVisible()&&flowAssessment_->text().contains(tr("Safety limit reached · not converged"));
@@ -1781,6 +1854,7 @@ bool MainWindow::projectSwitchLocked() const {
 }
 
 void MainWindow::setJobUiRunning(bool running) {
+    if(recoveryControls_)recoveryControls_->setEnabled(!running);
     if(physicsEditor_)physicsEditor_->setEnabled(!running&&!useExistingCase_);
     if(calculationEditor_)calculationEditor_->setEnabled(!running&&!useExistingCase_);
     if(meshWorkspacePage_)meshWorkspacePage_->setEnabled(!running);

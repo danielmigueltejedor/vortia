@@ -101,6 +101,8 @@ private:
     void updateViewport();
     void setProjectState(const QString& statusText);
     void ensureOpenFoamInstallation();
+    void prepareDiagnosticRestart();
+    void showRunDiagnostic(const QJsonObject& diagnostic);
     CaseSetup defaultCavitySetup() const;
 
     struct ProjectDocument {
@@ -158,6 +160,8 @@ private:
     QLabel* statusLabel_{nullptr};
     QTabWidget* propertiesTabs_{nullptr};
     QLabel* flowAssessment_{nullptr};
+    QWidget* recoveryControls_{nullptr};
+    QJsonObject runDiagnostic_;
     QStackedWidget* inspectorStack_{nullptr};
     QLabel* workflowSummary_{nullptr};
     QWidget* meshWorkspacePage_{nullptr};

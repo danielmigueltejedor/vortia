@@ -710,6 +710,21 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
     </message>
     <message><source>Vortia could not activate OpenFOAM. On macOS, install the native OpenFOAM app in Applications. You can also choose an installation in Preferences &gt; Storage and OpenFOAM, then retry.</source><translation>Vortia no ha podido activar OpenFOAM. En macOS, instala la aplicación nativa de OpenFOAM en Aplicaciones. También puedes elegir una instalación en Preferencias &gt; Almacenamiento y OpenFOAM y volver a intentarlo.</translation></message>
     <message><source>No OpenFOAM installation found. On macOS, install the native OpenFOAM app in Applications, or choose its installation folder in Preferences &gt; Storage and OpenFOAM.</source><translation>No se ha encontrado OpenFOAM. En macOS, instala su aplicación nativa en Aplicaciones o selecciona su carpeta en Preferencias &gt; Almacenamiento y OpenFOAM.</translation></message>
+    <message><source>Prepare fresh restart</source><translation>Preparar reinicio desde cero</translation></message>
+    <message><source>Review calculation</source><translation>Revisar cálculo</translation></message>
+    <message><source>Review boundary conditions</source><translation>Revisar contornos</translation></message>
+    <message><source>Review mesh</source><translation>Revisar malla</translation></message>
+    <message><source>Save diagnostic…</source><translation>Guardar diagnóstico…</translation></message>
+    <message><source>Save diagnostic</source><translation>Guardar diagnóstico</translation></message>
+    <message><source>The diagnostic could not be saved.</source><translation>No se ha podido guardar el diagnóstico.</translation></message>
+    <message><source>Creates a new mesh and initial fields with a conservative Courant limit. Keeps the failed case and does not start a calculation.</source><translation>Crea otra malla y campos iniciales con un Courant conservador. Conserva el caso fallido y no arranca el cálculo.</translation></message>
+    <message><source>The fresh restart was not prepared. The previous case and controls were retained.</source><translation>No se ha preparado el reinicio. Se conservan el caso y los controles anteriores.</translation></message>
+    <message><source>Fresh restart prepared: %1
+Failed case retained: %2
+</source><translation>Reinicio preparado: %1
+Caso fallido conservado: %2
+</translation></message>
+    <message><source>Fresh initial fields prepared with acoustic Courant %1. Review the controls, then press Run Simulation.</source><translation>Campos iniciales nuevos preparados con Courant acústico %1. Revisa los controles y pulsa Ejecutar simulación.</translation></message>
 </context>
 <context>
     <name>vortia::PropertiesPanel</name>
@@ -1282,6 +1297,9 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
         </message>
     <message><source>Native results saved. Use View latest result to prepare visualization.
 </source><translation>Resultados nativos guardados. Usa «Ver último resultado» para preparar la visualización.
+</translation></message>
+    <message><source>The diagnostic could not be saved; the current explanation remains available in Run assessment.
+</source><translation>No se ha podido guardar el diagnóstico; la explicación sigue disponible en Evaluación del cálculo.
 </translation></message>
 </context>
 
@@ -1996,5 +2014,33 @@ SHA-256 de la muestra: %5</translation>
         <source>Coincident section faces have different fields; move the plane slightly inside a cell</source>
         <translation>Hay caras coincidentes con campos distintos; desplaza ligeramente el plano al interior de una celda</translation>
     </message>
+</context>
+<context>
+    <name>vortia::RunDiagnostics</name>
+    <message><source>Numerical instability · review the starting state</source><translation>Inestabilidad numérica · revisa el estado inicial</translation></message>
+    <message><source>The solver could not keep density and thermal energy admissible after repeatedly reducing the local step. This run has not converged.</source><translation>El cálculo no ha conseguido mantener admisibles la densidad y la energía térmica tras reducir repetidamente el paso local. Esta ejecución no ha convergido.</translation></message>
+    <message><source>The solver reported non-finite values. Saved checkpoints require their own checks before reuse.</source><translation>El motor ha detectado valores no finitos. Los estados guardados deben comprobarse antes de reutilizarlos.</translation></message>
+    <message><source>The log explicitly reports a rejected energy update; it does not identify the responsible cell or boundary.</source><translation>El registro confirma el rechazo de una actualización de energía; no identifica qué celda o contorno lo provoca.</translation></message>
+    <message><source>In Calculation, try reducing the acoustic Courant limit from %1 to %2. This is a controlled retry, not a guarantee of convergence.</source><translation>En Cálculo, prueba a reducir el límite de Courant acústico de %1 a %2. Es un nuevo intento controlado, sin garantía de convergencia.</translation></message>
+    <message><source>The Courant limit is already at the supported minimum. Investigate initialization, boundaries, mesh and backend behavior instead of reducing it further.</source><translation>El límite de Courant ya está en el mínimo admitido. Revisa la inicialización, los contornos, la malla y el comportamiento del motor antes de reducirlo más.</translation></message>
+    <message><source>Use Prepare fresh restart to create a new case from the configured initial values. The failed case and its results are retained; no calculation starts automatically.</source><translation>Utiliza Preparar reinicio desde cero para crear otro caso con los valores iniciales configurados. Se conservan el caso fallido y sus resultados; el cálculo no arranca automáticamente.</translation></message>
+    <message><source>Review Physics &gt; Boundary conditions: pressures are absolute Pa and temperatures are K. Check inlet/outlet assignments, reservoir values, gas properties and the initial pressure and temperature in Calculation. Do not change the prescribed physics just to suppress the error.</source><translation>Revisa Física &gt; Contornos: las presiones se expresan en Pa absolutos y las temperaturas en K. Comprueba entradas y salidas, valores de remanso, propiedades del gas y presión y temperatura iniciales en Cálculo. No cambies la física exigida solo para ocultar el error.</translation></message>
+    <message><source>Review Mesh near the throat, sharp corners and region cuts. Check quality and abrupt size changes. A passed mesh check alone does not establish solution stability.</source><translation>Revisa Malla cerca de la garganta, los vértices y los cortes entre regiones. Comprueba la calidad y los cambios bruscos de tamaño. Superar la comprobación de malla no garantiza por sí solo estabilidad.</translation></message>
+    <message><source>If it repeats, compare a fresh run with one CPU process and save the diagnostic. Serial execution is a diagnostic comparison, not a cure. The experimental backend may need a numerical fix; more iterations will not repair this failure.</source><translation>Si se repite, compara un caso nuevo con un solo proceso de CPU y guarda el diagnóstico. Ejecutar en serie sirve para comparar, no garantiza una solución. El motor experimental puede necesitar una corrección numérica; aumentar las iteraciones no resuelve este fallo.</translation></message>
+    <message><source>A rejected candidate does not by itself prove that an earlier saved checkpoint is invalid. MPI_ABORT stops the remaining parallel workers after a failure; rank numbers do not establish the cause.</source><translation>Rechazar un intento de avance no demuestra por sí solo que un estado anterior guardado sea inválido. MPI_ABORT detiene los demás procesos tras el fallo; los números de proceso no identifican la causa.</translation></message>
+    <message><source>Mesh preparation failed</source><translation>No se ha podido preparar la malla</translation></message>
+    <message><source>The calculation did not obtain a usable checked mesh.</source><translation>El cálculo no dispone de una malla comprobada utilizable.</translation></message>
+    <message><source>Open Mesh, review the last mesh-check messages and highlighted geometry. Repair open contours, intersecting cuts or invalid regions, then generate a new revision.</source><translation>Abre Malla y revisa los últimos mensajes y la geometría destacada. Corrige contornos abiertos, cortes que se cruzan o regiones inválidas y genera otra revisión.</translation></message>
+    <message><source>Keep the earlier case for comparison. A flow calculation cannot resolve a mesh-generation error.</source><translation>Conserva el caso anterior para compararlo. Ejecutar el cálculo de flujo no resuelve un error de generación de malla.</translation></message>
+    <message><source>Calculation tool unavailable</source><translation>Herramienta de cálculo no disponible</translation></message>
+    <message><source>A required executable could not be resolved in the selected engine.</source><translation>No se ha encontrado una herramienta necesaria en el motor seleccionado.</translation></message>
+    <message><source>In Preferences &gt; Storage and OpenFOAM, leave the engine path empty to use the integrated engine, then restart Vortia. If using an external installation, verify that it contains the required tool.</source><translation>En Preferencias &gt; Almacenamiento y OpenFOAM, deja vacía la ruta del motor para usar el integrado y reinicia Vortia. Si utilizas una instalación externa, comprueba que incluye la herramienta necesaria.</translation></message>
+    <message><source>Memory allocation failed</source><translation>No se ha podido reservar memoria</translation></message>
+    <message><source>The log reports an allocation failure.</source><translation>El registro indica un fallo al reservar memoria.</translation></message>
+    <message><source>Try fewer CPU processes and a smaller mesh for diagnosis. Close other memory-intensive work, then retry with a new case while retaining earlier results.</source><translation>Prueba con menos procesos de CPU y una malla más pequeña para diagnosticarlo. Cierra otras tareas que consuman mucha memoria y prueba un caso nuevo conservando los resultados anteriores.</translation></message>
+    <message><source>Calculation stopped · review the diagnostic</source><translation>Cálculo detenido · revisa el diagnóstico</translation></message>
+    <message><source>The available messages do not establish a specific cause. Keep the complete log rather than guessing a physical correction.</source><translation>Los mensajes disponibles no permiten establecer una causa concreta. Conserva el registro completo antes de proponer cambios físicos.</translation></message>
+    <message><source>Open the detailed console and inspect the first specific error before the MPI shutdown messages. Save the diagnostic and review the relevant calculation, physics or mesh controls.</source><translation>Abre la consola detallada y busca el primer error concreto anterior a los mensajes de cierre de MPI. Guarda el diagnóstico y revisa los controles de cálculo, física o malla correspondientes.</translation></message>
+    <message><source>What to do next</source><translation>Qué hacer ahora</translation></message>
 </context>
 </TS>

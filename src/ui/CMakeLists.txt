@@ -28,6 +28,7 @@ add_library(vortia_ui STATIC
     src/FieldTools.cpp
     src/LineProfile.cpp
     src/RunMonitor.cpp
+    src/RunDiagnostics.cpp
     src/ProjectExplorerPanel.cpp
     src/PropertiesPanel.cpp
     src/ThemeManager.cpp
