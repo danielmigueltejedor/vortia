@@ -807,6 +807,10 @@ TEST(WorkspaceResources, RealTranslationContextsAndExplorerIcons) {
         ASSERT_FALSE(expected.pixmap(24).isNull());
         EXPECT_EQ(explorer.topLevelItem(i)->icon(0).pixmap(24).toImage(), expected.pixmap(24).toImage());
     }
+    FlowSetupPanel physics(makeRectangleSketch(300,50).value(),{},nullptr,{},FlowSetupPanel::View::Physics);
+    EXPECT_EQ(physics.findChild<QTabBar*>("flow-physics-sections")->tabText(0),QStringLiteral("Modelos"));
+    FlowSetupPanel calculation(makeRectangleSketch(300,50).value(),{},nullptr,{},FlowSetupPanel::View::Calculation);
+    EXPECT_EQ(calculation.findChild<QCheckBox*>("flow-convergence-enabled")->text(),QStringLiteral("Parada automática"));
     qApp->removeTranslator(&translator);
 }
 } // namespace
@@ -1005,7 +1009,7 @@ TEST(Workspace, ContextualStagesHaveNoNumbersOrRedundantLaunchers) {
     auto* physics=WorkspaceTestAccess::physics(window);ASSERT_NE(physics,nullptr);
     EXPECT_EQ(QApplication::activeModalWidget(),nullptr);
     auto* sections=physics->findChild<QTabBar*>("flow-physics-sections");ASSERT_NE(sections,nullptr);EXPECT_EQ(sections->count(),2);
-    EXPECT_TRUE(window.findChild<QToolBar*>("vortia-main-toolbar")->isHidden());
+    EXPECT_TRUE(ribbon->isHidden()||window.findChild<QToolBar*>("vortia-main-toolbar")->isHidden());
     settings.remove("ui/showStageNumbers");
 }
 
@@ -1390,6 +1394,12 @@ TEST(Workspace, NativePrecisionWorkspaceWhenRequested) {
                 QElapsedTimer timer;timer.start();while(!finished&&timer.elapsed()<20000){QApplication::processEvents(QEventLoop::AllEvents,20);QThread::msleep(10);}
                 QObject::disconnect(connection);EXPECT_TRUE(finished);EXPECT_TRUE(success)<<mesh->findChild<QLabel*>("mesh-preview-status")->text().toStdString();
             }
+#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+            auto* header=window.findChild<QWidget*>("vortia-document-header");ASSERT_NE(header,nullptr);
+            EXPECT_EQ(header->mapTo(&window,QPoint(0,0)),QPoint(0,0));
+            auto* tools=window.findChild<QTabWidget*>("vortia-ribbon");
+            if(tools->isVisible())EXPECT_GE(tools->mapTo(&window,QPoint(0,0)).y(),header->height());
+#endif
             const auto file=QString("%1/%2-stage-%3.png").arg(output,ThemeManager::toName(theme)).arg(stage);
             EXPECT_TRUE(window.grab().save(file));
         }

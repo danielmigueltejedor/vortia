@@ -981,6 +981,7 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
 </context>
 <context>
         <name>vortia::FlowSetup</name>
+    <message><source>Stops after consecutive successful checks. The safety limit does not imply convergence.</source><translation>Se detiene tras varias comprobaciones correctas. Alcanzar el límite no implica convergencia.</translation></message>
     <message><source>Automatic stop</source><translation>Parada automática</translation></message>
     <message><source>Global size (mm)</source><translation>Tamaño global (mm)</translation></message>
     <message><source>Near-wall size (mm)</source><translation>Cerca de pared (mm)</translation></message>

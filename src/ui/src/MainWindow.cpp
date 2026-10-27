@@ -133,6 +133,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // header occupies the titlebar, reserving space beside the native controls.
     setWindowFlags(windowFlags()|Qt::ExpandedClientAreaHint|Qt::NoTitleBarBackgroundHint);
     setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea,false);
+    setAttribute(Qt::WA_LayoutOnEntireRect,true);
 #endif
 
     buildMenusAndToolbar();
@@ -343,7 +344,7 @@ void MainWindow::buildMenusAndToolbar() {
     workflow->addWidget(navigator);
     connect(tabs,&QTabWidget::currentChanged,this,[this,stages](int index){
         if(auto* button=stages->button(index)){QSignalBlocker block(button);button->setChecked(true);}
-        if(auto* toolbar=findChild<QToolBar*>("vortia-main-toolbar"))toolbar->setVisible(index!=1&&index!=3);
+        setContextToolsVisible(index!=1&&index!=3);
         updateWorkflowInspector();
     });
     stages->button(0)->setChecked(true);
@@ -508,7 +509,10 @@ void MainWindow::buildMenusAndToolbar() {
     connect(monitors,&QAction::triggered,this,[this](){activateWorkflowStage(4);});
     resultMenu->addSeparator();resultMenu->addAction(monitors);
 
-    toolbar->addWidget(tabs);
+    auto* topBar=new QWidget(toolbar);topBar->setObjectName("vortia-top-bar");
+    topBar->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);
+    auto* topLayout=new QVBoxLayout(topBar);topLayout->setContentsMargins(0,0,0,0);topLayout->setSpacing(0);topLayout->addWidget(tabs);
+    toolbar->addWidget(topBar);
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("vortia-status-text"));
     statusBar()->addWidget(statusLabel_, 1);
@@ -531,8 +535,19 @@ void MainWindow::activateWorkflowStage(int stage) {
     if(stage==4&&!projectSwitchLocked())propertiesTabs_->setCurrentIndex(0);
     if(stage==5&&propertiesTabs_->isTabVisible(1))propertiesTabs_->setCurrentIndex(1);
     if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->setVisible(stage==0||stage==4||(legacy&&(stage==2||stage==3))||(stage==5&&propertiesTabs_->isTabVisible(1)));
-    if(auto* toolbar=findChild<QToolBar*>("vortia-main-toolbar"))toolbar->setVisible(stage!=1&&stage!=3);
+    setContextToolsVisible(stage!=1&&stage!=3);
     updateWorkflowInspector();
+}
+
+void MainWindow::setContextToolsVisible(bool visible) {
+    auto* toolbar=findChild<QToolBar*>("vortia-main-toolbar");
+    if(!toolbar)return;
+    if(findChild<QWidget*>("vortia-document-header")) {
+        auto* ribbon=findChild<QTabWidget*>("vortia-ribbon");ribbon->setVisible(visible);
+        auto* topBar=findChild<QWidget*>("vortia-top-bar");
+        const int height=42+(visible?ribbon->height():0);
+        topBar->setFixedHeight(height);toolbar->setFixedHeight(height+1);toolbar->show();
+    } else toolbar->setVisible(visible);
 }
 
 bool MainWindow::usesSketchFlow() const {
@@ -711,14 +726,13 @@ void MainWindow::buildDocks() {
     projectTabs_->setExpanding(false);
     projectTabs_->setUsesScrollButtons(true);
 #if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
-    auto* header=new QToolBar(this);header->setObjectName("vortia-document-header");
-    header->setMovable(false);header->setFloatable(false);header->setFixedHeight(42);
+    auto* topBar=findChild<QWidget*>("vortia-top-bar");
+    auto* header=new QWidget(topBar);header->setObjectName("vortia-document-header");header->setFixedHeight(42);
+    auto* row=new QHBoxLayout(header);row->setContentsMargins(0,0,0,0);row->setSpacing(0);
     auto* trafficSpace=new QWidget(header);trafficSpace->setObjectName("vortia-native-window-controls-space");
-    trafficSpace->setFixedWidth(84);header->addWidget(trafficSpace);
-    projectTabs_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);
-    header->addWidget(projectTabs_);
-    auto* tools=findChild<QToolBar*>("vortia-main-toolbar");
-    insertToolBar(tools,header);insertToolBarBreak(tools);
+    trafficSpace->setFixedWidth(84);row->addWidget(trafficSpace);
+    projectTabs_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);row->addWidget(projectTabs_,1);
+    qobject_cast<QVBoxLayout*>(topBar->layout())->insertWidget(0,header);
     // The header has a native titlebar hit target even in its unused tab area.
     header->installEventFilter(this);trafficSpace->installEventFilter(this);projectTabs_->installEventFilter(this);
 #else
@@ -1895,6 +1909,7 @@ void MainWindow::applyPreferences() {
             button->setText(button->property("stageTitle").toString());
         }
     }
+    if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))setContextToolsVisible(ribbon->currentIndex()!=1&&ribbon->currentIndex()!=3);
     console_->setMaximumBlockCount(preferences_.consoleLines);
     viewport_->setNavigationPreferences(preferences_.cfdZoomSensitivity,preferences_.cfdPanSensitivity);
     sketchEditor_->setInteractionPreferences(preferences_.snapToGrid,preferences_.snapSpacing,

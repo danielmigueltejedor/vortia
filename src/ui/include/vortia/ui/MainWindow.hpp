@@ -77,6 +77,7 @@ private:
     void buildMenusAndToolbar();
     void buildDocks();
     void activateWorkflowStage(int stage);
+    void setContextToolsVisible(bool);
     void updateWorkflowInspector();
     void rebuildMeshWorkspace();
     void rebuildPhysicsWorkspace();
