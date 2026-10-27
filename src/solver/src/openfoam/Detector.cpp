@@ -4,6 +4,7 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -58,7 +59,6 @@ constexpr std::size_t kMaxBashrcBytes = 4 * 1024 * 1024; // sanity limit for par
     roots.emplace_back("/Applications");
     if (const char* home = std::getenv("HOME"))
         roots.emplace_back(std::filesystem::path(home) / "OpenFOAM");
-    roots.emplace_back("/Applications");
     return roots;
 }
 
@@ -132,6 +132,102 @@ std::vector<Installation> Detector::scan() {
     }
     log(LogLevel::Info, "OpenFOAM scan found " + std::to_string(found.size()) + " installation(s)");
     return found;
+}
+
+Expected<std::vector<Installation>> Detector::discover(
+    IProcessRunner& runner, const std::filesystem::path& preferredRoot,
+    const std::filesystem::path& bundledRoot,
+    const std::vector<std::filesystem::path>& applicationDirs) {
+    if (!preferredRoot.empty()) {
+        if (!preferredRoot.is_absolute())
+            return Error::make(ErrorCode::InvalidArgument, "OpenFOAM root must be absolute",
+                               preferredRoot.string());
+        if (auto installed = probe(preferredRoot))
+            return std::vector<Installation>{*installed};
+    } else {
+        std::error_code ec;
+        if (!bundledRoot.empty() && std::filesystem::exists(bundledRoot,ec)) {
+            auto installed=probe(bundledRoot);
+            if(!installed)return installed.error();
+            return std::vector<Installation>{*installed};
+        }
+        if (auto installed = scan(); !installed.empty()) return installed;
+    }
+
+    auto directories = applicationDirs;
+#ifdef __APPLE__
+    if (directories.empty()) {
+        directories.emplace_back("/Applications");
+        if (const char* home = std::getenv("HOME"))
+            directories.emplace_back(std::filesystem::path(home) / "Applications");
+    }
+#endif
+    std::optional<Error> lastError;
+    for (const auto& directory : directories) {
+        std::error_code ec;
+        const std::filesystem::directory_iterator end;
+        for (std::filesystem::directory_iterator it(directory, ec); !ec && it != end;
+             it.increment(ec)) {
+            const auto bundle = it->path();
+            if (!bundle.is_absolute() || bundle.extension() != ".app" ||
+                !nameLooksLikeOpenFoam(bundle))
+                continue;
+            const auto name = bundle.stem().string();
+            const auto resources = bundle / "Contents" / "Resources";
+            const auto helper = resources / "volume";
+            std::error_code fileError;
+            if (!std::filesystem::is_regular_file(helper, fileError) ||
+                !std::filesystem::is_regular_file(resources / (name + ".dmg"), fileError))
+                continue;
+            ProcessRequest request;
+            request.executable = helper;
+            request.arguments = {"-show-prefix"};
+            request.timeout = std::chrono::seconds{5};
+            auto prefixResult = runner.run(request);
+            if (!prefixResult || !prefixResult->succeeded()) {
+                lastError = prefixResult ? Error::make(ErrorCode::ProcessFailed,
+                    "could not query the OpenFOAM app volume", prefixResult->stdErr)
+                    : prefixResult.error();
+                continue;
+            }
+            auto prefix = prefixResult->stdOut;
+            while (!prefix.empty() && (prefix.back() == '\n' || prefix.back() == '\r'))
+                prefix.pop_back();
+            const std::filesystem::path root(prefix);
+            if (prefix.size() > 8192 || prefix.find_first_of("\r\n") != std::string::npos ||
+                prefix.find('\0') != std::string::npos || !root.is_absolute() ||
+                root.filename() != name) {
+                lastError = Error::make(ErrorCode::InvalidData,
+                    "OpenFOAM app returned an invalid volume path", bundle.string());
+                continue;
+            }
+            if (!preferredRoot.empty() &&
+                preferredRoot.lexically_normal() != root.lexically_normal())
+                continue;
+            // Already mounted while discovery was in progress: no mount is needed.
+            if (auto installed = probe(root))
+                return std::vector<Installation>{*installed};
+            request.arguments = {"-quiet", "mount"};
+            request.timeout = std::chrono::seconds{30};
+            const auto mounted = runner.run(request);
+            if (!mounted || !mounted->succeeded()) {
+                lastError = mounted ? Error::make(mounted->timedOut ? ErrorCode::Timeout
+                                                                  : ErrorCode::ProcessFailed,
+                    "could not activate the installed OpenFOAM app", mounted->stdErr)
+                    : mounted.error();
+                continue;
+            }
+            auto installed = probe(root);
+            if (!installed) { lastError = installed.error(); continue; }
+            log(LogLevel::Info, "Activated OpenFOAM app " + bundle.string());
+            return std::vector<Installation>{*installed};
+        }
+    }
+    if (lastError) return *lastError;
+    if (!preferredRoot.empty())
+        return Error::make(ErrorCode::NotFound,
+            "configured OpenFOAM installation is unavailable", preferredRoot.string());
+    return std::vector<Installation>{};
 }
 
 Expected<std::vector<std::pair<std::string, std::string>>>

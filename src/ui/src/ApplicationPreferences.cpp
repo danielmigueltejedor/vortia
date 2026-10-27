@@ -1,6 +1,7 @@
 #include "vortia/ui/ApplicationPreferences.hpp"
 #include "vortia/ui/SettingsNavigation.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
+#include "vortia/ui/OpenFoamRuntime.hpp"
 #include <QSettings>
 #include <QThread>
 #include <QCoreApplication>
@@ -127,9 +128,17 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     auto folder=[&](const char* key,const char* label,const QString& value){auto* row=new QWidget(&dialog);auto* h=new QHBoxLayout(row);h->setContentsMargins(0,0,0,0);auto* text=new QLineEdit(value,row);text->setObjectName(QString("preference-%1").arg(key));text->setPlaceholderText(tr("Automatic (recommended)"));auto* browse=new QPushButton(tr("Choose…"),row);h->addWidget(text,1);h->addWidget(browse);storage->addRow(tr(label),row);QObject::connect(browse,&QPushButton::clicked,&dialog,[&dialog,text](){const auto path=QFileDialog::getExistingDirectory(&dialog,tr("Choose folder"),text->text());if(!path.isEmpty())text->setText(path);});return text;};
     auto* cases=folder("storage","New calculation storage",previous.caseStorage);
     auto* backend=folder("backend","OpenFOAM installation",previous.backendRoot);backend->parentWidget()->setEnabled(!running);cases->parentWidget()->setEnabled(!running);
+    backend->setPlaceholderText(tr("Integrated engine (recommended)"));
+    info(storage,"Vortia uses its integrated OpenFOAM engine automatically when available. Choose an external installation only to override it.");
     info(storage,"Leave paths empty for automatic locations. New storage does not move existing cases. OpenFOAM calculation folders must have absolute paths without spaces. Changing the engine or storage is disabled during a calculation.");
     auto* detect=new QPushButton(tr("Find installed OpenFOAM"),&dialog);storage->addRow(detect);detect->setEnabled(!running);
-    QObject::connect(detect,&QPushButton::clicked,&dialog,[&dialog,backend](){const auto found=openfoam::Detector::scan();if(found.empty()){QMessageBox::information(&dialog,tr("OpenFOAM"),tr("No installation found. Choose its folder manually."));return;}backend->setText(QString::fromStdString(found.front().rootDir.string()));});
+    QObject::connect(detect,&QPushButton::clicked,&dialog,[&dialog,backend](){
+        PosixProcessRunner runner;
+        const auto found=openfoam::Detector::discover(runner,{},bundledOpenFoamRoot());
+        if(!found){QMessageBox::warning(&dialog,tr("OpenFOAM"),QString::fromStdString(found.error().describe()));return;}
+        if(found->empty()){QMessageBox::information(&dialog,tr("OpenFOAM"),tr("No installation found. Choose its folder manually."));return;}
+        backend->setText(QString::fromStdString(found->front().rootDir.string()));
+    });
     nav->selectPage(0);auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
     QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     QObject::connect(buttons,&QDialogButtonBox::accepted,&dialog,[&](){

@@ -131,6 +131,7 @@ private:
     std::vector<std::pair<std::string, std::string>> ofEnvironment_;
     openfoam::Capabilities ofCaps_{};
     openfoam::Installation ofInstallation_{};
+    QString ofDetectionError_;
     bool hasOfInstallation_{false};
     bool dirty_{false};
 

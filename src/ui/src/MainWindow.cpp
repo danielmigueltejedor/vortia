@@ -31,6 +31,7 @@
 #include "vortia/physics/CaseSetupJson.hpp"
 #include "vortia/solver/openfoam/CaseWriter.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
+#include "vortia/ui/OpenFoamRuntime.hpp"
 #include "vortia/ui/ThemeManager.hpp"
 #include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/ui/ResultFiles.hpp"
@@ -1422,7 +1423,7 @@ void MainWindow::configureFlow(int page) {
 bool MainWindow::ensureFlowEnvironment() {
     ensureOpenFoamInstallation();
     if (!hasOfInstallation_) {
-        QMessageBox::warning(this,tr("Backend unavailable"),tr("OpenFOAM v2606 is required for compressible flow."));
+        QMessageBox::warning(this,tr("Backend unavailable"),tr("OpenFOAM v2606 is required for compressible flow.")+"\n"+ofDetectionError_);
         return false;
     }
     if (ofEnvironment_.empty()) {
@@ -1512,9 +1513,9 @@ void MainWindow::onRun() {
     ensureOpenFoamInstallation();
     if (!hasOfInstallation_) {
         QMessageBox::warning(this, tr("No OpenFOAM installation"),
-                             tr("Vortia could not find an OpenFOAM installation.\n"
-                                "Install OpenFOAM (Linux/WSL2) or configure "
-                                "VORTIA_OPENFOAM_DIR, then retry."));
+                             tr("Vortia could not activate OpenFOAM. On macOS, install the native "
+                                "OpenFOAM app in Applications. You can also choose an installation "
+                                "in Preferences > Storage and OpenFOAM, then retry.")+"\n"+ofDetectionError_);
         return;
     }
 
@@ -1950,11 +1951,19 @@ void MainWindow::onToggleTheme() {
 }
 
 void MainWindow::onDetectOpenFoam() {
-    const auto installs = openfoam::Detector::scan();
+    PosixProcessRunner runner;
+    const auto discovered = openfoam::Detector::discover(runner,{},bundledOpenFoamRoot());
+    if (!discovered) {
+        QMessageBox::warning(this, tr("OpenFOAM detection"),
+                             QString::fromStdString(discovered.error().describe()));
+        return;
+    }
+    const auto& installs = discovered.value();
     if (installs.empty()) {
         QMessageBox::information(this, tr("OpenFOAM detection"),
-                                 tr("No OpenFOAM installation found.\n"
-                                    "Set VORTIA_OPENFOAM_DIR or install OpenFOAM."));
+                                 tr("No OpenFOAM installation found. On macOS, install the native "
+                                    "OpenFOAM app in Applications, or choose its installation "
+                                    "folder in Preferences > Storage and OpenFOAM."));
         return;
     }
     // Prefer the first; let the user see the list in the console.
@@ -1968,14 +1977,21 @@ void MainWindow::onDetectOpenFoam() {
 }
 
 void MainWindow::ensureOpenFoamInstallation() {
-    if (hasOfInstallation_)
+    if (hasOfInstallation_ && openfoam::Detector::probe(ofInstallation_.rootDir))
         return;
-    if(!preferences_.backendRoot.isEmpty()) {
-        auto installed=openfoam::Detector::probe(preferences_.backendRoot.toStdString());
-        if(installed){ofInstallation_=*installed;hasOfInstallation_=true;ofEnvironment_.clear();}
+    // A cached volume can disappear after ejection; discard its captured PATH too.
+    hasOfInstallation_=false;
+    ofEnvironment_.clear();
+    ofCaps_={};
+    ofDetectionError_.clear();
+    PosixProcessRunner runner;
+    const auto discovered = openfoam::Detector::discover(runner,preferences_.backendRoot.toStdString(),bundledOpenFoamRoot());
+    if (!discovered) {
+        ofDetectionError_=QString::fromStdString(discovered.error().describe());
+        console_->appendSolverOutput(ofDetectionError_+"\n");
         return;
     }
-    const auto installs = openfoam::Detector::scan();
+    const auto& installs = discovered.value();
     if (!installs.empty()) {
         ofInstallation_ = installs.front();
         hasOfInstallation_ = true;
