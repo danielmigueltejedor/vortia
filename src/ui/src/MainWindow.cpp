@@ -257,13 +257,13 @@ void MainWindow::buildMenusAndToolbar() {
     connect(solverEditor, &QAction::triggered, this,
             [this]() { onNodeActivated(ProjectExplorerPanel::SolverNode); });
 
-    auto* viewXY = new QAction(icon(QStyle::SP_ArrowUp), tr("XY"), this);
-    auto* viewXZ = new QAction(icon(QStyle::SP_ArrowRight), tr("XZ"), this);
-    auto* viewYZ = new QAction(icon(QStyle::SP_ArrowLeft), tr("YZ"), this);
+    auto* viewXY = new QAction(icon(QStyle::SP_ArrowUp), tr("Side · XY"), this);
+    auto* viewXZ = new QAction(icon(QStyle::SP_ArrowRight), tr("Top · XZ"), this);
+    auto* viewYZ = new QAction(icon(QStyle::SP_ArrowLeft), tr("Front · YZ"), this);
     auto* viewIso = new QAction(icon(QStyle::SP_FileDialogDetailedView), tr("3D"), this);
     auto* viewReset = new QAction(icon(QStyle::SP_BrowserReload), tr("Fit View"), this);
-    connect(viewXY, &QAction::triggered, this, [this]() { viewport_->setViewXY(); });
-    connect(viewXZ, &QAction::triggered, this, [this]() { viewport_->setViewXZ(); });
+    connect(viewXY, &QAction::triggered, this, [this]() { const auto cut=viewport_->slicePlaneState();if(viewport_->axisymmetricDisplay()&&cut.enabled&&cut.axis>0&&std::abs(cut.position)<1e-12)viewport_->setSlicePlane(2,0);viewport_->setViewXY(); });
+    connect(viewXZ, &QAction::triggered, this, [this]() { const auto cut=viewport_->slicePlaneState();if(viewport_->axisymmetricDisplay()&&cut.enabled&&cut.axis>0&&std::abs(cut.position)<1e-12)viewport_->setSlicePlane(1,0);viewport_->setViewXZ(); });
     connect(viewYZ, &QAction::triggered, this, [this]() { viewport_->setViewYZ(); });
     connect(viewIso, &QAction::triggered, this, [this]() { viewport_->setViewIsometric(); });
     connect(viewReset, &QAction::triggered, this, [this]() { viewport_->resetCamera(); });
@@ -401,15 +401,24 @@ void MainWindow::buildMenusAndToolbar() {
     auto* point=new QAction(toolIcon("probe",QStyle::SP_FileDialogDetailedView),tr("Probe a point…"),this);point->setObjectName("vortia-probe-point-action");
     connect(point,&QAction::triggered,this,[this](){showPointProbe(this,viewport_,fieldCombo_->currentData().toString());});
     auto* sectionMenu=new QMenu(this);sectionMenu->addActions({section,full});
+    auto* sideCut=sectionMenu->addAction(toolIcon("slice",QStyle::SP_FileDialogDetailedView),tr("Longitudinal section · side"));sideCut->setObjectName("vortia-longitudinal-side");
+    auto* topCut=sectionMenu->addAction(toolIcon("slice",QStyle::SP_FileDialogDetailedView),tr("Longitudinal section · top"));topCut->setObjectName("vortia-longitudinal-top");
+    const auto longitudinal=[this](int axis){try{viewport_->setAxisymmetricDisplay(true);viewport_->setSlicePlane(axis,0);if(axis==1)viewport_->setViewXZ();else viewport_->setViewXY();}catch(const std::exception& error){QMessageBox::information(this,tr("Section unavailable"),tr(error.what()));}};
+    connect(sideCut,&QAction::triggered,this,[longitudinal](){longitudinal(2);});connect(topCut,&QAction::triggered,this,[longitudinal](){longitudinal(1);});
     auto* queryMenu=new QMenu(this);queryMenu->addActions({point,profileAction});
+    auto* statistics=queryMenu->addAction(toolIcon("histogram",QStyle::SP_FileDialogDetailedView),tr("Statistics and histogram…"));statistics->setObjectName("vortia-statistics-action");connect(statistics,&QAction::triggered,this,[this](){showFieldStatistics(this,viewport_,fieldCombo_->currentData().toString());});
     auto* sections=menuAction(sectionMenu,tr("Sections"),"slice");auto* queries=menuAction(queryMenu,tr("Sample"),"probe");
-    fieldActions_={profileAction,point,section,full,sections,queries};
+    sections->setObjectName("vortia-section-menu");
+    fieldActions_={profileAction,point,section,full,sections,queries,statistics};
     for(auto* action:fieldActions_)action->setEnabled(false);
     addGroup(resultsPage,tr("Analyze"),{sections,queries});resultMenu->addMenu(sectionMenu);resultMenu->addMenu(queryMenu);
     auto* displayMenu=new QMenu(this);auto* representation=new QActionGroup(this);
     auto* surface=displayMenu->addAction(toolIcon("surface",QStyle::SP_FileIcon),tr("Surface"));surface->setCheckable(true);surface->setChecked(true);representation->addAction(surface);
     auto* wire=displayMenu->addAction(toolIcon("wireframe",QStyle::SP_FileIcon),tr("Wireframe"));wire->setCheckable(true);representation->addAction(wire);
     displayMenu->addSeparator();displayMenu->addAction(edgeAction);
+    auto* revolution=displayMenu->addAction(toolIcon("revolve",QStyle::SP_BrowserReload),tr("Axisymmetric revolution · 360°"));revolution->setObjectName("vortia-axisymmetric-display");revolution->setCheckable(true);revolution->setEnabled(false);revolution->setToolTip(tr("Reconstruct the saved axisymmetric field around X for display. This does not run a 3D simulation."));
+    connect(revolution,&QAction::toggled,this,[this,revolution](bool enabled){try{viewport_->setAxisymmetricDisplay(enabled);}catch(const std::exception& error){QSignalBlocker block(revolution);revolution->setChecked(viewport_->axisymmetricDisplay());QMessageBox::information(this,tr("Revolution unavailable"),tr(error.what()));}});
+    auto* vectors=displayMenu->addAction(toolIcon("vectors",QStyle::SP_ArrowForward),tr("Velocity vectors"));vectors->setObjectName("vortia-velocity-vectors");vectors->setCheckable(true);vectors->setEnabled(false);connect(vectors,&QAction::toggled,this,[this](bool enabled){viewport_->setVelocityVectors(enabled);});
     connect(surface,&QAction::triggered,this,[this](){viewport_->setWireframe(false);});connect(wire,&QAction::triggered,this,[this](){viewport_->setWireframe(true);});
     auto* cameraMenu=new QMenu(this);cameraMenu->setTitle(tr("Camera"));cameraMenu->setIcon(toolIcon("camera",QStyle::SP_DesktopIcon));
     viewReset->setIcon(toolIcon("fit",QStyle::SP_DialogResetButton));cameraMenu->addActions({viewReset,viewXY,viewXZ,viewYZ,viewIso});cameraMenu->addSeparator();
@@ -460,6 +469,7 @@ void MainWindow::buildDocks() {
     workspaceTabs_->setObjectName(QStringLiteral("vortia-editor-tabs"));
     viewport_ = new VtkViewport(workspaceTabs_);
     connect(viewport_,&VtkViewport::fieldDataChanged,this,[this](){refreshFieldTools();});
+    connect(viewport_,&VtkViewport::viewToolsChanged,this,[this](){refreshFieldTools();});
     workspaceTabs_->addTab(viewport_, tr("3D CFD"));
     sketchEditor_ = new SketchEditorDialog(workspaceTabs_);
     sketchEditor_->setWindowFlags(Qt::Widget);sketchEditor_->setEmbedded(true);
@@ -1452,7 +1462,7 @@ void MainWindow::setJobUiRunning(bool running) {
     }
     runAction_->setEnabled(!running);
     cancelAction_->setEnabled(running);
-    for(auto* action:fieldActions_)action->setEnabled(!running&&!viewport_->availableFields().empty());
+    refreshFieldTools();
     projectTabs_->setEnabled(!running);
     newProjectAction_->setEnabled(!running);
     openProjectAction_->setEnabled(!running);
@@ -1524,6 +1534,12 @@ void MainWindow::refreshFieldTools() {
     for(const auto& name:available)if(fieldCombo_->findData(QString::fromStdString(name))<0)fieldCombo_->addItem(fieldDisplayName(QString::fromStdString(name)),QString::fromStdString(name));
     const int index=fieldCombo_->findData(selected);fieldCombo_->setCurrentIndex(index>=0?index:0);fieldCombo_->setEnabled(!available.empty());
     for(auto* action:fieldActions_)action->setEnabled(!available.empty()&&!projectSwitchLocked());
+    const bool usable=viewport_->hasDataSet()&&!projectSwitchLocked();
+    for(const auto* name:{"vortia-plane-section-action","vortia-show-full-domain"})if(auto* action=findChild<QAction*>(name))action->setEnabled(usable);
+    if(auto* action=findChild<QAction*>("vortia-section-menu"))action->setEnabled(usable);
+    if(auto* action=findChild<QAction*>("vortia-axisymmetric-display")){QSignalBlocker blocked(action);action->setEnabled(usable&&viewport_->axisymmetricAvailable());action->setChecked(viewport_->axisymmetricDisplay());}
+    if(auto* action=findChild<QAction*>("vortia-velocity-vectors")){QSignalBlocker blocked(action);action->setEnabled(usable&&std::find(available.begin(),available.end(),"|U|")!=available.end());action->setChecked(viewport_->velocityVectors());}
+    for(const auto* name:{"vortia-longitudinal-side","vortia-longitudinal-top"})if(auto* action=findChild<QAction*>(name))action->setEnabled(usable&&viewport_->axisymmetricAvailable());
     if(!available.empty())viewport_->setColorField(fieldCombo_->currentData().toString().toStdString());
 }
 void MainWindow::onFieldChanged(int /*index*/) {

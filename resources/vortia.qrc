@@ -43,6 +43,9 @@
     <file alias="zoom.svg">icons/ui/zoom.svg</file>
     <file alias="pan.svg">icons/ui/pan.svg</file>
     <file alias="orbit.svg">icons/ui/orbit.svg</file>
+    <file alias="revolve.svg">icons/ui/revolve.svg</file>
+    <file alias="vectors.svg">icons/ui/vectors.svg</file>
+    <file alias="histogram.svg">icons/ui/histogram.svg</file>
     <file alias="camera.svg">icons/ui/camera.svg</file>
     <file alias="undock.svg">icons/ui/undock.svg</file>
     <file alias="close.svg">icons/ui/close.svg</file>

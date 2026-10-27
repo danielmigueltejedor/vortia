@@ -5,8 +5,10 @@
 #include <vector>
 #include <vtkSmartPointer.h>
 class vtkDataObject;
+class vtkDataSet;
 class vtkPolyData;
 namespace vortia {
+vtkDataSet* fluidDataSet(vtkDataObject* data);
 struct LineSample { Vec3 position; double distance; double value; bool valid; };
 std::array<double,6> fieldBounds(vtkDataObject* data);
 std::vector<std::string> fieldNames(vtkDataObject* data);

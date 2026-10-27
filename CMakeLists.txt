@@ -70,6 +70,7 @@ if(VORTIA_BUILD_UI)
         CommonCore
         CommonDataModel
         FiltersCore
+        FiltersVerdict
         FiltersGeometry
         FiltersModeling
         FiltersSources
