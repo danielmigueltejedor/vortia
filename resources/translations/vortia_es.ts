@@ -708,6 +708,8 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
         <source>Display field</source>
         <translation>Campo representado</translation>
     </message>
+    <message><source>Vortia could not activate OpenFOAM. On macOS, install the native OpenFOAM app in Applications. You can also choose an installation in Preferences &gt; Storage and OpenFOAM, then retry.</source><translation>Vortia no ha podido activar OpenFOAM. En macOS, instala la aplicación nativa de OpenFOAM en Aplicaciones. También puedes elegir una instalación en Preferencias &gt; Almacenamiento y OpenFOAM y volver a intentarlo.</translation></message>
+    <message><source>No OpenFOAM installation found. On macOS, install the native OpenFOAM app in Applications, or choose its installation folder in Preferences &gt; Storage and OpenFOAM.</source><translation>No se ha encontrado OpenFOAM. En macOS, instala su aplicación nativa en Aplicaciones o selecciona su carpeta en Preferencias &gt; Almacenamiento y OpenFOAM.</translation></message>
 </context>
 <context>
     <name>vortia::PropertiesPanel</name>
@@ -1463,6 +1465,8 @@ Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></
         <source>Update mesh preview when entering Mesh</source>
         <translation>Actualizar la previsualización al entrar en Malla</translation>
     </message>
+    <message><source>Integrated engine (recommended)</source><translation>Motor integrado (recomendado)</translation></message>
+    <message><source>Vortia uses its integrated OpenFOAM engine automatically when available. Choose an external installation only to override it.</source><translation>Vortia utiliza automáticamente su motor OpenFOAM integrado cuando está disponible. Selecciona una instalación externa solo si quieres sustituirlo.</translation></message>
 </context>
 <context>
     <name>vortia::FieldTools</name>

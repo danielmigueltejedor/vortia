@@ -14,7 +14,15 @@ brew install cmake ninja qt vtk opencascade googletest nlohmann-json
 
 ## 3. OpenFOAM (motor CFD)
 
-Vortia no incluye OpenFOAM. En macOS ARM64, la vía recomendada es
+La instalación local completa de Vortia puede incluir OpenFOAM v2606 en
+`Vortia.app/Contents/Resources/OpenFOAM-v2606`. En ese caso basta con abrir
+Vortia: no hace falta instalar OpenFOAM.app, montar un disco ni abrir Terminal.
+La imagen incluida conserva su sistema de archivos sensible a mayúsculas,
+bibliotecas, código fuente y licencias. Preferencias →
+Almacenamiento y OpenFOAM permite seleccionar otro motor; deja esa ruta vacía
+para utilizar el integrado.
+
+Para construir un paquete completo en macOS ARM64, la distribución de origen es
 **OpenFOAM.app** (gerlero/openfoam-app), que proporciona OpenFOAM v2606
 nativo para Apple Silicon:
 
@@ -24,8 +32,22 @@ nativo para Apple Silicon:
 3. Lanzar la app una vez para montar el DMG en `/Volumes/OpenFOAM-v2606`.
 4. Verificar: `source /Volumes/OpenFOAM-v2606/etc/bashrc && rhoSimpleFoam -help`
 
-Vortia detecta automáticamente `/Volumes/OpenFOAM-v2606`. Si no, configura
-`VORTIA_OPENFOAM_DIR=/Volumes/OpenFOAM-v2606`.
+Para empaquetar el motor, antes de firmar Vortia:
+
+```sh
+python3 packaging/macos/bundle_openfoam.py /Applications/OpenFOAM-v2606.app/Contents/Resources/OpenFOAM-v2606.dmg /ruta/Vortia.app
+/ruta/Vortia.app/Contents/MacOS/vortia --verify-engine
+```
+
+También se puede definir `VORTIA_BUNDLE_OPENFOAM_IMAGE` al ejecutar el objetivo
+`vortia_macos_bundle`. El paquete sin esta opción sigue siendo una compilación
+de desarrollo con motor externo, no una distribución autónoma.
+
+Sin motor integrado, Vortia busca instalaciones externas y activa automáticamente
+el disco de OpenFOAM.app en `/Applications` o `~/Applications`. Los errores de
+activación se conservan. Una ruta explícita en Preferencias no se sustituye por
+otra versión de forma silenciosa. `Detector::scan()` sigue siendo una inspección
+de archivos sin efectos secundarios; `discover()` activa el motor cuando procede.
 
 ## 4. Compilar Vortia
 
@@ -48,5 +70,9 @@ cmake --build build-ui
 
 ## 5. Notas
 
-- La DMG de OpenFOAM debe estar montada para que Vortia detecte el backend.
+- Vortia incluye la imagen completa del motor y la activa automáticamente en modo
+  de solo lectura en `/Volumes/Vortia-OpenFOAM-v2606`, sin mostrarla en Finder.
+  No depende de OpenFOAM.app externo ni de montar un disco manualmente.
+- El compilador de los solucionadores experimentales de Vortia aún requiere las
+  Xcode Command Line Tools si hay que recompilarlos en este Mac.
 - Los resultados se visualizan con `foamToVTK` + VTK (incluido en Vortia).

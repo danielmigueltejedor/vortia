@@ -17,6 +17,8 @@ namespace vortia::openfoam {
 ///     clean bash and dumps the resulting environment. This is the ONLY
 ///     shell invocation in Vortia; the path is validated beforehand and the
 ///     command line contains no user data beyond that validated path.
+/// discover() may also activate an installed macOS app's disk image using
+/// its structured volume helper; scan() itself never launches processes.
 class Detector {
 public:
     /// Inspects a candidate WM_PROJECT_DIR. Fails if it does not look like
@@ -25,6 +27,15 @@ public:
 
     /// Searches standard locations + WM_PROJECT_DIR / VORTIA_OPENFOAM_DIR.
     [[nodiscard]] static std::vector<Installation> scan();
+
+    /// Prefer a packaged runtime, then scan and activate native OpenFOAM apps.
+    /// An explicit root is never silently replaced by another installation.
+    /// Empty applicationDirs selects /Applications and ~/Applications on macOS
+    /// (no activation elsewhere). Explicit directories support isolated tests.
+    [[nodiscard]] static Expected<std::vector<Installation>>
+    discover(IProcessRunner& runner, const std::filesystem::path& preferredRoot = {},
+             const std::filesystem::path& bundledRoot = {},
+             const std::vector<std::filesystem::path>& applicationDirs = {});
 
     /// Sources etc/bashrc in `bash --noprofile --norc` and captures the
     /// environment for later structured (shell-free) process launches.
