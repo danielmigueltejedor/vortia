@@ -1445,6 +1445,7 @@ TEST(WorkspaceFlow, NativeFreshRestartKeepsTheFailedCaseWhenRequested) {
     ASSERT_TRUE(WorkspaceTestAccess::open(window,QString::fromStdString(project->rootDir().string())));
     const auto shape=boundaryExample();WorkspaceTestAccess::edit(window,shape,{});
     auto cfg=defaultFlowConfiguration(shape);cfg.insert("boundaries",assignedExample().value("boundaries"));
+    auto solver=cfg.value("solver").toObject();solver.insert("maxCo",.05);cfg.insert("solver",solver);
     auto mesh=cfg.value("mesh").toObject();mesh.insert("sizeMm",2);mesh.insert("wallSizeMm",2);cfg.insert("mesh",mesh);
     const auto old=dir.filePath("failed");ASSERT_TRUE(QDir().mkpath(old+"/100"));
     writeFile(old+"/100/p","retained pressure checkpoint");writeFile(old+"/.vortia-flow-case","vortia-axisymmetric-flow-v1\n");
@@ -1462,7 +1463,8 @@ TEST(WorkspaceFlow, NativeFreshRestartKeepsTheFailedCaseWhenRequested) {
     ASSERT_NE(fresh,old);ASSERT_TRUE(QFileInfo::exists(fresh+"/0/p"));EXPECT_FALSE(QFileInfo::exists(fresh+"/100"));
     EXPECT_EQ(readFile(old+"/100/p"),"retained pressure checkpoint");EXPECT_EQ(loadRunDiagnostic(old),diagnostic);
     EXPECT_EQ(after.value("initial"),cfg.value("initial"));EXPECT_EQ(after.value("material"),cfg.value("material"));
-    EXPECT_DOUBLE_EQ(after.value("solver").toObject().value("maxCo").toDouble(),.02);
+    EXPECT_DOUBLE_EQ(after.value("solver").toObject().value("maxCo").toDouble(),.0125);
+    EXPECT_DOUBLE_EQ(WorkspaceTestAccess::calculation(window)->findChild<QDoubleSpinBox*>("flow-solver-maxCo")->value(),.0125);
     EXPECT_FALSE(window.findChild<JobController*>()->isRunning());
     settings.remove("backend/root");settings.remove("storage/cases");qApp->removeTranslator(&translator);
 }

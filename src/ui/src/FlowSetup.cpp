@@ -210,7 +210,7 @@ FlowSetupPanel::FlowSetupPanel(const Sketch2D& geometry, const QJsonObject& prev
     automaticInfo->setWordWrap(true);calculation->addRow(automaticInfo);
     number(calculation,"solver","iterations","Safety iteration limit",50000,1,200000,0);
     number(calculation,"solver","writeInterval","Save every N iterations",100,1,200000,0);
-    number(calculation,"solver","maxCo","Acoustic Courant limit",0.1,0.001,0.5,3);
+    number(calculation,"solver","maxCo","Acoustic Courant limit",0.1,0.001,0.5,6);
     number(calculation,"solver","logInterval","Diagnostic output every N iterations",10,1,1000,0);
     auto* cpu=number(calculation,"solver","processes","CPU processes (1 = serial)",0,0,8,0);
     cpu->setSpecialValueText(flowTr("Automatic (mesh size)"));

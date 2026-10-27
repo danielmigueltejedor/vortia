@@ -31,12 +31,13 @@ TEST(RunDiagnostics, ControlledRestartPreservesPhysicsAndDoesNotIncreaseCourant)
     EXPECT_EQ(next->value("initial"),cfg.value("initial"));EXPECT_EQ(next->value("boundaries"),cfg.value("boundaries"));
     auto expected=cfg.value("solver").toObject();expected.insert("maxCo",.02);EXPECT_EQ(next->value("solver"),expected);
     EXPECT_EQ(next->value("activeCase"),cfg.value("activeCase"));
-    for(double co:{.001,.002,.01,.02,.1,.5}) {
+    for(double co:{.001,.002,.01,.02,.05,.1,.5}) {
         const auto r=conservativeRestartConfiguration(QJsonObject{{"solver",QJsonObject{{"maxCo",co}}}});ASSERT_TRUE(r);
         EXPECT_LE(r->value("solver").toObject().value("maxCo").toDouble(),co);
         EXPECT_GE(r->value("solver").toObject().value("maxCo").toDouble(),.001);
     }
     EXPECT_FALSE(conservativeRestartConfiguration({}));
+    EXPECT_DOUBLE_EQ(conservativeRestartConfiguration(QJsonObject{{"solver",QJsonObject{{"maxCo",.05}}}})->value("solver").toObject().value("maxCo").toDouble(),.0125);
     EXPECT_FALSE(conservativeRestartConfiguration(QJsonObject{{"solver",QJsonObject{{"maxCo",.9}}}}));
 }
 TEST(RunDiagnostics, PersistenceAndLegacyReplayDoNotResurrectAnOldFailure) {

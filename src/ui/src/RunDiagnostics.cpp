@@ -56,7 +56,8 @@ std::optional<QJsonObject> conservativeRestartConfiguration(const QJsonObject& c
     const auto solver=cfg.value("solver").toObject();const auto co=solver.value("maxCo").toDouble(-1);
     if(!std::isfinite(co)||co<.001||co>.5)return std::nullopt;
     auto next=cfg;auto controls=solver;
-    controls.insert("maxCo",std::max(.001,std::min(.02,co*.25)));
+    // Match the calculation editor's precision, including a 0.05 -> 0.0125 retry.
+    controls.insert("maxCo",std::round(std::max(.001,std::min(.02,co*.25))*1e6)/1e6);
     next.insert("solver",controls);return next;
 }
 QString runDiagnosticHtml(const QJsonObject& d,double courant) {

@@ -18,6 +18,7 @@ En un proyecto editable, el botón **Preparar reinicio desde cero**:
 
 1. Conserva el caso anterior, sus resultados y su registro.
 2. Propone un Courant acústico `max(0.001, min(0.02, Courant_actual/4))`.
+   La propuesta se redondea a los seis decimales del editor de Cálculo.
    Es una heurística de reintento, no una prueba de estabilidad o convergencia.
 3. Prepara una revisión nueva con la geometría y los valores iniciales actuales.
    No copia los resultados de la última iteración al caso nuevo.
