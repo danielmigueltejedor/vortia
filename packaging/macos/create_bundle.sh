@@ -33,11 +33,13 @@ temporary="$(mktemp -d)"
 trap 'rm -rf "$temporary"' EXIT
 iconset="$temporary/Vortia.iconset"
 mkdir -p "$iconset"
+native_png="$temporary/Vortia-macos.png"
+/usr/bin/swift "$(dirname "$0")/prepare_icon.swift" "$png" "$native_png"
 # iconutil expects pairs of normal/Retina PNG images.
-for size in 16 32 128 256; do
+for size in 16 32 128 256 512; do
     retina=$((size * 2))
-    sips -s format png -z "$size" "$size" "$png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
-    sips -s format png -z "$retina" "$retina" "$png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+    sips -s format png -z "$size" "$size" "$native_png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+    sips -s format png -z "$retina" "$retina" "$native_png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$bundle/Contents/Resources/Vortia.icns"
 echo "Created $bundle (local build; distribution requires dependency packaging/signing)"

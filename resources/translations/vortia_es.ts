@@ -3,6 +3,8 @@
 <TS version="2.1" language="es_ES">
 <context>
     <name>vortia::MainWindow</name>
+    <message><source>Engineering analysis…</source><translation>Análisis de ingeniería…</translation></message>
+
     <message><source>Assign the highlighted boundaries, including a total-pressure inlet and a pressure outlet, before generating the case.</source><translation>Asigna los contornos señalados, incluida una entrada de presión total y una salida de presión, antes de generar el caso.</translation></message>
     <message><source>Calculation monitors</source><translation>Seguimiento del cálculo</translation></message>
     <message><source>Monitors</source><translation>Seguimiento</translation></message>
@@ -1664,5 +1666,331 @@ Valor: %4</translation></message>
     <message><source>The mesher could not be started.</source><translation>No se ha podido iniciar el generador de malla.</translation></message>
     <message><source>The temporary preview folder could not be created.</source><translation>No se ha podido crear la carpeta temporal de previsualización.</translation></message>
     <message><source>Triangles</source><translation>Triángulos</translation></message>
+</context>
+<context>
+    <name>vortia::Engineering</name>
+    <message><source>Project settings were captured at analysis time; their match to the producing run has not been verified.</source><translation>Los ajustes del proyecto se han registrado al analizar; no se ha verificado que correspondan a la ejecución que produjo los campos.</translation></message>
+    <message><source>Reference pressure (Pa)</source><translation>Presión de referencia (Pa)</translation></message>
+    <message><source>Use the same absolute or gauge convention as the stored pressure after conversion to Pa.</source><translation>Usa la misma convención absoluta o relativa que la presión guardada, tras convertirla a Pa.</translation></message>
+    <message><source>Export comparison CSV…</source><translation>Exportar comparación CSV…</translation></message>
+    <message><source>Export comparison</source><translation>Exportar comparación</translation></message>
+    <message>
+        <source>Engineering analysis</source>
+        <translation>Análisis de ingeniería</translation>
+    </message>
+    <message>
+        <source>Measure saved flow fields, compare variants and export a traceable report. Analysis does not change the CFD case.</source>
+        <translation>Mide los campos guardados, compara variantes y exporta un informe con trazabilidad. El análisis no modifica el caso CFD.</translation>
+    </message>
+    <message>
+        <source>Analysis name</source>
+        <translation>Nombre del análisis</translation>
+    </message>
+    <message>
+        <source>Section analysis</source>
+        <translation>Análisis de sección</translation>
+    </message>
+    <message>
+        <source>Section normal axis</source>
+        <translation>Eje normal a la sección</translation>
+    </message>
+    <message>
+        <source>Positive flow direction</source>
+        <translation>Sentido positivo del flujo</translation>
+    </message>
+    <message>
+        <source>Positive axis</source>
+        <translation>Eje positivo</translation>
+    </message>
+    <message>
+        <source>Negative axis</source>
+        <translation>Eje negativo</translation>
+    </message>
+    <message>
+        <source>Plane position (m)</source>
+        <translation>Posición del plano (m)</translation>
+    </message>
+    <message>
+        <source>Density interpretation</source>
+        <translation>Interpretación de la densidad</translation>
+    </message>
+    <message>
+        <source>Stored density field rho</source>
+        <translation>Campo de densidad rho guardado</translation>
+    </message>
+    <message>
+        <source>Explicit constant density</source>
+        <translation>Densidad constante explícita</translation>
+    </message>
+    <message>
+        <source>Constant density (kg/m³)</source>
+        <translation>Densidad constante (kg/m³)</translation>
+    </message>
+    <message>
+        <source>Stored pressure convention</source>
+        <translation>Convención de la presión guardada</translation>
+    </message>
+    <message>
+        <source>Pressure p in Pa</source>
+        <translation>Presión p en Pa</translation>
+    </message>
+    <message>
+        <source>Kinematic pressure p/rho (m²/s²)</source>
+        <translation>Presión cinemática p/rho (m²/s²)</translation>
+    </message>
+    <message>
+        <source>Reference pressure in the same convention (Pa)</source>
+        <translation>Presión de referencia en la misma convención (Pa)</translation>
+    </message>
+    <message>
+        <source>Reference density (kg/m³)</source>
+        <translation>Densidad de referencia (kg/m³)</translation>
+    </message>
+    <message>
+        <source>Reference speed (m/s)</source>
+        <translation>Velocidad de referencia (m/s)</translation>
+    </message>
+    <message>
+        <source>Reference area (m²)</source>
+        <translation>Área de referencia (m²)</translation>
+    </message>
+    <message>
+        <source>Report full 360° annulus</source>
+        <translation>Informar del anillo completo de 360°</translation>
+    </message>
+    <message>
+        <source>Full-annulus totals use 360/wedge-angle only for an axisymmetric X section. Otherwise totals refer to the original calculated volume. Pressure units and reference values are explicit inputs.</source>
+        <translation>El anillo completo aplica 360/ángulo de cuña solo a una sección axisimétrica X. Los demás totales corresponden al volumen calculado original. Debes indicar las unidades de presión y los valores de referencia.</translation>
+    </message>
+    <message>
+        <source>Evaluate section</source>
+        <translation>Evaluar sección</translation>
+    </message>
+    <message>
+        <source>Choose a section and evaluate the saved fields.</source>
+        <translation>Elige una sección y evalúa los campos guardados.</translation>
+    </message>
+    <message>
+        <source>The section resultant combines normal momentum flux and the pressure term. It is not a complete aircraft force, engine thrust or viscous wall-load report. Numerical convergence, model suitability and mesh independence require separate evidence.</source>
+        <translation>La resultante de sección combina el flujo normal de cantidad de movimiento y el término de presión. No representa la fuerza total de una aeronave, el empuje completo de un motor ni las cargas viscosas de pared. La convergencia numérica, la adecuación del modelo y la independencia de malla requieren evidencias adicionales.</translation>
+    </message>
+    <message>
+        <source>Add snapshot to comparison</source>
+        <translation>Añadir captura a la comparación</translation>
+    </message>
+    <message>
+        <source>Sections</source>
+        <translation>Secciones</translation>
+    </message>
+    <message>
+        <source>Comparisons</source>
+        <translation>Comparaciones</translation>
+    </message>
+    <message>
+        <source>Baseline</source>
+        <translation>Referencia de comparación</translation>
+    </message>
+    <message>
+        <source>Analysis</source>
+        <translation>Análisis</translation>
+    </message>
+    <message>
+        <source>Value</source>
+        <translation>Valor</translation>
+    </message>
+    <message>
+        <source>Quantity</source>
+        <translation>Magnitud</translation>
+    </message>
+    <message>
+        <source>Change from baseline (%)</source>
+        <translation>Cambio respecto a la referencia (%)</translation>
+    </message>
+    <message>
+        <source>Source / sample fingerprint</source>
+        <translation>Origen / huella de la muestra</translation>
+    </message>
+    <message>
+        <source>Import report JSON…</source>
+        <translation>Importar informe JSON…</translation>
+    </message>
+    <message>
+        <source>Remove selected snapshot</source>
+        <translation>Eliminar la captura seleccionada</translation>
+    </message>
+    <message>
+        <source>Report</source>
+        <translation>Informe</translation>
+    </message>
+    <message>
+        <source>Export current report…</source>
+        <translation>Exportar informe actual…</translation>
+    </message>
+    <message>
+        <source>Save analysis workspace to project</source>
+        <translation>Guardar análisis y comparaciones en el proyecto</translation>
+    </message>
+    <message>
+        <source>Inputs changed. Evaluate the section to produce a new snapshot.</source>
+        <translation>Han cambiado los datos. Evalúa la sección para generar una nueva captura.</translation>
+    </message>
+    <message>
+        <source>%1 triangles · %2 volume blocks · scale %3 · reverse flow %4 kg/s
+Sample SHA-256: %5</source>
+        <translation>%1 triángulos · %2 bloques de volumen · escala %3 · flujo inverso %4 kg/s
+SHA-256 de la muestra: %5</translation>
+    </message>
+    <message>
+        <source>Undefined: zero baseline</source>
+        <translation>Indefinido: referencia nula</translation>
+    </message>
+    <message>
+        <source>Snapshots retain their original definitions. A percentage change does not establish mesh independence or physical validity.</source>
+        <translation>Las capturas conservan sus definiciones originales. Un cambio porcentual no demuestra independencia de malla ni validez física.</translation>
+    </message>
+    <message>
+        <source>Different section or reference definitions: compare the assumptions before interpreting a change.</source>
+        <translation>Las secciones o los valores de referencia son distintos: revisa los supuestos antes de interpretar el cambio.</translation>
+    </message>
+    <message>
+        <source>Import engineering reports</source>
+        <translation>Importar informes de ingeniería</translation>
+    </message>
+    <message>
+        <source>%1 reports were rejected: invalid schema, changed digest, excessive size or comparison limit.</source>
+        <translation>Se han rechazado %1 informes: formato inválido, huella modificada, tamaño excesivo o límite de comparaciones.</translation>
+    </message>
+    <message>
+        <source>Export engineering report</source>
+        <translation>Exportar informe de ingeniería</translation>
+    </message>
+    <message>
+        <source>The engineering report could not be saved.</source>
+        <translation>No se ha podido guardar el informe de ingeniería.</translation>
+    </message>
+    <message>
+        <source>Section area (m²)</source>
+        <translation>Área de la sección (m²)</translation>
+    </message>
+    <message>
+        <source>Signed mass flow (kg/s)</source>
+        <translation>Caudal másico con signo (kg/s)</translation>
+    </message>
+    <message>
+        <source>Forward mass flow (kg/s)</source>
+        <translation>Caudal en sentido positivo (kg/s)</translation>
+    </message>
+    <message>
+        <source>Reverse mass flow (kg/s)</source>
+        <translation>Caudal en sentido inverso (kg/s)</translation>
+    </message>
+    <message>
+        <source>Signed volume flow (m³/s)</source>
+        <translation>Caudal volumétrico con signo (m³/s)</translation>
+    </message>
+    <message>
+        <source>Area-mean pressure (Pa)</source>
+        <translation>Presión media por área (Pa)</translation>
+    </message>
+    <message>
+        <source>Area-mean density (kg/m³)</source>
+        <translation>Densidad media por área (kg/m³)</translation>
+    </message>
+    <message>
+        <source>Area-mean normal speed (m/s)</source>
+        <translation>Velocidad normal media por área (m/s)</translation>
+    </message>
+    <message>
+        <source>Normal momentum flux (N)</source>
+        <translation>Flujo normal de cantidad de movimiento (N)</translation>
+    </message>
+    <message>
+        <source>Pressure term (N)</source>
+        <translation>Término de presión (N)</translation>
+    </message>
+    <message>
+        <source>Normal section resultant (N)</source>
+        <translation>Resultante normal de sección (N)</translation>
+    </message>
+    <message>
+        <source>Signed kinetic power (W)</source>
+        <translation>Potencia cinética con signo (W)</translation>
+    </message>
+    <message>
+        <source>Normal section coefficient</source>
+        <translation>Coeficiente normal de sección</translation>
+    </message>
+    <message>
+        <source>Mean pressure coefficient</source>
+        <translation>Coeficiente medio de presión</translation>
+    </message>
+    <message>
+        <source>Engineering section analysis · stored CFD fields</source>
+        <translation>Análisis de sección · campos CFD guardados</translation>
+    </message>
+    <message>
+        <source>Definitions and provenance</source>
+        <translation>Definiciones y procedencia</translation>
+    </message>
+    <message>
+        <source>The digest detects file changes; it is not an approval or a digital signature.</source>
+        <translation>La huella detecta cambios en el archivo; no es una aprobación ni una firma digital.</translation>
+    </message>
+    <message>
+        <source>Section analysis requires a three-dimensional fluid volume</source>
+        <translation>El análisis de sección requiere un volumen fluido tridimensional</translation>
+    </message>
+    <message>
+        <source>Required fields p, U or rho are missing or have incompatible components</source>
+        <translation>Faltan campos p, U o rho necesarios, o sus componentes no son compatibles</translation>
+    </message>
+    <message>
+        <source>The section contains an incomplete field</source>
+        <translation>La sección contiene un campo incompleto</translation>
+    </message>
+    <message>
+        <source>The section contains non-finite field values</source>
+        <translation>La sección contiene valores de campo no finitos</translation>
+    </message>
+    <message>
+        <source>Invalid section orientation</source>
+        <translation>Orientación de sección inválida</translation>
+    </message>
+    <message>
+        <source>Section inputs must be finite</source>
+        <translation>Los datos de la sección deben ser finitos</translation>
+    </message>
+    <message>
+        <source>Density, reference speed and reference area must be positive</source>
+        <translation>La densidad, la velocidad y el área de referencia deben ser positivas</translation>
+    </message>
+    <message>
+        <source>Full-annulus reporting requires a known axisymmetric X wedge of at most five degrees</source>
+        <translation>El informe del anillo completo requiere una cuña axisimétrica X conocida de hasta cinco grados</translation>
+    </message>
+    <message>
+        <source>The section contains a non-positive density</source>
+        <translation>La sección contiene una densidad no positiva</translation>
+    </message>
+    <message>
+        <source>The plane does not intersect measurable fluid cells; move it inside the volume</source>
+        <translation>El plano no corta celdas fluidas medibles; desplázalo al interior del volumen</translation>
+    </message>
+    <message>
+        <source>Section integral overflow; review the fields and reference values</source>
+        <translation>La integral supera el rango numérico; revisa los campos y los valores de referencia</translation>
+    </message>
+    <message>
+        <source>Invalid reference normalization</source>
+        <translation>Normalización de referencia inválida</translation>
+    </message>
+    <message>
+        <source>The section contains non-finite geometry</source>
+        <translation>La sección contiene geometría no finita</translation>
+    </message>
+    <message>
+        <source>Coincident section faces have different fields; move the plane slightly inside a cell</source>
+        <translation>Hay caras coincidentes con campos distintos; desplaza ligeramente el plano al interior de una celda</translation>
+    </message>
 </context>
 </TS>

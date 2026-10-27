@@ -11,6 +11,8 @@ add_library(vortia_ui STATIC
     include/vortia/ui/UiIcon.hpp
     include/vortia/ui/FlowSetup.hpp
     include/vortia/ui/SketchEditorDialog.hpp
+    src/EngineeringReport.cpp
+    src/EngineeringWorkbench.cpp
     src/ApplicationPreferences.cpp
     src/ConsolePanel.cpp
     src/JobController.cpp

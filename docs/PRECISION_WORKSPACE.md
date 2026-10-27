@@ -61,3 +61,10 @@ On macOS with Qt 6.9 or later, the document tabs extend into the native titlebar
 The real AppKit close/minimize/fullscreen controls retain an 84-point reserved
 area, while blank header space supports window dragging and double-click zoom.
 Other platforms and older Qt versions retain their regular window frame.
+
+Finder packaging derives a full-bleed navy macOS icon from the unchanged
+original PNG using CoreGraphics. This avoids the white legacy-icon plate around
+its transparent padding on current macOS. The original glyph is not cropped,
+rescaled or redesigned in this preparation step; iconutil then builds all icon
+sizes through 512@2x (1024 pixels). The workspace continues using the original
+transparent PNG.

@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QIcon>
+#include <QFileInfo>
 #include <QOpenGLContext>
 #include <QSurfaceFormat>
 #include <QLocale>
@@ -45,7 +46,13 @@ int main(int argc, char* argv[]) {
     app.setOrganizationDomain(QStringLiteral("vortia.dev"));
     // Embedded icon is available even when running the unbundled dev binary.
     const QIcon vortiaIcon(QStringLiteral(":/vortia/app-icon.png"));
-    app.setWindowIcon(vortiaIcon);
+    bool nativeBundleIcon=false;
+#ifdef Q_OS_MACOS
+    // Let AppKit use the prepared ICNS instead of replacing the Dock icon with
+    // the transparent workspace-logo PNG and reintroducing a white plate.
+    nativeBundleIcon=QFileInfo::exists(QCoreApplication::applicationDirPath()+QStringLiteral("/../Resources/Vortia.icns"));
+#endif
+    if(!nativeBundleIcon)app.setWindowIcon(vortiaIcon);
 
     QSettings settings(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
     const QString theme = settings.value(QStringLiteral("theme"), QStringLiteral("dark")).toString();
@@ -75,7 +82,7 @@ int main(int argc, char* argv[]) {
     }
 
     vortia::MainWindow window;
-    window.setWindowIcon(vortiaIcon);
+    if(!nativeBundleIcon)window.setWindowIcon(vortiaIcon);
     window.show();
 
     return app.exec();

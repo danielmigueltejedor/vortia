@@ -56,6 +56,8 @@ public:
     }
     void showCellEdges(bool enabled);
     bool hasDataSet() const {return currentData_!=nullptr;}
+    vtkSmartPointer<vtkDataObject> calculatedData() const {return currentData_;}
+    double sourceWedgeAngle() const {return sourceWedgeAngle_;}
     bool axisymmetricAvailable() const {return sourceWedgeAngle_>0;}
     bool axisymmetricDisplay() const {return axisymmetricDisplay_;}
     void setAxisymmetricSource(double wedgeAngle);

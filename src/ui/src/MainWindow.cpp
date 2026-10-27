@@ -4,6 +4,8 @@
 #include <QDoubleSpinBox>
 #include "vortia/ui/LineProfile.hpp"
 #include "vortia/ui/FieldTools.hpp"
+#include "vortia/ui/EngineeringWorkbench.hpp"
+#include <QDateTime>
 #include "vortia/ui/RunMonitor.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
 #include <QActionGroup>
@@ -491,9 +493,20 @@ void MainWindow::buildMenusAndToolbar() {
     connect(sideCut,&QAction::triggered,this,[longitudinal](){longitudinal(2);});connect(topCut,&QAction::triggered,this,[longitudinal](){longitudinal(1);});
     auto* queryMenu=new QMenu(this);queryMenu->addActions({point,profileAction});
     auto* statistics=queryMenu->addAction(toolIcon("histogram",QStyle::SP_FileDialogDetailedView),tr("Statistics and histogram…"));statistics->setObjectName("vortia-statistics-action");connect(statistics,&QAction::triggered,this,[this](){showFieldStatistics(this,viewport_,fieldCombo_->currentData().toString());});
+    auto* engineering=queryMenu->addAction(toolIcon("solver",QStyle::SP_FileDialogDetailedView),tr("Engineering analysis…"));engineering->setObjectName("vortia-engineering-analysis");
+    connect(engineering,&QAction::triggered,this,[this](){
+        if(!viewport_->hasDataSet()||projectSwitchLocked())return;
+        auto configuration=flowConfig_;configuration.remove("engineering");
+        QJsonObject source{{"project",activeProjectTab_>=0?documents_[static_cast<std::size_t>(activeProjectTab_)].name:QString{}},{"resultFile",lastVtmPath_},{"projectConfigurationAtAnalysis",configuration},{"configurationBinding","not_verified_against_saved_fields"},{"projectConfigurationSha256",QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(configuration).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex())},{"assessment","stored_fields; convergence_not_checked_by_this_tool"}};
+        QFile manifest(lastVtmPath_);if(manifest.size()<64*1024*1024&&manifest.open(QIODevice::ReadOnly)){source.insert("manifestSha256",QString::fromLatin1(QCryptographicHash::hash(manifest.readAll(),QCryptographicHash::Sha256).toHex()));source.insert("manifestModifiedUtc",QFileInfo(manifest).lastModified().toUTC().toString(Qt::ISODateWithMs));}
+        const int document=activeProjectTab_;const bool editable=!useExistingCase_&&!flowConfig_.isEmpty();
+        EngineeringWorkbench workbench(viewport_->calculatedData(),viewport_->sourceWedgeAngle(),source,flowConfig_.value("engineering").toObject(),editable,this);
+        workbench.saveToProject=[this,document,editable](const QJsonObject& state){if(!editable||document!=activeProjectTab_||projectSwitchLocked()||flowConfig_.value("engineering").toObject()==state)return;flowConfig_.insert("engineering",state);dirty_=true;storeCurrentTab();refreshProjectTabTitle();};
+        workbench.exec();
+    });
     auto* sections=menuAction(sectionMenu,tr("Sections"),"slice");auto* queries=menuAction(queryMenu,tr("Sample"),"probe");
     sections->setObjectName("vortia-section-menu");
-    fieldActions_={profileAction,point,section,full,sections,queries,statistics};
+    fieldActions_={profileAction,point,section,full,sections,queries,statistics,engineering};
     for(auto* action:fieldActions_)action->setEnabled(false);
     addGroup(resultsPage,tr("Analyze"),{sections,queries});resultMenu->addMenu(sectionMenu);resultMenu->addMenu(queryMenu);
     auto* displayMenu=new QMenu(this);auto* representation=new QActionGroup(this);
@@ -1428,7 +1441,7 @@ bool MainWindow::ensureFlowEnvironment() {
 }
 
 QString MainWindow::flowFingerprint(bool includeRunControls) const {
-    auto cfg=flowConfig_;for(const auto* metadata:{"boundaryGeometry","boundaryVersions","unmappedBoundaries"})cfg.remove(metadata);cfg.remove("activeCase");cfg.remove("preparedHash");cfg.remove("preparedEngine");
+    auto cfg=flowConfig_;for(const auto* metadata:{"boundaryGeometry","boundaryVersions","unmappedBoundaries","engineering"})cfg.remove(metadata);cfg.remove("activeCase");cfg.remove("preparedHash");cfg.remove("preparedEngine");
     if(!includeRunControls) {
         auto solver=cfg.value("solver").toObject();
         for(const auto* key:{"iterations","writeInterval","maxCo","processes","convergence","logInterval"})solver.remove(key);
