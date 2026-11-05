@@ -42,6 +42,15 @@ add_executable(test_physics
 target_link_libraries(test_physics PRIVATE vortia::physics GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_physics)
 
+add_executable(test_verification
+    unit/test_verification.cpp)
+target_link_libraries(test_verification PRIVATE
+    vortia::verification
+    vortia::solver
+    GTest::gtest_main
+    vortia_warnings)
+gtest_discover_tests(test_verification)
+
 add_executable(test_solver
     unit/test_installation.cpp
     unit/test_detector.cpp

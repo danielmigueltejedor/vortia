@@ -4,7 +4,7 @@
 
 Vortia aspira a ser una alternativa abierta, moderna y rigurosa a las suites CFD comerciales: geometría → malla → física → ejecución supervisada → posproceso 3D interactivo, sin tocar la terminal.
 
-> Estado: **desarrollo inicial (pre-MVP)**. Ver `docs/ROADMAP.md` y `docs/IMPLEMENTATION_STATUS.md`.
+> Estado: **0.1.1 publicado**; trabajo hacia **0.2.0** (V&V científico). Ver `docs/VORTIA_0.2.0.md`, `docs/VALIDATION.md`, `benchmarks/`.
 
 ## Stack
 

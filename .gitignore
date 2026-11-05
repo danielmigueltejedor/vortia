@@ -35,3 +35,8 @@ qrc_*.cpp
 !**/case/0/
 *.foam
 log.vortia
+
+# Local packaging / benchmark run products
+dist/
+benchmarks/**/results/**
+!benchmarks/**/results/.gitkeep

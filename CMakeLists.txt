@@ -58,6 +58,7 @@ add_subdirectory(src/core)
 add_subdirectory(src/geometry)
 add_subdirectory(src/mesh)
 add_subdirectory(src/physics)
+add_subdirectory(src/verification)
 add_subdirectory(src/solver)
 
 # --------------------------------------------------------------------------
