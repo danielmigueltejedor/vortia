@@ -316,10 +316,10 @@ bool AppUpdater::applyDownloadedFile(const QString& path, const AppUpdateInfo& i
     const QString script = QStringLiteral(
         "#!/bin/bash\n"
         "set -euo pipefail\n"
-        "DMG=%1\n"
-        "MOUNT=%2\n"
-        "BUNDLE=%3\n"
-        "PARENT=%4\n"
+        "DMG=$1\n"
+        "MOUNT=$2\n"
+        "BUNDLE=$3\n"
+        "PARENT=$4\n"
         "sleep 2\n"
         "while kill -0 \"$PARENT\" 2>/dev/null; do sleep 0.5; done\n"
         "hdiutil detach \"$MOUNT\" -force >/dev/null 2>&1 || true\n"
@@ -333,16 +333,11 @@ bool AppUpdater::applyDownloadedFile(const QString& path, const AppUpdateInfo& i
         "rm -rf \"$TMP\" \"$BAK\"\n"
         "ditto \"$SRC\" \"$TMP\"\n"
         "mv \"$BUNDLE\" \"$BAK\"\n"
-        "mv \"$TMP\" \"$BUNDLE\"\n"
+        "if ! mv \"$TMP\" \"$BUNDLE\"; then mv \"$BAK\" \"$BUNDLE\"; exit 1; fi\n"
         "hdiutil detach \"$MOUNT\" -force >/dev/null 2>&1 || true\n"
         "rm -rf \"$BAK\" \"$DMG\"\n"
         "open \"$BUNDLE\"\n"
-        "rm -f \"%5\"\n")
-                               .arg(QDir::toNativeSeparators(path),
-                                    QDir::toNativeSeparators(mountPoint),
-                                    QDir::toNativeSeparators(bundle),
-                                    QString::number(QCoreApplication::applicationPid()),
-                                    QDir::toNativeSeparators(scriptPath));
+        "rm -f \"$0\"\n");
     {
         QFile scriptFile(scriptPath);
         if (!scriptFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -355,7 +350,9 @@ bool AppUpdater::applyDownloadedFile(const QString& path, const AppUpdateInfo& i
         scriptFile.setPermissions(scriptFile.permissions() | QFileDevice::ExeUser);
     }
     emit applyStarted(tr("Installing Vortia %1 and restarting…").arg(info.version));
-    if (!QProcess::startDetached(QStringLiteral("/bin/bash"), {scriptPath})) {
+    if (!QProcess::startDetached(QStringLiteral("/bin/bash"),
+                                 {scriptPath, path, mountPoint, bundle,
+                                  QString::number(QCoreApplication::applicationPid())})) {
         if (error)
             *error = tr("Could not start the macOS update helper.");
         return false;
