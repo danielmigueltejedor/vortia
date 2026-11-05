@@ -1,0 +1,119 @@
+name: Release AppImage
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the AppImage to (e.g. v0.1.0). Leave empty to only upload the workflow artifact."
+        required: false
+        default: "v0.1.0"
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  linux-appimage:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages for OpenGL / X11
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libglu1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xfixes0 \
+            libegl1 xvfb curl ca-certificates
+
+      - name: Setup micromamba (Qt6 + VTK)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: vortia
+          cache-environment: true
+          create-args: >-
+            -c conda-forge
+            cmake
+            ninja
+            cxx-compiler
+            pkg-config
+            qt6-main
+            vtk
+            nlohmann_json
+            hdf5
+            gtest
+            mesalib
+            libopengl
+            xorg-libx11
+            xorg-libxext
+            xorg-libxrender
+            xorg-libxcb
+            libxcb
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVORTIA_BUILD_UI=ON \
+            -DVORTIA_BUILD_TESTS=OFF \
+            -DCMAKE_PREFIX_PATH="$CONDA_PREFIX"
+
+      - name: Build
+        run: |
+          cmake --build build --parallel "$(nproc)"
+          test -x build/bin/vortia
+          test -s build/vortia_es.qm
+
+      - name: Smoke-test binary
+        run: |
+          export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          build/bin/vortia --verify-spanish
+          build/bin/vortia --verify-engine
+
+      - name: Create AppImage
+        run: |
+          chmod +x packaging/linux/create_appimage.sh
+          export CMAKE_BINARY_DIR="$PWD/build"
+          export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export QMAKE="$CONDA_PREFIX/bin/qmake"
+          mkdir -p dist
+          packaging/linux/create_appimage.sh \
+            "$PWD/build/bin/vortia" \
+            "$PWD/dist/Vortia-0.1.0-linux-x86_64.AppImage" \
+            "0.1.0"
+          test -x dist/Vortia-0.1.0-linux-x86_64.AppImage
+          ls -lh dist/
+          sha256sum dist/Vortia-0.1.0-linux-x86_64.AppImage | tee dist/Vortia-0.1.0-linux-x86_64.AppImage.sha256
+
+      - name: Smoke-test AppImage
+        run: |
+          # AppImage self-extract needs executable bit; FUSE may be unavailable → extract-and-run style.
+          chmod +x dist/Vortia-0.1.0-linux-x86_64.AppImage
+          dist/Vortia-0.1.0-linux-x86_64.AppImage --appimage-extract-and-run --verify-spanish
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vortia-0.1.0-linux-x86_64.AppImage
+          path: |
+            dist/Vortia-0.1.0-linux-x86_64.AppImage
+            dist/Vortia-0.1.0-linux-x86_64.AppImage.sha256
+          if-no-files-found: error
+
+      - name: Attach AppImage to GitHub Release
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          gh release upload "$tag" \
+            dist/Vortia-0.1.0-linux-x86_64.AppImage \
+            dist/Vortia-0.1.0-linux-x86_64.AppImage.sha256 \
+            --repo "${{ github.repository }}" \
+            --clobber
