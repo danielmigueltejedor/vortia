@@ -3,12 +3,16 @@
 find_package(GTest REQUIRED)
 include(GoogleTest)
 
+# Shared test helpers (private temp dirs, etc.).
+set(VORTIA_TEST_SUPPORT_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+
 add_executable(test_core
     unit/test_units.cpp
     unit/test_expected.cpp
     unit/test_version.cpp
     unit/test_process.cpp
     unit/test_project.cpp)
+target_include_directories(test_core PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
 target_link_libraries(test_core PRIVATE vortia::core GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_core)
 
@@ -20,6 +24,7 @@ add_executable(test_geometry
     unit/test_sketch_snapping.cpp
     unit/test_sketch_arcs.cpp
     unit/test_sketch_templates.cpp)
+target_include_directories(test_geometry PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
 target_link_libraries(test_geometry PRIVATE vortia::geometry GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_geometry)
 
@@ -43,6 +48,7 @@ add_executable(test_solver
     unit/test_log_parser.cpp
     unit/test_convergence_policy.cpp)
 target_sources(test_solver PRIVATE unit/test_mass_balance.cpp)
+target_include_directories(test_solver PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
 target_link_libraries(test_solver PRIVATE vortia::solver GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_solver)
 
@@ -51,6 +57,7 @@ gtest_discover_tests(test_solver)
 # (see docs/VALIDATION.md).
 add_executable(test_integration
     integration/test_case_runner_fake_backend.cpp)
+target_include_directories(test_integration PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
 target_link_libraries(test_integration PRIVATE vortia::solver GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_integration)
 

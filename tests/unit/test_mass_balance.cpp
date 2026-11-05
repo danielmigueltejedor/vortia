@@ -1,4 +1,5 @@
 #include "vortia/solver/openfoam/MassBalance.hpp"
+#include "PrivateTempDir.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -20,7 +21,7 @@ TEST(MassBalance, EmptyCaseIsNotNozzle) {
 }
 
 TEST(MassBalance, NonexistentDirectoryReturnsUnavailable) {
-    const auto result = nozzleMassBalance("/tmp/vortia-nonexistent-case-12345");
+    const auto result = nozzleMassBalance(std::filesystem::path("no-such-vortia-case"));
     EXPECT_FALSE(result.available);
 }
 
@@ -29,9 +30,7 @@ class MassWindow : public ::testing::Test {
 protected:
     std::filesystem::path root;
     void SetUp() override {
-        root=std::filesystem::temp_directory_path()/
-            ("vortia-window-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-        std::filesystem::create_directories(root);
+        root = vortia::test::makePrivateTempDir("vortia-window-");
     }
     void TearDown() override {std::filesystem::remove_all(root);}
     void write(const std::string& channel,const std::string& start,const std::string& data) {

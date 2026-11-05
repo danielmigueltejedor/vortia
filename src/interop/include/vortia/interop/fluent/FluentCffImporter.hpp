@@ -21,7 +21,7 @@ public:
         bool ok{false};
     };
 
-    [[nodiscard]] static Result import(const std::filesystem::path& caseFile);
+    [[nodiscard]] static Result openCase(const std::filesystem::path& caseFile);
 };
 
 } // namespace vortia::fluent

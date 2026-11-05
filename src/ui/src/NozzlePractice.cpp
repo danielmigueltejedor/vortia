@@ -46,7 +46,7 @@ QString createNozzlePractice(QWidget* parent) {
     auto* tabs = new QTabWidget(&dialog); layout->addWidget(tabs,1);
     std::vector<std::pair<Parameter,QDoubleSpinBox*>> editors;
     const auto page = [&](const QString& title, std::initializer_list<Parameter> parameters) {
-        auto* content = new QWidget;
+        auto* content = new QWidget(tabs);
         auto* form = new QFormLayout(content);
         for (const auto& p : parameters) {
             auto* spin = new QDoubleSpinBox(content);
@@ -57,11 +57,11 @@ QString createNozzlePractice(QWidget* parent) {
             spin->setValue(values.value(p.key).toDouble()*p.factor);
             form->addRow(tr(p.label),spin); editors.emplace_back(p,spin);
         }
-        auto* scroll = new QScrollArea; scroll->setWidgetResizable(true); scroll->setWidget(content);
+        auto* scroll = new QScrollArea(tabs); scroll->setWidgetResizable(true); scroll->setWidget(content);
         tabs->addTab(scroll,title);
         return form;
     };
-    page(tr("Geometry"),{
+    [[maybe_unused]] auto* geometry = page(tr("Geometry"),{
         {"inletHeight","Inlet height (mm)",1000,3},
         {"throatHeight","Throat height after rounding (mm)",1000,3},
         {"outletHeight","Nozzle exit height (mm)",1000,3},

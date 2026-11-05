@@ -7,6 +7,7 @@
 
 #include "vortia/solver/openfoam/CaseRunner.hpp"
 #include "vortia/solver/openfoam/CaseWriter.hpp"
+#include "PrivateTempDir.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -23,12 +24,7 @@ namespace {
 class FakeBackendTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        dir_ = std::filesystem::temp_directory_path() /
-               ("vortia-fake-" + std::to_string(std::hash<std::string>{}(
-                                     ::testing::UnitTest::GetInstance()
-                                         ->current_test_info()
-                                         ->name())));
-        std::filesystem::remove_all(dir_);
+        dir_ = vortia::test::makePrivateTempDir("vortia-fake-");
         bin_ = dir_ / "bin";
         std::filesystem::create_directories(bin_);
         environment_ = {{"PATH", bin_.string()}};

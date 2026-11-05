@@ -164,16 +164,16 @@ void LogParser::processLine(const std::string& line) {
         sample.field = match[1].str();
         try {
             sample.initial = std::stod(match[2].str());
-            sample.final = std::stod(match[3].str());
+            sample.finalResidual = std::stod(match[3].str());
             sample.iterations = std::stoi(match[4].str());
         } catch (...) {
             return;
         }
-        if (isBadNumber(sample.initial) || isBadNumber(sample.final)) {
+        if (isBadNumber(sample.initial) || isBadNumber(sample.finalResidual)) {
             progress_.diverged = true;
             if(progress_.divergenceKind!=DivergenceKind::NonPositiveUpdate){progress_.divergenceKind=DivergenceKind::NonFinite;progress_.divergenceReason = "NaN/Inf residual for field " + sample.field;}
         }
-        if(hasTime_){monitor("residual.initial."+sample.field,progress_.time,sample.initial);monitor("residual.final."+sample.field,progress_.time,sample.final);}
+        if(hasTime_){monitor("residual.initial."+sample.field,progress_.time,sample.initial);monitor("residual.final."+sample.field,progress_.time,sample.finalResidual);}
         for (auto& existing : progress_.residuals) {
             if (existing.field == sample.field) {
                 existing = sample;

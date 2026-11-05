@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "vortia/solver/openfoam/Detector.hpp"
+#include "PrivateTempDir.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -14,12 +15,7 @@ namespace {
 class DetectorTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        dir_ = std::filesystem::temp_directory_path() /
-               ("vortia-foam-" + std::to_string(std::hash<std::string>{}(
-                                     ::testing::UnitTest::GetInstance()
-                                         ->current_test_info()
-                                         ->name())));
-        std::filesystem::remove_all(dir_);
+        dir_ = vortia::test::makePrivateTempDir("vortia-foam-");
     }
     void TearDown() override { std::filesystem::remove_all(dir_); }
 

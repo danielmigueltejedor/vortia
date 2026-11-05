@@ -10,7 +10,7 @@ namespace vortia::openfoam {
 struct ResidualSample {
     std::string field;
     double initial{0.0};
-    double final{0.0};
+    double finalResidual{0.0};
     int iterations{0};
 };
 

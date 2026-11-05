@@ -20,7 +20,7 @@ TEST(LogParser, ParsesResiduals) {
     ASSERT_EQ(residuals.size(), 2u);
     EXPECT_EQ(residuals[0].field, "Ux");
     EXPECT_DOUBLE_EQ(residuals[0].initial, 1.0);
-    EXPECT_NEAR(residuals[0].final, 2.96335e-06, 1e-12);
+    EXPECT_NEAR(residuals[0].finalResidual, 2.96335e-06, 1e-12);
     EXPECT_EQ(residuals[0].iterations, 19);
     EXPECT_EQ(residuals[1].field, "p");
 }

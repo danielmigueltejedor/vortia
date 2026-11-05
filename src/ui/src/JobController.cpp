@@ -138,7 +138,7 @@ void JobController::runJob(JobSpec spec) {
                 QString res;
                 for (const auto& r : p.residuals)
                     res += QString::fromStdString(r.field) + "=" +
-                           QString::number(r.final, 'g', 6) + "  ";
+                           QString::number(r.finalResidual, 'g', 6) + "  ";
                 QMetaObject::invokeMethod(this, [this, p, res]() {
                     emit progressUpdated(p.time, p.courantMax, res);
                 }, Qt::QueuedConnection);

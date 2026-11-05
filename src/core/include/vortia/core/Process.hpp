@@ -16,8 +16,8 @@ namespace vortia {
 /// Cooperative cancellation token shared with running processes.
 class CancellationToken {
 public:
-    void cancel() { cancelled_.store(true, std::memory_order_relaxed); }
-    [[nodiscard]] bool isCancelled() const { return cancelled_.load(std::memory_order_relaxed); }
+    void cancel() { cancelled_.store(true); }
+    [[nodiscard]] bool isCancelled() const { return cancelled_.load(); }
 
 private:
     std::atomic<bool> cancelled_{false};

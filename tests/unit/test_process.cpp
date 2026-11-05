@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "vortia/core/Process.hpp"
+#include "PrivateTempDir.hpp"
 
 #include <chrono>
 #include <thread>
@@ -77,8 +78,8 @@ TEST(Process, MissingExecutableReportsNotStarted) {
 }
 
 TEST(Process, CancellationStopsDescendantsInTheOwnedProcessGroup) {
-    const auto marker=std::filesystem::temp_directory_path()/"vortia-cancel-descendant-marker";
-    std::filesystem::remove(marker);
+    const auto dir=vortia::test::makePrivateTempDir("vortia-cancel-");
+    const auto marker=dir/"marker";
     PosixProcessRunner runner;CancellationToken token;ProcessRequest req;
     req.executable="/bin/sh";
     req.arguments={"-c","(/bin/sleep 1; echo leaked > \"$1\") & wait","vortia-group-test",marker.string()};
@@ -86,7 +87,8 @@ TEST(Process, CancellationStopsDescendantsInTheOwnedProcessGroup) {
     const auto result=runner.run(req,&token);canceller.join();
     ASSERT_TRUE(result);EXPECT_TRUE(result->cancelled);
     std::this_thread::sleep_for(1100ms);
-    EXPECT_FALSE(std::filesystem::exists(marker));std::filesystem::remove(marker);
+    EXPECT_FALSE(std::filesystem::exists(marker));
+    std::filesystem::remove_all(dir);
 }
 
 TEST(Process, EnvironmentOverlay) {

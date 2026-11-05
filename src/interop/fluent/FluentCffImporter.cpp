@@ -9,7 +9,7 @@
 
 namespace vortia::fluent {
 
-FluentCffImporter::Result FluentCffImporter::import(const std::filesystem::path& caseFile) {
+FluentCffImporter::Result FluentCffImporter::openCase(const std::filesystem::path& caseFile) {
     Result result;
     result.report.format = FluentFormat::CaseHdf5;
     result.report.filePath = caseFile.string();
