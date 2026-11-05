@@ -1,9 +1,9 @@
 # Ghia et al. (1982) centreline tables — Re = 100
 
-**Citation:**  
-U. Ghia, K. N. Ghia, C. T. Shin,  
-“High-Re solutions for incompressible flow using the Navier–Stokes equations and a multigrid method”,  
-*Journal of Computational Physics* **48**, 387–411 (1982).  
+**Citation:**
+U. Ghia, K. N. Ghia, C. T. Shin,
+“High-Re solutions for incompressible flow using the Navier–Stokes equations and a multigrid method”,
+*Journal of Computational Physics* **48**, 387–411 (1982).
 https://doi.org/10.1016/0021-9991(82)90058-4
 
 **Extracted tables:**
