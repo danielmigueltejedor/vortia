@@ -57,8 +57,10 @@ cp "$desktop" "$appdir/Vortia.desktop"
 
 base_url="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous"
 plugin_url="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous"
-curl -fsSL "$base_url/linuxdeploy-x86_64.AppImage" -o "$tools/linuxdeploy.AppImage"
-curl -fsSL "$plugin_url/linuxdeploy-plugin-qt-x86_64.AppImage" -o "$tools/linuxdeploy-plugin-qt.AppImage"
+# Refuse HTTP redirects (Sonar shell:S6506).
+curl_https=(curl -fsSL --proto '=https' --tlsv1.2)
+"${curl_https[@]}" "$base_url/linuxdeploy-x86_64.AppImage" -o "$tools/linuxdeploy.AppImage"
+"${curl_https[@]}" "$plugin_url/linuxdeploy-plugin-qt-x86_64.AppImage" -o "$tools/linuxdeploy-plugin-qt.AppImage"
 chmod +x "$tools"/linuxdeploy*.AppImage
 
 if [[ -n "${CONDA_PREFIX:-}" ]]; then

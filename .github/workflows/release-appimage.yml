@@ -33,7 +33,8 @@ jobs:
             libegl1 xvfb curl ca-certificates
 
       - name: Setup micromamba (Qt6 + VTK)
-        uses: mamba-org/setup-micromamba@v2
+        # Pin to the commit currently tagged as v2 (Sonar githubactions:S7637).
+        uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
         with:
           environment-name: vortia
           cache-environment: true
