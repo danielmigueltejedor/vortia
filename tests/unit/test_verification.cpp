@@ -3,9 +3,14 @@
 #include "vortia/verification/GhiaCavity.hpp"
 #include "vortia/verification/Poiseuille.hpp"
 #include "vortia/verification/ProfileMetrics.hpp"
+#include "vortia/verification/ReferenceCsv.hpp"
+#include "vortia/verification/SampleFunctions.hpp"
 #include "vortia/solver/openfoam/CaseWriter.hpp"
+#include "PrivateTempDir.hpp"
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <vector>
 
 using namespace vortia;
@@ -87,4 +92,51 @@ TEST(GhiaCavity, DefaultCaseHasReynoldsOneHundred) {
     for (const auto& issue : issues)
         EXPECT_NE(issue.severity, Severity::Error) << issue.message;
     EXPECT_NEAR(setup.estimateReynolds(), 100.0, 1e-9);
+}
+
+TEST(ReferenceCsv, InterpolateRecoversLinearField) {
+    const std::vector<Sample1D> sorted{{0.0, 0.0}, {1.0, 2.0}, {2.0, 4.0}};
+    const auto ys = interpolateAt(sorted, {0.5, 1.5});
+    ASSERT_TRUE(ys) << ys.error().describe();
+    EXPECT_NEAR((*ys)[0], 1.0, 1e-12);
+    EXPECT_NEAR((*ys)[1], 3.0, 1e-12);
+}
+
+TEST(ReferenceCsv, LoadsGhiaTableFromBenchmarkTree) {
+    const auto path = std::filesystem::path(VORTIA_BENCHMARK_ROOT)
+                      / "lid-driven-cavity-ghia-re100"
+                      / "reference"
+                      / "ghia_1982_re100_u_centerline.csv";
+    const auto rows = loadXyCsv(path);
+    ASSERT_TRUE(rows) << rows.error().describe();
+    EXPECT_GE(rows->size(), 10u);
+    bool foundMid = false;
+    for (const auto& s : *rows) {
+        if (std::abs(s.x - 0.5) < 1e-9) {
+            EXPECT_NEAR(s.y, -0.20581, 1e-9);
+            foundMid = true;
+        }
+    }
+    EXPECT_TRUE(foundMid);
+}
+
+TEST(BenchmarkCaseWrite, PoiseuilleMaterializesMarkerAndSampleDict) {
+    const auto dir = vortia::test::makePrivateTempDir("vortia-bench-poiseuille-");
+    const auto setup = makePoiseuilleCase(PoiseuilleChannel{});
+    Installation i;
+    i.distribution = Distribution::Esi;
+    i.version = Version::parse("v2606").value();
+    WriteOptions opts;
+    opts.overwrite = true;
+    const auto written = CaseWriter::write(dir, setup, capabilitiesFor(i), opts);
+    ASSERT_TRUE(written) << written.error().describe();
+    EXPECT_TRUE(std::filesystem::exists(dir / ".vortia-case"));
+    const auto sample = poiseuilleSampleDict(PoiseuilleChannel{});
+    {
+        std::ofstream out(dir / "system" / "sampleU");
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << sample;
+    }
+    EXPECT_TRUE(std::filesystem::exists(dir / "system" / "sampleU"));
+    std::filesystem::remove_all(dir);
 }

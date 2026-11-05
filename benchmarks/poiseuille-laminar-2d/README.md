@@ -37,3 +37,7 @@ These thresholds apply to a **future OpenFOAM compare** against the analytic pro
 ```
 
 The script documents that quantitative compare requires sampling \(U\) on a line \(x=L/2\) — wiring that sample is Milestone B follow-up once a native run is available in CI.
+
+## Harness
+
+Use `benchmark_write_case` and `scripts/run_openfoam.sh` (requires OpenFOAM on PATH). CTest skips with code 2 when solvers are absent.
