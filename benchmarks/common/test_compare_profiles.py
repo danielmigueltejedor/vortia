@@ -1,5 +1,6 @@
 import contextlib
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -37,6 +38,60 @@ class CompareProfilesTest(unittest.TestCase):
             ]
             with patch.object(sys, "argv", args), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(main(), 1)
+
+
+SCRIPT = Path(__file__).with_name("compare_profiles.py")
+
+
+class CompareProfilesFiniteInputTest(unittest.TestCase):
+    def run_comparison(self, reference, candidate, *options):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reference_path = root / "reference.csv"
+            candidate_path = root / "candidate.csv"
+            reference_path.write_text(reference)
+            candidate_path.write_text(candidate)
+            return subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--reference",
+                    str(reference_path),
+                    "--candidate",
+                    str(candidate_path),
+                    "--rel-l2-max",
+                    "1",
+                    "--rel-linf-max",
+                    "1",
+                    *options,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    def test_finite_profiles_still_pass(self):
+        result = self.run_comparison("0 1\n1 2\n", "0 1\n1 2\n")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("PASS", result.stdout)
+
+    def test_non_finite_profiles_scales_thresholds_and_metrics_fail(self):
+        cases = [
+            ("nan 1\n1 2\n", "0 1\n1 2\n", ()),
+            ("0 nan\n1 2\n", "0 1\n1 2\n", ()),
+            ("0 1\n1 2\n", "0 1\ninf 2\n", ()),
+            ("0 1\n1 2\n", "0 1\n1 inf\n", ()),
+            ("0 1\n1 2\n", "0 1\n1 2\n", ("--scale-candidate", "nan")),
+            ("0 1\n1 2\n", "0 1\n1 2\n", ("--scale-abscissa", "inf")),
+            ("0 1\n1 2\n", "0 1\n1 2\n", ("--rel-l2-max", "nan")),
+            ("0 1\n1 2\n", "0 1\n1 2\n", ("--rel-linf-max", "inf")),
+            ("0 1\n1 2\n", "0 1e308\n1 1e308\n", ()),
+        ]
+        for reference, candidate, options in cases:
+            with self.subTest(reference=reference, candidate=candidate, options=options):
+                result = self.run_comparison(reference, candidate, *options)
+                self.assertEqual(result.returncode, 1)
+                self.assertNotIn("PASS", result.stdout)
 
 
 if __name__ == "__main__":

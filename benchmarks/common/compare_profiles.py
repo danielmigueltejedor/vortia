@@ -135,16 +135,26 @@ def main() -> int:
     args = ap.parse_args()
 
     try:
+        if not all(math.isfinite(value) for value in (
+            args.rel_l2_max, args.rel_linf_max, args.scale_candidate, args.scale_abscissa
+        )):
+            raise ValueError("scales and thresholds must be finite")
         ref = load_xy(args.reference)
         if args.format == "csv":
             cand = load_xy(args.candidate)
         else:
             cand = parse_openfoam_raw_u(args.candidate, args.component)
+        if not all(math.isfinite(value) for row in (*ref, *cand) for value in row):
+            raise ValueError("profile data must contain only finite numbers")
         cand = [(x * args.scale_abscissa, y * args.scale_candidate) for x, y in cand]
+        if not all(math.isfinite(value) for row in cand for value in row):
+            raise ValueError("scaled candidate data must contain only finite numbers")
         queries = [x for x, _ in ref]
         cand_at_ref = interpolate(cand, queries)
         ref_vals = [y for _, y in ref]
         l2, linf, rel_l2, rel_linf = metrics(ref_vals, cand_at_ref)
+        if not all(math.isfinite(value) for value in (l2, linf, rel_l2, rel_linf)):
+            raise ValueError("computed metrics must be finite")
     except Exception as exc:  # noqa: BLE001 — surface any parse/IO issue to CI
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
