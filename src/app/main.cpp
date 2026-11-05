@@ -72,7 +72,10 @@ int main(int argc, char* argv[]) {
 
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("Vortia"));
-    app.setApplicationVersion(QStringLiteral("0.1.0"));
+#ifndef VORTIA_VERSION
+#define VORTIA_VERSION "0.1.0"
+#endif
+    app.setApplicationVersion(QStringLiteral(VORTIA_VERSION));
     app.setOrganizationName(QStringLiteral("Vortia"));
     app.setOrganizationDomain(QStringLiteral("vortia.dev"));
     // Embedded icon is available even when running the unbundled dev binary.

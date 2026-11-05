@@ -300,14 +300,27 @@ Configura VORTIA_OPENFOAM_DIR o instala OpenFOAM.</translation></message>
     <message><source>Vortia — Engineering the Flow
 
 Open-source CFD desktop application powered by OpenFOAM.
-Version 0.1.0 (pre-MVP)
+Version %1
 
 Original implementation. Vortia is not affiliated with ANSYS, Inc.</source><translation>Vortia — Engineering the Flow
 
 Aplicación de escritorio CFD de código abierto basada en OpenFOAM.
-Versión 0.1.0 (pre-MVP)
+Versión %1
 
 Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></message>
+    <message><source>Check for updates…</source><translation>Buscar actualizaciones…</translation></message>
+    <message><source>Checking for updates…</source><translation>Buscando actualizaciones…</translation></message>
+    <message><source>Vortia %1 is up to date.</source><translation>Vortia %1 está actualizado.</translation></message>
+    <message><source>Vortia %1 is available.</source><translation>Hay una nueva versión de Vortia (%1).</translation></message>
+    <message><source>Vortia %1 is available (you have %2). %3 · &lt;a href="notes"&gt;Release notes&lt;/a&gt; · &lt;a href="dismiss"&gt;Dismiss&lt;/a&gt;</source><translation>Vortia %1 está disponible (tienes %2). %3 · &lt;a href="notes"&gt;Notas de la versión&lt;/a&gt; · &lt;a href="dismiss"&gt;Descartar&lt;/a&gt;</translation></message>
+    <message><source>&lt;a href="update"&gt;Update now&lt;/a&gt;</source><translation>&lt;a href="update"&gt;Actualizar ahora&lt;/a&gt;</translation></message>
+    <message><source>&lt;a href="open"&gt;Open download page&lt;/a&gt;</source><translation>&lt;a href="open"&gt;Abrir página de descarga&lt;/a&gt;</translation></message>
+    <message><source>Update</source><translation>Actualización</translation></message>
+    <message><source>Update Vortia</source><translation>Actualizar Vortia</translation></message>
+    <message><source>Download and install Vortia %1 now? The application will restart.</source><translation>¿Descargar e instalar Vortia %1 ahora? La aplicación se reiniciará.</translation></message>
+    <message><source>Finish or cancel the running calculation before updating Vortia.</source><translation>Termina o cancela el cálculo en curso antes de actualizar Vortia.</translation></message>
+    <message><source>Downloading update…</source><translation>Descargando actualización…</translation></message>
+    <message><source>Cancel</source><translation>Cancelar</translation></message>
 <message><source>Open CFD results…</source><translation>Abrir resultados CFD…</translation></message>
 <message><source>Nozzle practice…</source><translation>Práctica de tobera…</translation></message>
 <message><source>Tutorial</source><translation>Práctica</translation></message>
@@ -1476,6 +1489,10 @@ Caso fallido conservado: %2
         <translation>Mostrar nombres junto a los iconos de herramientas</translation>
     </message>
     <message>
+        <source>Check for updates automatically when Vortia starts</source>
+        <translation>Buscar actualizaciones automáticamente al iniciar Vortia</translation>
+    </message>
+    <message>
         <source>Show workflow stage numbers</source>
         <translation>Mostrar los números de las etapas de trabajo</translation>
     </message>
@@ -2042,5 +2059,28 @@ SHA-256 de la muestra: %5</translation>
     <message><source>The available messages do not establish a specific cause. Keep the complete log rather than guessing a physical correction.</source><translation>Los mensajes disponibles no permiten establecer una causa concreta. Conserva el registro completo antes de proponer cambios físicos.</translation></message>
     <message><source>Open the detailed console and inspect the first specific error before the MPI shutdown messages. Save the diagnostic and review the relevant calculation, physics or mesh controls.</source><translation>Abre la consola detallada y busca el primer error concreto anterior a los mensajes de cierre de MPI. Guarda el diagnóstico y revisa los controles de cálculo, física o malla correspondientes.</translation></message>
     <message><source>What to do next</source><translation>Qué hacer ahora</translation></message>
+</context>
+<context>
+    <name>vortia::AppUpdater</name>
+    <message><source>Could not reach GitHub Releases: %1</source><translation>No se pudo contactar con GitHub Releases: %1</translation></message>
+    <message><source>Unexpected response from GitHub Releases.</source><translation>Respuesta inesperada de GitHub Releases.</translation></message>
+    <message><source>Latest release has no version tag.</source><translation>La última versión no tiene etiqueta.</translation></message>
+    <message><source>A new version (%1) is available, but no package for this platform was found.</source><translation>Hay una versión nueva (%1), pero no hay paquete para esta plataforma.</translation></message>
+    <message><source>This installation cannot be updated in place. Open the release page to download the new package.</source><translation>Esta instalación no se puede actualizar en el sitio. Abre la página de la versión para descargar el paquete nuevo.</translation></message>
+    <message><source>Downloading Vortia %1…</source><translation>Descargando Vortia %1…</translation></message>
+    <message><source>Download failed: %1</source><translation>Error de descarga: %1</translation></message>
+    <message><source>Could not write update package: %1</source><translation>No se pudo escribir el paquete de actualización: %1</translation></message>
+    <message><source>Could not save update package.</source><translation>No se pudo guardar el paquete de actualización.</translation></message>
+    <message><source>Could not apply the update.</source><translation>No se pudo aplicar la actualización.</translation></message>
+    <message><source>Not running from an AppImage.</source><translation>No se está ejecutando desde un AppImage.</translation></message>
+    <message><source>Could not move the current AppImage aside.</source><translation>No se pudo apartar el AppImage actual.</translation></message>
+    <message><source>Could not install the new AppImage.</source><translation>No se pudo instalar el AppImage nuevo.</translation></message>
+    <message><source>Restarting Vortia %1…</source><translation>Reiniciando Vortia %1…</translation></message>
+    <message><source>Could not launch the updated AppImage.</source><translation>No se pudo iniciar el AppImage actualizado.</translation></message>
+    <message><source>Not running from a Vortia.app bundle.</source><translation>No se está ejecutando desde un paquete Vortia.app.</translation></message>
+    <message><source>Could not write the macOS update helper.</source><translation>No se pudo escribir el asistente de actualización de macOS.</translation></message>
+    <message><source>Installing Vortia %1 and restarting…</source><translation>Instalando Vortia %1 y reiniciando…</translation></message>
+    <message><source>Could not start the macOS update helper.</source><translation>No se pudo iniciar el asistente de actualización de macOS.</translation></message>
+    <message><source>In-place updates are not supported on this platform.</source><translation>Las actualizaciones en el sitio no están disponibles en esta plataforma.</translation></message>
 </context>
 </TS>

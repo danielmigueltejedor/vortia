@@ -13,6 +13,7 @@ struct ApplicationPreferences {
     bool snapToGrid=true,showGrid=true,showDimensions=true,rememberLayout=true;
     bool showToolLabels=true;
     bool automaticMeshPreview=true;
+    bool checkForUpdatesAutomatically=true;
     bool showConsoleOnRun=false,showAssessmentOnRun=true,automaticPreview=true;
     static ApplicationPreferences load(QSettings&);
     void save(QSettings&) const;

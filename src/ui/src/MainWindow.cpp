@@ -82,6 +82,8 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QDesktopServices>
+#include <QProgressDialog>
 #include <QStatusBar>
 #include <QToolBar>
 #include <QLabel>
@@ -136,6 +138,13 @@ void MainWindow::showEvent(QShowEvent* event) {
 #if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     hideNativeWindowTitle(this);
 #endif
+    if (!updateCheckStarted_ && preferences_.checkForUpdatesAutomatically && appUpdater_) {
+        updateCheckStarted_ = true;
+        QTimer::singleShot(2500, this, [this]() {
+            if (appUpdater_)
+                appUpdater_->checkForUpdates(false);
+        });
+    }
 }
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -190,6 +199,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     connect(explorer_, &ProjectExplorerPanel::nodeActivated, this, &MainWindow::onNodeActivated);
     explorer_->retranslate();
+
+    appUpdater_ = new AppUpdater(this);
+    connect(appUpdater_, &AppUpdater::updateAvailable, this, &MainWindow::onUpdateAvailable);
+    connect(appUpdater_, &AppUpdater::checkFailed, this, [this](const QString& message, bool userInitiated) {
+        setProjectState(message);
+        if (userInitiated)
+            QMessageBox::warning(this, tr("Update"), message);
+    });
+    connect(appUpdater_, &AppUpdater::upToDate, this, [this](const QString& version, bool userInitiated) {
+        const QString text = tr("Vortia %1 is up to date.").arg(version);
+        setProjectState(text);
+        if (userInitiated)
+            QMessageBox::information(this, tr("Update"), text);
+    });
+    connect(appUpdater_, &AppUpdater::applyFailed, this, [this](const QString& message) {
+        hideUpdateBanner();
+        QMessageBox::warning(this, tr("Update"), message);
+    });
+    connect(appUpdater_, &AppUpdater::applyStarted, this, [this](const QString& message) {
+        setProjectState(message);
+    });
 
     loadSettings();
     addProjectTab(tr("Untitled %1").arg(++untitledCount_), setup_);
@@ -272,6 +302,7 @@ void MainWindow::buildMenusAndToolbar() {
     themeAction_ = viewMenu->addAction(tr("Toggle Dark/Light Theme"), this, &MainWindow::onToggleTheme);
 
     auto* helpMenu = menuBar()->addMenu(tr("Help"));
+    helpMenu->addAction(tr("Check for updates…"), this, &MainWindow::onCheckForUpdates);
     helpMenu->addAction(tr("About Vortia"), this, &MainWindow::onAbout);
 
     // Use Qt style icons so that no third-party icons/fonts or platform-specific
@@ -772,6 +803,18 @@ void MainWindow::buildDocks() {
 #else
     centralLayout->addWidget(projectTabs_);
 #endif
+    updateNotice_ = new QLabel(central);
+    updateNotice_->setObjectName(QStringLiteral("vortia-update-notice"));
+    updateNotice_->setWordWrap(true);
+    updateNotice_->setMargin(8);
+    updateNotice_->setTextFormat(Qt::RichText);
+    updateNotice_->setOpenExternalLinks(false);
+    updateNotice_->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    updateNotice_->setStyleSheet(QStringLiteral(
+        "QLabel { background:palette(alternate-base); color:palette(text); border-left:3px solid #3d7ea6; padding:5px 8px; }"));
+    updateNotice_->hide();
+    connect(updateNotice_, &QLabel::linkActivated, this, &MainWindow::onUpdateBannerLink);
+    centralLayout->addWidget(updateNotice_);
     nozzleNotice_ = new QLabel(central);
     nozzleNotice_->setObjectName(QStringLiteral("vortia-nozzle-validation-notice"));
     nozzleNotice_->setWordWrap(true);
@@ -2077,8 +2120,86 @@ void MainWindow::onAbout() {
     QMessageBox::about(this, tr("About Vortia"),
                        tr("Vortia — Engineering the Flow\n\n"
                           "Open-source CFD desktop application powered by OpenFOAM.\n"
-                          "Version 0.1.0 (pre-MVP)\n\n"
-                          "Original implementation. Vortia is not affiliated with ANSYS, Inc."));
+                          "Version %1\n\n"
+                          "Original implementation. Vortia is not affiliated with ANSYS, Inc.")
+                           .arg(QCoreApplication::applicationVersion()));
+}
+
+void MainWindow::onCheckForUpdates() {
+    if (!appUpdater_)
+        return;
+    setProjectState(tr("Checking for updates…"));
+    appUpdater_->checkForUpdates(true);
+}
+
+void MainWindow::onUpdateAvailable(const AppUpdateInfo& info) {
+    pendingUpdate_ = info;
+    showUpdateBanner(info);
+    setProjectState(tr("Vortia %1 is available.").arg(info.version));
+}
+
+void MainWindow::showUpdateBanner(const AppUpdateInfo& info) {
+    if (!updateNotice_)
+        return;
+    const QString action = AppUpdater::canApplyInPlace()
+        ? tr("<a href=\"update\">Update now</a>")
+        : tr("<a href=\"open\">Open download page</a>");
+    updateNotice_->setText(
+        tr("Vortia %1 is available (you have %2). %3 · <a href=\"notes\">Release notes</a> · <a href=\"dismiss\">Dismiss</a>")
+            .arg(info.version, AppUpdater::currentVersion(), action));
+    updateNotice_->show();
+}
+
+void MainWindow::hideUpdateBanner() {
+    if (updateNotice_)
+        updateNotice_->hide();
+}
+
+void MainWindow::onUpdateBannerLink(const QString& link) {
+    if (link == QLatin1String("dismiss")) {
+        hideUpdateBanner();
+        return;
+    }
+    if (link == QLatin1String("notes")) {
+        if (!pendingUpdate_.releasePage.isEmpty())
+            QDesktopServices::openUrl(pendingUpdate_.releasePage);
+        return;
+    }
+    if (link == QLatin1String("open")) {
+        if (!pendingUpdate_.releasePage.isEmpty())
+            QDesktopServices::openUrl(pendingUpdate_.releasePage);
+        return;
+    }
+    if (link != QLatin1String("update"))
+        return;
+
+    if (projectSwitchLocked()) {
+        QMessageBox::information(this, tr("Update"),
+                                 tr("Finish or cancel the running calculation before updating Vortia."));
+        return;
+    }
+    const auto reply = QMessageBox::question(
+        this, tr("Update Vortia"),
+        tr("Download and install Vortia %1 now? The application will restart.")
+            .arg(pendingUpdate_.version),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    if (reply != QMessageBox::Yes)
+        return;
+
+    auto* progress = new QProgressDialog(tr("Downloading update…"), tr("Cancel"), 0, 100, this);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->setValue(0);
+    connect(appUpdater_, &AppUpdater::downloadProgress, progress,
+            [progress](qint64 received, qint64 total) {
+                if (total > 0)
+                    progress->setValue(static_cast<int>((received * 100) / total));
+            });
+    connect(appUpdater_, &AppUpdater::applyStarted, progress, &QProgressDialog::close);
+    connect(appUpdater_, &AppUpdater::applyFailed, progress, &QProgressDialog::close);
+    connect(progress, &QProgressDialog::canceled, appUpdater_, &AppUpdater::cancel);
+    hideUpdateBanner();
+    appUpdater_->downloadAndApply(pendingUpdate_);
 }
 
 void MainWindow::setProjectState(const QString& statusText) {

@@ -65,7 +65,7 @@ add_subdirectory(src/solver)
 # core libraries and tests still build in minimal environments (e.g. CI).
 # --------------------------------------------------------------------------
 if(VORTIA_BUILD_UI)
-    find_package(Qt6 QUIET COMPONENTS Widgets OpenGLWidgets)
+    find_package(Qt6 QUIET COMPONENTS Widgets OpenGLWidgets Network)
     find_package(VTK QUIET COMPONENTS
         CommonCore
         CommonDataModel
