@@ -26,7 +26,8 @@ Plan técnico 0.2.0: [`docs/VORTIA_0.2.0.md`](VORTIA_0.2.0.md).
 | Fecha | Caso | Qué se midió | Resultado | Notas |
 |---|---|---|---|---|
 | 2026-11-05 | Poiseuille / Ghia | Software: identidades analíticas + tablas de referencia + `CaseWriter` acepta casos | PASS (CTest `test_verification`) | **No** es verificación CFD frente a solver |
-| — | — | Ejecuciones OpenFOAM + errores L2/L∞ | *(pendiente)* | Prohibido rellenar con datos sintéticos |
+| 2026-11-05 | Poiseuille / Ghia | Harness write→run→sample→compare | Scripts + CTest (`SKIP` sin OpenFOAM) | Ejecutar `benchmarks/*/scripts/run_openfoam.sh` con OF en PATH para obtener PASS/FAIL real |
+| — | — | Ejecuciones OpenFOAM + errores L2/L∞ registrados aquí | *(pendiente de corrida nativa documentada)* | Prohibido rellenar con datos sintéticos |
 
 *(Solo resultados reales; prohibido registrar campos inventados como validación.)*
 
