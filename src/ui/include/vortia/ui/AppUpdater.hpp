@@ -46,6 +46,7 @@ signals:
     void upToDate(const QString& currentVersion, bool userInitiated);
     void updateAvailable(const AppUpdateInfo& info);
     void downloadProgress(qint64 received, qint64 total);
+    void downloadFinished();
     void applyFailed(const QString& message);
     void applyStarted(const QString& message);
 

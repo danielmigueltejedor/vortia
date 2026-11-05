@@ -237,6 +237,8 @@ void AppUpdater::downloadAndApply(const AppUpdateInfo& info) {
 }
 
 void AppUpdater::handleDownloadFinished(QNetworkReply* reply, AppUpdateInfo info) {
+    emit downloadFinished();
+
     if (reply->error() != QNetworkReply::NoError) {
         emit applyFailed(tr("Download failed: %1").arg(reply->errorString()));
         return;

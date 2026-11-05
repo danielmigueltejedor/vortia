@@ -2187,6 +2187,7 @@ void MainWindow::onUpdateBannerLink(const QString& link) {
         return;
 
     auto* progress = new QProgressDialog(tr("Downloading update…"), tr("Cancel"), 0, 100, this);
+    progress->setAttribute(Qt::WA_DeleteOnClose);
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
     progress->setValue(0);
@@ -2195,7 +2196,7 @@ void MainWindow::onUpdateBannerLink(const QString& link) {
                 if (total > 0)
                     progress->setValue(static_cast<int>((received * 100) / total));
             });
-    connect(appUpdater_, &AppUpdater::applyStarted, progress, &QProgressDialog::close);
+    connect(appUpdater_, &AppUpdater::downloadFinished, progress, &QProgressDialog::close);
     connect(appUpdater_, &AppUpdater::applyFailed, progress, &QProgressDialog::close);
     connect(progress, &QProgressDialog::canceled, appUpdater_, &AppUpdater::cancel);
     hideUpdateBanner();
