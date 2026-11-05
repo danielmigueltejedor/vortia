@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Vortia
+Comment=Open professional CFD desktop application powered by OpenFOAM
+Exec=vortia
+Icon=vortia
+Categories=Science;Education;Engineering;
+Terminal=false
+StartupNotify=true
