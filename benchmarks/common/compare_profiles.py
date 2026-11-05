@@ -43,6 +43,8 @@ def interpolate(sorted_xy: list[tuple[float, float]], queries: list[float]) -> l
     out: list[float] = []
     xs = [p[0] for p in sorted_xy]
     ys = [p[1] for p in sorted_xy]
+    if queries and (min(queries) < xs[0] or max(queries) > xs[-1]):
+        raise ValueError("candidate abscissa range does not cover reference domain")
     for q in queries:
         if q <= xs[0]:
             out.append(ys[0])
