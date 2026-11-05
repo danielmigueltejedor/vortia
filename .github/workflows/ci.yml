@@ -133,6 +133,10 @@ jobs:
           "$RUNNER_TEMP/vortia-gmsh/bin/pip" install gmsh==4.15.2
           VORTIA_REGION_CHECK_OPENFOAM=1 PYTHONDONTWRITEBYTECODE=1 \
             "$RUNNER_TEMP/vortia-gmsh/bin/python" resources/flow/test_mesh_regions_native.py
+      # Native Poiseuille/Ghia solver compares stay out of this job: Ubuntu's
+      # openfoam apt meta-package ships a broken /usr/share/openfoam bashrc
+      # (missing foamEtcFile) and simpleFoam segfaults here. Harness scripts +
+      # CTest SKIP_RETURN_CODE=2 cover the path when a complete install exists.
 
   macos:
     runs-on: macos-15

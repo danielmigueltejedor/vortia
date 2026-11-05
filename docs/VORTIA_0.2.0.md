@@ -69,7 +69,9 @@ Quantitative error tolerances are set **per benchmark** before runs, with scient
 | **E** | Performance & Reliability | Profiling, MPI scaling evidence, regressions |
 | **F** | 0.2.0 RC | Packaging, docs, release criteria checklist |
 
-**First PR (Milestone A → start of B):** verification library + Poiseuille/Ghia benchmark packages with always-on analytic/reference tests; OpenFOAM execution scripts gated (no fake pass).
+**First PR (Milestone A):** verification library + Poiseuille/Ghia packages + always-on analytic tests.
+
+**Harness PR (Milestone B start):** `benchmark_write_case`, sample dictionaries, `compare_profiles.py`, CTest write smoke + OpenFOAM-gated runs (`SKIP_RETURN_CODE 2` when solvers are absent). No fabricated CFD results.
 
 ---
 

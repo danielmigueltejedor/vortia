@@ -44,12 +44,37 @@ gtest_discover_tests(test_physics)
 
 add_executable(test_verification
     unit/test_verification.cpp)
+target_include_directories(test_verification PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
 target_link_libraries(test_verification PRIVATE
     vortia::verification
     vortia::solver
     GTest::gtest_main
     vortia_warnings)
+target_compile_definitions(test_verification PRIVATE
+    VORTIA_BENCHMARK_ROOT="${PROJECT_SOURCE_DIR}/benchmarks")
 gtest_discover_tests(test_verification)
+
+# Always-on: CLI can materialize a Poiseuille case directory (no OpenFOAM run).
+add_test(NAME benchmark_write_poiseuille_smoke
+    COMMAND $<TARGET_FILE:benchmark_write_case> poiseuille
+            "${CMAKE_BINARY_DIR}/benchmark-smoke/poiseuille")
+
+# Native OpenFOAM verification: exit 2 = tools missing → CTest SKIP.
+add_test(NAME benchmark_poiseuille_openfoam
+    COMMAND bash "${PROJECT_SOURCE_DIR}/benchmarks/poiseuille-laminar-2d/scripts/run_openfoam.sh"
+            "${CMAKE_BINARY_DIR}/benchmark-native/poiseuille")
+set_tests_properties(benchmark_poiseuille_openfoam PROPERTIES
+    ENVIRONMENT "VORTIA_BENCHMARK_WRITE_CASE=$<TARGET_FILE:benchmark_write_case>"
+    SKIP_RETURN_CODE 2
+    TIMEOUT 600)
+
+add_test(NAME benchmark_ghia_openfoam
+    COMMAND bash "${PROJECT_SOURCE_DIR}/benchmarks/lid-driven-cavity-ghia-re100/scripts/run_openfoam.sh"
+            "${CMAKE_BINARY_DIR}/benchmark-native/ghia")
+set_tests_properties(benchmark_ghia_openfoam PROPERTIES
+    ENVIRONMENT "VORTIA_BENCHMARK_WRITE_CASE=$<TARGET_FILE:benchmark_write_case>"
+    SKIP_RETURN_CODE 2
+    TIMEOUT 1200)
 
 add_executable(test_solver
     unit/test_installation.cpp
@@ -105,6 +130,8 @@ if(Python3_Interpreter_FOUND)
         COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/resources/flow/test_prepare.py)
     add_test(NAME nozzle_video_reference
         COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/nozzle-video-2026/test_prepare.py)
+    add_test(NAME compare_profiles
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/native/test_compare_profiles.py)
 endif()
 
 # Small standalone exporter for actual OpenFOAM blockMesh/checkMesh smoke tests.
