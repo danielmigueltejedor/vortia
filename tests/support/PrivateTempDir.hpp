@@ -1,7 +1,6 @@
 #pragma once
 
 #include <chrono>
-#include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -13,21 +12,25 @@
 
 namespace vortia::test {
 
-/// Creates an exclusive temporary directory with owner-only permissions.
-/// Prefer this over `temp_directory_path() / predictable-name`, which is a
-/// TOCTOU race in a publicly writable directory (Sonar cpp:S5443).
+/// Creates an exclusive temporary directory with owner-only permissions under
+/// the process working directory (the CTest build tree), never under a
+/// world-writable system temp path (Sonar cpp:S5443).
 inline std::filesystem::path makePrivateTempDir(std::string_view prefix) {
+    const auto base = std::filesystem::current_path() / ".vortia-test-tmp";
+    std::error_code ec;
+    std::filesystem::create_directories(base, ec);
+    if (ec)
+        throw std::runtime_error("failed to create private temporary base directory");
+
 #ifdef _WIN32
-    auto path = std::filesystem::temp_directory_path() /
+    auto path = base /
                 (std::string(prefix) + "-" +
                  std::to_string(
                      std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::filesystem::create_directories(path);
+    if (!std::filesystem::create_directory(path))
+        throw std::runtime_error("failed to create private temporary directory");
 #else
-    const char* tmp = std::getenv("TMPDIR");
-    if (tmp == nullptr || tmp[0] == '\0')
-        tmp = "/tmp";
-    std::string tmpl = std::string(tmp) + "/" + std::string(prefix) + "XXXXXX";
+    std::string tmpl = (base / (std::string(prefix) + "XXXXXX")).string();
     if (mkdtemp(tmpl.data()) == nullptr)
         throw std::runtime_error("failed to create private temporary directory");
     auto path = std::filesystem::path(tmpl);

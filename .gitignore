@@ -2,6 +2,7 @@
 build/
 build-*/
 out/
+.vortia-test-tmp/
 *.o
 *.a
 *.dylib
