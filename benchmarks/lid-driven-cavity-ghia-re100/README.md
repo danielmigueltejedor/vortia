@@ -35,3 +35,7 @@ Pending first mesh-independence study. Provisional targets for a \(\ge 64^2\) ce
 ## Citation
 
 See `reference/SOURCE.md`.
+
+## Harness
+
+Use `benchmark_write_case` and `scripts/run_openfoam.sh` (requires OpenFOAM on PATH). CTest skips with code 2 when solvers are absent.
