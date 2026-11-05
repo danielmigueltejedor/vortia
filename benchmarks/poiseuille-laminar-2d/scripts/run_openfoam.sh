@@ -48,19 +48,26 @@ rm -rf "$case_dir"
 mkdir -p "$work"
 "$write_tool" poiseuille "$case_dir" "$dist"
 
-(
-  cd "$case_dir"
-  blockMesh > log.blockMesh 2>&1
-  "${solver[@]}" > log.solver 2>&1
-  if command -v postProcess >/dev/null 2>&1; then
-    postProcess -func sampleU -latestTime > log.sampleU 2>&1 || true
-  fi
-)
+cd "$case_dir"
+if ! blockMesh > log.blockMesh 2>&1; then
+  echo "blockMesh failed:" >&2
+  cat log.blockMesh >&2
+  exit 1
+fi
+if ! "${solver[@]}" > log.solver 2>&1; then
+  echo "solver (${solver[*]}) failed:" >&2
+  tail -n 120 log.solver >&2
+  exit 1
+fi
+if command -v postProcess >/dev/null 2>&1; then
+  postProcess -func sampleU -latestTime > log.sampleU 2>&1 || true
+fi
 
 sample="$(find "$case_dir/postProcessing" -type f \( -name '*centreline*' -o -name '*.xy' \) 2>/dev/null | head -n1 || true)"
 if [[ -z "$sample" ]]; then
   echo "No sample file under postProcessing. See logs in $case_dir" >&2
-  tail -n 40 "$case_dir/log.solver" >&2 || true
+  tail -n 40 log.solver >&2 || true
+  tail -n 40 log.sampleU >&2 || true
   exit 1
 fi
 
