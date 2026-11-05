@@ -12,6 +12,12 @@ import argparse
 import math
 import sys
 
+_ZERO = 1e-15
+
+
+def _near_zero(value: float) -> bool:
+    return math.isclose(value, 0.0, rel_tol=0.0, abs_tol=_ZERO)
+
 
 def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: float = 1.25):
     if not all(math.isfinite(v) for v in (f1, f2, f3, r21, r32, fs)):
@@ -21,7 +27,7 @@ def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: flo
 
     eps21 = f2 - f1
     eps32 = f3 - f2
-    if eps21 == 0.0 and eps32 == 0.0:
+    if _near_zero(eps21) and _near_zero(eps32):
         return {
             "observed_order": 0.0,
             "extrapolated": f1,
@@ -30,7 +36,7 @@ def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: flo
             "asymptotic_ratio": 1.0,
             "message": "identical solutions on all three meshes",
         }
-    if eps21 == 0.0 or eps32 == 0.0:
+    if _near_zero(eps21) or _near_zero(eps32):
         raise ValueError("zero consecutive difference; cannot estimate observed order")
 
     oscillatory = (eps21 * eps32) < 0.0
@@ -47,11 +53,11 @@ def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: flo
     f_exact = (rp21 * f1 - f2) / (rp21 - 1.0)
     abs_gci12 = fs * abs(eps21) / (rp21 - 1.0)
     abs_gci23 = fs * abs(eps32) / (rp32 - 1.0)
-    scale1 = abs(f1) if abs(f1) > 0.0 else 1.0
-    scale2 = abs(f2) if abs(f2) > 0.0 else 1.0
+    scale1 = abs(f1) if abs(f1) > _ZERO else 1.0
+    scale2 = abs(f2) if abs(f2) > _ZERO else 1.0
     gci12 = abs_gci12 / scale1
     gci23 = abs_gci23 / scale2
-    asym = abs_gci23 / (rp21 * abs_gci12) if abs_gci12 > 0.0 else 0.0
+    asym = abs_gci23 / (rp21 * abs_gci12) if abs_gci12 > _ZERO else 0.0
     return {
         "observed_order": p,
         "extrapolated": f_exact,

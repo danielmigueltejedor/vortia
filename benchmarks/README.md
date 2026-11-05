@@ -17,6 +17,7 @@ benchmarks/
   README.md
   poiseuille-laminar-2d/
   lid-driven-cavity-ghia-re100/
+  blasius-flat-plate/
 ```
 
 Each case contains: problem definition, reference data, how to generate the OpenFOAM case via Vortia APIs, compare scripts, and acceptance criteria set **before** solving.
@@ -40,4 +41,3 @@ python3 benchmarks/common/gci.py --f1 <fine> --f2 <mid> --f3 <coarse> --r21 2 --
 ```
 
 C++: `vortia::verification::computeGci` (Roache / Celik). Record outputs under `benchmarks/<case>/results/` (gitignored). GCI numbers without the underlying OpenFOAM fields are not a verification claim.
-

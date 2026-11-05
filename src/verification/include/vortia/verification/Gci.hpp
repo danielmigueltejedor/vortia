@@ -54,7 +54,10 @@ struct GciResult {
 
     const double eps21 = in.f2 - in.f1;
     const double eps32 = in.f3 - in.f2;
-    if (eps21 == 0.0 && eps32 == 0.0) {
+    constexpr double kZero = 1e-15;
+    const bool eps21Zero = std::abs(eps21) <= kZero;
+    const bool eps32Zero = std::abs(eps32) <= kZero;
+    if (eps21Zero && eps32Zero) {
         out.ok = true;
         out.observedOrder = 0.0;
         out.extrapolated = in.f1;
@@ -64,7 +67,7 @@ struct GciResult {
         out.message = "identical solutions on all three meshes";
         return out;
     }
-    if (eps21 == 0.0 || eps32 == 0.0) {
+    if (eps21Zero || eps32Zero) {
         out.message = "zero consecutive difference; cannot estimate observed order";
         return out;
     }

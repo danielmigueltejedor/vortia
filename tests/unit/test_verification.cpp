@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "vortia/verification/Blasius.hpp"
+#include "vortia/verification/Conservation.hpp"
 #include "vortia/verification/Gci.hpp"
 #include "vortia/verification/GhiaCavity.hpp"
 #include "vortia/verification/Poiseuille.hpp"
@@ -17,6 +19,60 @@
 using namespace vortia;
 using namespace vortia::verification;
 using namespace vortia::openfoam;
+
+TEST(Blasius, SkinFrictionAndDeltaMatchClassicalCorrelations) {
+    BlasiusPlate p;
+    const double x = 0.5 * p.length;
+    const double rex = reynoldsX(p, x);
+    EXPECT_NEAR(rex, p.freestream * x / p.nu, 1e-12);
+    EXPECT_NEAR(localSkinFriction(p, x), 0.664 / std::sqrt(rex), 1e-12);
+    EXPECT_NEAR(delta99(p, x), 5.0 * x / std::sqrt(rex), 1e-12);
+    const auto& table = blasiusFPrimeTable();
+    ASSERT_GE(table.size(), 3u);
+    EXPECT_DOUBLE_EQ(table.front().eta, 0.0);
+    EXPECT_DOUBLE_EQ(table.front().fPrime, 0.0);
+    EXPECT_NEAR(table.back().fPrime, 1.0, 1e-9);
+    EXPECT_FALSE(std::string(blasiusCitation()).empty());
+}
+
+TEST(Blasius, CaseSetupIsStructurallyValid) {
+    const auto setup = makeBlasiusCase(BlasiusPlate{});
+    const auto issues = setup.validate();
+    for (const auto& issue : issues)
+        EXPECT_NE(issue.severity, Severity::Error) << issue.message;
+    EXPECT_GT(setup.estimateReynolds(), 0.0);
+}
+
+TEST(Conservation, BalancedFluxesPass) {
+    FluxConservationInput in;
+    in.inletFlux = 1.0;
+    in.outletFlux = 1.0;
+    in.relativeTolerance = 1e-3;
+    const auto r = assessVolumeFluxBalance(in);
+    ASSERT_TRUE(r.ok) << r.message;
+    EXPECT_NEAR(r.relativeImbalance, 0.0, 1e-15);
+}
+
+TEST(Conservation, ImbalancedFluxesFail) {
+    FluxConservationInput in;
+    in.inletFlux = 1.0;
+    in.outletFlux = 0.9;
+    in.relativeTolerance = 1e-3;
+    const auto r = assessVolumeFluxBalance(in);
+    EXPECT_FALSE(r.ok);
+    EXPECT_NEAR(r.relativeImbalance, 0.1, 1e-12);
+}
+
+TEST(Conservation, PoiseuilleAnalyticFluxSelfConsistent) {
+    PoiseuilleChannel c;
+    const double q = analyticalFlowPerDepth(c);
+    FluxConservationInput in;
+    in.inletFlux = q;
+    in.outletFlux = q;
+    in.relativeTolerance = 1e-12;
+    const auto r = assessVolumeFluxBalance(in);
+    ASSERT_TRUE(r.ok) << r.message;
+}
 
 TEST(Gci, ExactSecondOrderMonotonicRefinement) {
     // Manufactured: f(h) = f* + C h^2 with f*=1, C=1, h={0.25,0.5,1}.

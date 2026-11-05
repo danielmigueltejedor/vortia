@@ -75,6 +75,8 @@ Quantitative error tolerances are set **per benchmark** before runs, with scient
 
 **GCI tooling (Milestone B):** `vortia::verification::computeGci` + `benchmarks/common/gci.py` (Roache three-grid). Always-on unit/native tests with manufactured second-order data. Native Poiseuille/Ghia GCI numbers still require a complete OpenFOAM host — not claimed until recorded under `results/`.
 
+**Blasius + conservation (Milestone B):** third benchmark package (`blasius-flat-plate/`) with classical \(c_f\)/\(\delta_{99}\)/\(f'(\eta)\) checks; `assessVolumeFluxBalance` for inlet/outlet flux imbalance. Analytic/unit only until native OF results exist.
+
 ---
 
 ## 4. Benchmark priority order
