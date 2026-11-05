@@ -10,8 +10,8 @@ Distinguimos tres niveles (no intercambiables):
 
 | # | Caso | Nivel | Estado | Evidencia |
 |---|---|---|---|---|
-| 1 | Poiseuille (perfil analítico) | Verificación | ⬜ Pendiente (requiere backend) | — |
-| 2 | Cavidad tapa móvil Re=100 (Ghia et al. 1982) | Verificación | ⬜ Pendiente | — |
+| 1 | Poiseuille (perfil analítico) | Verificación | 🟡 Infraestructura + tests analíticos; ejecución OF pendiente | `benchmarks/poiseuille-laminar-2d/`, `vortia::verification`, `test_verification` |
+| 2 | Cavidad tapa móvil Re=100 (Ghia et al. 1982) | Verificación | 🟡 Tablas citadas + case factory; comparación CFD pendiente | `benchmarks/lid-driven-cavity-ghia-re100/`, Ghia 1982 Tables I–II |
 | 3 | Canal con escalón | Verificación | ⬜ Pendiente | — |
 | 4 | Perfil aerodinámico | Verificación/Validación | ⬜ Pendiente | — |
 | 5 | Sensibilidad a la malla | Verificación | ⬜ Pendiente | — |
@@ -21,7 +21,14 @@ Distinguimos tres niveles (no intercambiables):
 Definición física → hipótesis → parámetros (con unidades) → geometría → malla → modelo → esquemas → solución de referencia → métricas de error (L2/L∞) → límites de validez. Todo bajo `benchmarks/<caso>/` con `README.md` reproducible.
 
 ## Registro
-*(vacío — se rellenará con resultados reales; prohibido registrar resultados sintéticos como si fueran validación)*
+Plan técnico 0.2.0: [`docs/VORTIA_0.2.0.md`](VORTIA_0.2.0.md).
+
+| Fecha | Caso | Qué se midió | Resultado | Notas |
+|---|---|---|---|---|
+| 2026-11-05 | Poiseuille / Ghia | Software: identidades analíticas + tablas de referencia + `CaseWriter` acepta casos | PASS (CTest `test_verification`) | **No** es verificación CFD frente a solver |
+| — | — | Ejecuciones OpenFOAM + errores L2/L∞ | *(pendiente)* | Prohibido rellenar con datos sintéticos |
+
+*(Solo resultados reales; prohibido registrar campos inventados como validación.)*
 
 
 ## Comprobaciones de rendimiento del motor experimental (25/10/2026)

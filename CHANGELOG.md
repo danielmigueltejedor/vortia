@@ -4,6 +4,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+### Añadido
+- Plan técnico **Vortia 0.2.0** (`docs/VORTIA_0.2.0.md`) tras auditoría de la línea base 0.1.1.
+- Módulo `vortia::verification` (métricas L2/L∞, Poiseuille analítico, tablas Ghia Re=100).
+- Árbol `benchmarks/` para Poiseuille 2D y cavidad Ghia Re=100 (referencias citadas; ejecución OF aún no reclamada).
+- Suite CTest `test_verification` (siempre activa, sin OpenFOAM).
+
 ## [0.1.1] — 2026-11-05
 
 ### Añadido
