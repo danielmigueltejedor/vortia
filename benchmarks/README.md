@@ -26,4 +26,6 @@ Analytic / reference-table checks live in `tests/unit/test_verification.cpp` (li
 
 ## Optional OpenFOAM execution
 
-See each case’s `scripts/run_openfoam.sh`. Scripts exit non-zero if the backend is missing; they never fabricate residuals or fields.
+See each case’s `scripts/run_openfoam.sh`. Scripts exit `2` if solvers/`blockMesh` are missing (CTest `SKIP_RETURN_CODE`), `1` on real compare failure, and never fabricate residuals or fields.
+
+Requires a **complete** OpenFOAM install (ESI `simpleFoam` or Foundation `foamRun`). Ubuntu’s `openfoam` apt meta-package often ships a broken `/usr/share/openfoam` environment and is not a valid verification host.
