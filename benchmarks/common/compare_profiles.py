@@ -14,7 +14,21 @@ import sys
 from pathlib import Path
 
 
+def accept_path(path: Path) -> Path:
+    """Resolve a CLI path. Relative paths must stay under cwd; absolute paths are kept."""
+    raw = Path(path).expanduser()
+    resolved = raw.resolve(strict=False)
+    if not raw.is_absolute():
+        cwd = Path.cwd().resolve()
+        if not resolved.is_relative_to(cwd):
+            raise ValueError(f"Refusing relative path outside the working directory: {path}")
+    if not resolved.is_file():
+        raise ValueError(f"Not a readable file: {path}")
+    return resolved
+
+
 def load_xy(path: Path) -> list[tuple[float, float]]:
+    path = accept_path(path)
     rows: list[tuple[float, float]] = []
     for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = raw.strip()
@@ -90,6 +104,7 @@ def metrics(ref: list[float], cand: list[float]) -> tuple[float, float, float, f
 
 def parse_openfoam_raw_u(path: Path, component: int) -> list[tuple[float, float]]:
     """Parse foam sample raw file: x y z Ux Uy Uz (or similar)."""
+    path = accept_path(path)
     rows: list[tuple[float, float]] = []
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
