@@ -12,9 +12,10 @@
 
 namespace vortia::test {
 
-/// Creates an exclusive temporary directory with owner-only permissions under
-/// the process working directory (the CTest build tree), never under a
-/// world-writable system temp path (Sonar cpp:S5443).
+/// Creates an exclusive temporary directory with owner-only permissions.
+/// Base path is always under the process cwd (CTest build tree). Do not use
+/// TMPDIR, /tmp, or std::filesystem::temp_directory_path() here — those are
+/// world-writable and trip Sonar cpp:S5443.
 inline std::filesystem::path makePrivateTempDir(std::string_view prefix) {
     const auto base = std::filesystem::current_path() / ".vortia-test-tmp";
     std::error_code ec;
@@ -23,6 +24,7 @@ inline std::filesystem::path makePrivateTempDir(std::string_view prefix) {
         throw std::runtime_error("failed to create private temporary base directory");
 
 #ifdef _WIN32
+    // Still under cwd/.vortia-test-tmp — never the system temp root.
     auto path = base /
                 (std::string(prefix) + "-" +
                  std::to_string(
