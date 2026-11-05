@@ -83,8 +83,8 @@ def metrics(ref: list[float], cand: list[float]) -> tuple[float, float, float, f
         max_abs_ref = max(max_abs_ref, abs(a))
     l2 = math.sqrt(sum_sq / n)
     ref_norm = math.sqrt(sum_sq_ref / n)
-    rel_l2 = (l2 / ref_norm) if ref_norm > 0 else 0.0
-    rel_linf = (linf / max_abs_ref) if max_abs_ref > 0 else 0.0
+    rel_l2 = (l2 / ref_norm) if ref_norm > 0 else (math.inf if l2 > 0 else 0.0)
+    rel_linf = (linf / max_abs_ref) if max_abs_ref > 0 else (math.inf if linf > 0 else 0.0)
     return l2, linf, rel_l2, rel_linf
 
 
@@ -151,7 +151,7 @@ def main() -> int:
 
     print(f"n={len(ref_vals)} L2={l2:.6e} Linf={linf:.6e} relL2={rel_l2:.6e} relLinf={rel_linf:.6e}")
     print(f"thresholds: relL2<={args.rel_l2_max} relLinf<={args.rel_linf_max}")
-    if rel_l2 > args.rel_l2_max or rel_linf > args.rel_linf_max:
+    if math.isinf(rel_l2) or math.isinf(rel_linf) or rel_l2 > args.rel_l2_max or rel_linf > args.rel_linf_max:
         print("FAIL: errors exceed a-priori thresholds", file=sys.stderr)
         return 1
     print("PASS")
