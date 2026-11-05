@@ -40,7 +40,6 @@ mkdir -p "$tools" "$appdir/usr/bin" "$appdir/usr/share/applications" \
 cp "$exe" "$appdir/usr/bin/vortia"
 chmod +x "$appdir/usr/bin/vortia"
 
-# Ship Spanish catalog next to resources when present.
 for qm in \
   "$(dirname "$exe")/../vortia_es.qm" \
   "$(dirname "$exe")/vortia_es.qm" \
@@ -56,7 +55,6 @@ cp "$icon" "$appdir/usr/share/icons/hicolor/256x256/apps/vortia.png"
 cp "$icon" "$appdir/vortia.png"
 cp "$desktop" "$appdir/Vortia.desktop"
 
-# linuxdeploy (+ Qt plugin). Extract-and-run: GitHub runners often lack FUSE.
 base_url="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous"
 plugin_url="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous"
 curl -fsSL "$base_url/linuxdeploy-x86_64.AppImage" -o "$tools/linuxdeploy.AppImage"
@@ -64,11 +62,41 @@ curl -fsSL "$plugin_url/linuxdeploy-plugin-qt-x86_64.AppImage" -o "$tools/linuxd
 chmod +x "$tools"/linuxdeploy*.AppImage
 
 if [[ -n "${CONDA_PREFIX:-}" ]]; then
-  export PATH="$CONDA_PREFIX/bin:$PATH"
+  export PATH="$CONDA_PREFIX/bin:$CONDA_PREFIX/lib/qt6/bin:$PATH"
   export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  export QMAKE="${QMAKE:-$CONDA_PREFIX/bin/qmake}"
 fi
-export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake || true)}"
+
+resolve_qmake() {
+  local candidates=(
+    "${QMAKE:-}"
+    "${CONDA_PREFIX:-}/lib/qt6/bin/qmake"
+    "${CONDA_PREFIX:-}/bin/qmake"
+    "${CONDA_PREFIX:-}/bin/qmake6"
+  )
+  local found
+  found="$(command -v qmake6 2>/dev/null || true)"
+  candidates+=("$found")
+  found="$(command -v qmake 2>/dev/null || true)"
+  candidates+=("$found")
+  local c
+  for c in "${candidates[@]}"; do
+    if [[ -n "$c" && -x "$c" ]]; then
+      printf '%s\n' "$c"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! QMAKE="$(resolve_qmake)"; then
+  echo "qmake not found (CONDA_PREFIX=${CONDA_PREFIX:-<unset>}, PATH=$PATH)" >&2
+  ls -la "${CONDA_PREFIX:-/nonexistent}/bin"/qmake* 2>/dev/null || true
+  ls -la "${CONDA_PREFIX:-/nonexistent}/lib/qt6/bin"/qmake* 2>/dev/null || true
+  exit 1
+fi
+export QMAKE
+echo "Using qmake: $QMAKE"
+
 export ARCH=x86_64
 export VERSION="$version"
 export LINUXDEPLOY_OUTPUT_VERSION="$version"
