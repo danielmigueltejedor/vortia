@@ -1,51 +1,69 @@
 #!/usr/bin/env bash
-# Native Poiseuille verification: write → blockMesh → simpleFoam → sample → compare.
-# Exit codes: 0 pass, 1 fail/thresholds, 2 missing tools, 3 incomplete/aborted.
+# Native Poiseuille verification: write → blockMesh → steady laminar solver → sample → compare.
+# Exit codes: 0 pass, 1 fail/thresholds, 2 missing tools.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
+# shellcheck disable=SC1091
+source "$root/benchmarks/common/source_openfoam.sh"
+
 work="${1:-}"
 if [[ -z "$work" ]]; then
   echo "Usage: $0 <workDir>" >&2
   exit 2
 fi
 
-write_tool="${VORTIA_BENCHMARK_WRITE_CASE:-$root/build-02/bin/benchmark_write_case}"
-if [[ ! -x "$write_tool" ]]; then
-  write_tool="$root/build/bin/benchmark_write_case"
+write_tool="${VORTIA_BENCHMARK_WRITE_CASE:-}"
+if [[ -z "$write_tool" || ! -x "$write_tool" ]]; then
+  for c in "$root/build/bin/benchmark_write_case" "$root/build-02/bin/benchmark_write_case" \
+           "$root/build-quality/bin/benchmark_write_case"; do
+    if [[ -x "$c" ]]; then write_tool="$c"; break; fi
+  done
 fi
-if [[ ! -x "$write_tool" ]]; then
+if [[ -z "$write_tool" || ! -x "$write_tool" ]]; then
   echo "benchmark_write_case not found. Build the tree (UI off is fine) first." >&2
   exit 2
 fi
 
-if ! command -v blockMesh >/dev/null 2>&1 || ! command -v simpleFoam >/dev/null 2>&1; then
-  echo "OpenFOAM (blockMesh/simpleFoam) not on PATH. Source the environment and retry." >&2
+if ! command -v blockMesh >/dev/null 2>&1; then
+  echo "blockMesh not on PATH. Source OpenFOAM and retry." >&2
+  exit 2
+fi
+
+dist=esi
+solver=(simpleFoam)
+if command -v simpleFoam >/dev/null 2>&1; then
+  dist=esi
+  solver=(simpleFoam)
+elif command -v foamRun >/dev/null 2>&1; then
+  dist=foundation
+  solver=(foamRun -solver incompressibleFluid)
+else
+  echo "Neither simpleFoam nor foamRun is on PATH." >&2
   exit 2
 fi
 
 case_dir="$work/poiseuille-case"
 rm -rf "$case_dir"
 mkdir -p "$work"
-"$write_tool" poiseuille "$case_dir"
+"$write_tool" poiseuille "$case_dir" "$dist"
 
 (
   cd "$case_dir"
   blockMesh > log.blockMesh 2>&1
-  simpleFoam > log.simpleFoam 2>&1
-  # Sample final time with the prepared dictionary.
+  "${solver[@]}" > log.solver 2>&1
   if command -v postProcess >/dev/null 2>&1; then
     postProcess -func sampleU -latestTime > log.sampleU 2>&1 || true
   fi
 )
 
-sample="$(find "$case_dir/postProcessing" -type f -name '*centreline*' 2>/dev/null | head -n1 || true)"
+sample="$(find "$case_dir/postProcessing" -type f \( -name '*centreline*' -o -name '*.xy' \) 2>/dev/null | head -n1 || true)"
 if [[ -z "$sample" ]]; then
-  echo "No sample file under postProcessing. Solver may have failed; see logs in $case_dir" >&2
+  echo "No sample file under postProcessing. See logs in $case_dir" >&2
+  tail -n 40 "$case_dir/log.solver" >&2 || true
   exit 1
 fi
 
-# Analytic reference generated on the fly (same channel as C++ factory defaults).
 ref="$work/poiseuille_analytic.csv"
 python3 - <<'PY' >"$ref"
 H=0.01
