@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to attach the AppImage to (e.g. v0.1.0). Leave empty to only upload the workflow artifact."
+        description: "Release tag to attach the AppImage to (e.g. v0.1.1). Leave empty to only upload the workflow artifact."
         required: false
-        default: "v0.1.0"
+        default: "v0.1.1"
   release:
     types: [published]
 
@@ -22,6 +22,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag || 'v0.1.1' }}"
+          version="${tag#v}"
+          asset="Vortia-${version}-linux-x86_64.AppImage"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "asset=$asset"
+          } >> "$GITHUB_OUTPUT"
 
       - name: System packages for OpenGL / X11
         run: |
@@ -78,6 +91,9 @@ jobs:
           build/bin/vortia --verify-spanish
 
       - name: Create AppImage
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          ASSET: ${{ steps.ver.outputs.asset }}
         run: |
           chmod +x packaging/linux/create_appimage.sh
           export CMAKE_BINARY_DIR="$PWD/build"
@@ -86,35 +102,37 @@ jobs:
           mkdir -p dist
           packaging/linux/create_appimage.sh \
             "$PWD/build/bin/vortia" \
-            "$PWD/dist/Vortia-0.1.0-linux-x86_64.AppImage" \
-            "0.1.0"
-          test -x dist/Vortia-0.1.0-linux-x86_64.AppImage
+            "$PWD/dist/$ASSET" \
+            "$VERSION"
+          test -x "dist/$ASSET"
           ls -lh dist/
-          sha256sum dist/Vortia-0.1.0-linux-x86_64.AppImage | tee dist/Vortia-0.1.0-linux-x86_64.AppImage.sha256
+          sha256sum "dist/$ASSET" | tee "dist/${ASSET}.sha256"
 
       - name: Smoke-test AppImage
+        env:
+          ASSET: ${{ steps.ver.outputs.asset }}
         run: |
-          # AppImage self-extract needs executable bit; FUSE may be unavailable → extract-and-run style.
-          chmod +x dist/Vortia-0.1.0-linux-x86_64.AppImage
-          dist/Vortia-0.1.0-linux-x86_64.AppImage --appimage-extract-and-run --verify-spanish
+          chmod +x "dist/$ASSET"
+          "dist/$ASSET" --appimage-extract-and-run --verify-spanish
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Vortia-0.1.0-linux-x86_64.AppImage
+          name: ${{ steps.ver.outputs.asset }}
           path: |
-            dist/Vortia-0.1.0-linux-x86_64.AppImage
-            dist/Vortia-0.1.0-linux-x86_64.AppImage.sha256
+            dist/${{ steps.ver.outputs.asset }}
+            dist/${{ steps.ver.outputs.asset }}.sha256
           if-no-files-found: error
 
       - name: Attach AppImage to GitHub Release
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          ASSET: ${{ steps.ver.outputs.asset }}
         run: |
-          tag="${{ github.event.release.tag_name || inputs.tag }}"
-          gh release upload "$tag" \
-            dist/Vortia-0.1.0-linux-x86_64.AppImage \
-            dist/Vortia-0.1.0-linux-x86_64.AppImage.sha256 \
+          gh release upload "$TAG" \
+            "dist/$ASSET" \
+            "dist/${ASSET}.sha256" \
             --repo "${{ github.repository }}" \
             --clobber

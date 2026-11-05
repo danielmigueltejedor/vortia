@@ -4,6 +4,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-11-05
+
+### Añadido
+- Actualización in-app desde GitHub Releases (banner, Ayuda → Buscar actualizaciones, preferencia al arrancar).
+- AppImage Linux (`Vortia-*-linux-x86_64.AppImage`) vía GitHub Actions.
+- DMG macOS con artwork de instalador.
+
+### Corregido
+- Hallazgos SonarCloud de packaging (pin de acción micromamba, curl solo HTTPS).
+
+## [0.1.0] — 2026-11-05
+
 ### Añadido
 - Estructura inicial del repositorio y documentación fundacional.
 - Stack implementado: C++20, Qt 6.12, VTK 9.7, OpenFOAM (ESI primero), CMake, GoogleTest.
