@@ -1,8 +1,11 @@
 #include "vortia/ui/AppUpdater.hpp"
+#include "AppUpdaterInternal.hpp"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -15,11 +18,30 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QVersionNumber>
 
 #include <algorithm>
 
 namespace vortia {
+namespace detail {
+
+QString githubAssetSha256(const QJsonObject& asset) {
+    static const QRegularExpression digestPattern(QStringLiteral("^sha256:([0-9a-fA-F]{64})$"));
+    const auto match = digestPattern.match(asset.value(QStringLiteral("digest")).toString());
+    return match.hasMatch() ? match.captured(1).toLower() : QString();
+}
+
+bool matchesSha256(const QByteArray& data, const QString& expected) {
+    static const QRegularExpression digestPattern(QStringLiteral("^[0-9a-fA-F]{64}$"));
+    if (!digestPattern.match(expected).hasMatch())
+        return false;
+    const QByteArray actual = QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
+    return actual == expected.toLatin1().toLower();
+}
+
+} // namespace detail
+
 namespace {
 
 constexpr auto kReleasesApi =
@@ -67,6 +89,100 @@ QString macOSBundlePath() {
     return {};
 #endif
 }
+
+#ifdef Q_OS_MACOS
+bool verifyCodeSignature(const QString& bundle, QString* teamIdentifier, QString* identifier, QString* error) {
+    QProcess verify;
+    verify.start(QStringLiteral("/usr/bin/codesign"),
+                 {QStringLiteral("--verify"), QStringLiteral("--deep"), QStringLiteral("--strict"), bundle});
+    if (!verify.waitForStarted() || !verify.waitForFinished(30'000) || verify.exitStatus() != QProcess::NormalExit
+        || verify.exitCode() != 0) {
+        if (error)
+            *error = QObject::tr("The downloaded macOS app has an invalid code signature.");
+        return false;
+    }
+
+    QProcess display;
+    display.start(QStringLiteral("/usr/bin/codesign"), {QStringLiteral("-dv"), QStringLiteral("--verbose=4"), bundle});
+    if (!display.waitForStarted() || !display.waitForFinished(30'000) || display.exitStatus() != QProcess::NormalExit
+        || display.exitCode() != 0) {
+        if (error)
+            *error = QObject::tr("Could not identify the macOS app publisher.");
+        return false;
+    }
+    const QString output = QString::fromLocal8Bit(display.readAllStandardError());
+    const QRegularExpression teamPattern(QStringLiteral("(?:^|\\n)TeamIdentifier=([^\\r\\n]+)"));
+    const QRegularExpression identifierPattern(QStringLiteral("(?:^|\\n)Identifier=([^\\r\\n]+)"));
+    const auto teamMatch = teamPattern.match(output);
+    const auto identifierMatch = identifierPattern.match(output);
+    if (!teamMatch.hasMatch() || teamMatch.captured(1) == QStringLiteral("not set") || !identifierMatch.hasMatch()) {
+        if (error)
+            *error = QObject::tr("The macOS app is not signed by a verifiable publisher.");
+        return false;
+    }
+    if (teamIdentifier)
+        *teamIdentifier = teamMatch.captured(1);
+    if (identifier)
+        *identifier = identifierMatch.captured(1);
+    return true;
+}
+
+bool verifyMacOSUpdateSignature(const QString& dmgPath, QString* error) {
+    const QString installedBundle = macOSBundlePath();
+    QTemporaryDir mountDir(downloadDir() + QStringLiteral("/verify-XXXXXX"));
+    if (!mountDir.isValid()) {
+        if (error)
+            *error = QObject::tr("Could not create a temporary mount point for signature verification.");
+        return false;
+    }
+
+    QProcess attach;
+    attach.start(QStringLiteral("/usr/bin/hdiutil"),
+                 {QStringLiteral("attach"), QStringLiteral("-nobrowse"), QStringLiteral("-readonly"),
+                  QStringLiteral("-mountpoint"), mountDir.path(), dmgPath});
+    if (!attach.waitForStarted() || !attach.waitForFinished(60'000) || attach.exitStatus() != QProcess::NormalExit
+        || attach.exitCode() != 0) {
+        if (error)
+            *error = QObject::tr("Could not mount the downloaded macOS update for verification.");
+        return false;
+    }
+
+    QString verificationError;
+    QString downloadedTeam;
+    QString downloadedIdentifier;
+    QString installedTeam;
+    QString installedIdentifier;
+    QString appPath;
+    QDirIterator it(mountDir.path(), {QStringLiteral("Vortia.app")},
+                    QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    if (it.hasNext())
+        appPath = it.next();
+    bool valid = !appPath.isEmpty();
+    if (!valid)
+        verificationError = QObject::tr("The downloaded disk image does not contain Vortia.app.");
+    if (valid)
+        valid = verifyCodeSignature(appPath, &downloadedTeam, &downloadedIdentifier, &verificationError);
+    if (valid)
+        valid = verifyCodeSignature(installedBundle, &installedTeam, &installedIdentifier, &verificationError);
+    if (valid && (downloadedTeam != installedTeam || downloadedIdentifier != installedIdentifier)) {
+        valid = false;
+        verificationError = QObject::tr("The downloaded macOS app is signed by a different publisher.");
+    }
+
+    QProcess detach;
+    detach.start(QStringLiteral("/usr/bin/hdiutil"),
+                 {QStringLiteral("detach"), mountDir.path(), QStringLiteral("-force")});
+    const bool detached = detach.waitForStarted() && detach.waitForFinished(30'000)
+        && detach.exitStatus() == QProcess::NormalExit && detach.exitCode() == 0;
+    if (!detached && valid) {
+        valid = false;
+        verificationError = QObject::tr("Could not unmount the downloaded macOS update after verification.");
+    }
+    if (!valid && error)
+        *error = verificationError;
+    return valid;
+}
+#endif
 
 } // namespace
 
@@ -170,11 +286,12 @@ AppUpdateInfo AppUpdater::parseRelease(const QByteArray& json, QString* error) c
             *error = tr("Latest release has no version tag.");
         return info;
     }
-    info.assetUrl = selectAssetUrl(root.value(QStringLiteral("assets")).toArray(), &info.assetName, &info.assetBytes);
+    info.assetUrl = selectAssetUrl(root.value(QStringLiteral("assets")).toArray(), &info.assetName,
+                                   &info.assetSha256, &info.assetBytes);
     return info;
 }
 
-QUrl AppUpdater::selectAssetUrl(const QJsonArray& assets, QString* name, qint64* bytes) const {
+QUrl AppUpdater::selectAssetUrl(const QJsonArray& assets, QString* name, QString* sha256, qint64* bytes) const {
     QStringList preferred;
 #if defined(Q_OS_MACOS)
     #if defined(Q_PROCESSOR_ARM) || defined(__aarch64__)
@@ -196,6 +313,8 @@ QUrl AppUpdater::selectAssetUrl(const QJsonArray& assets, QString* name, qint64*
                 continue;
             if (name)
                 *name = assetName;
+            if (sha256)
+                *sha256 = detail::githubAssetSha256(asset);
             if (bytes)
                 *bytes = static_cast<qint64>(asset.value(QStringLiteral("size")).toDouble());
             return QUrl(asset.value(QStringLiteral("browser_download_url")).toString());
@@ -207,6 +326,12 @@ QUrl AppUpdater::selectAssetUrl(const QJsonArray& assets, QString* name, qint64*
 void AppUpdater::downloadAndApply(const AppUpdateInfo& info) {
     if (downloading_ || info.assetUrl.isEmpty())
         return;
+
+    static const QRegularExpression digestPattern(QStringLiteral("^[0-9a-fA-F]{64}$"));
+    if (!digestPattern.match(info.assetSha256).hasMatch()) {
+        emit applyFailed(tr("The release does not provide a trusted SHA-256 digest for this package."));
+        return;
+    }
 
     if (!canApplyInPlace()) {
         // Dev builds / unpackaged installs: open the release page instead.
@@ -255,6 +380,11 @@ void AppUpdater::handleDownloadFinished(QNetworkReply* reply, AppUpdateInfo info
             return;
         }
         const QByteArray data = reply->readAll();
+        if (!detail::matchesSha256(data, info.assetSha256)) {
+            QFile::remove(dest);
+            emit applyFailed(tr("The downloaded update failed its SHA-256 integrity check."));
+            return;
+        }
         if (file.write(data) != data.size() || !file.commit()) {
             emit applyFailed(tr("Could not save update package."));
             return;
@@ -263,6 +393,13 @@ void AppUpdater::handleDownloadFinished(QNetworkReply* reply, AppUpdateInfo info
     QFile::setPermissions(dest, QFile::permissions(dest) | QFileDevice::ExeUser | QFileDevice::ExeGroup | QFileDevice::ExeOther);
 
     QString error;
+#ifdef Q_OS_MACOS
+    if (!verifyMacOSUpdateSignature(dest, &error)) {
+        QFile::remove(dest);
+        emit applyFailed(error);
+        return;
+    }
+#endif
     if (!applyDownloadedFile(dest, info, &error)) {
         emit applyFailed(error.isEmpty() ? tr("Could not apply the update.") : error);
         return;

@@ -20,6 +20,7 @@ struct AppUpdateInfo {
     QUrl releasePage;
     QUrl assetUrl;
     QString assetName;
+    QString assetSha256;
     qint64 assetBytes{0};
 };
 
@@ -55,7 +56,7 @@ private:
     void handleDownloadFinished(QNetworkReply* reply, AppUpdateInfo info);
     bool applyDownloadedFile(const QString& path, const AppUpdateInfo& info, QString* error);
     AppUpdateInfo parseRelease(const QByteArray& json, QString* error) const;
-    QUrl selectAssetUrl(const QJsonArray& assets, QString* name, qint64* bytes) const;
+    QUrl selectAssetUrl(const QJsonArray& assets, QString* name, QString* sha256, qint64* bytes) const;
 
     std::unique_ptr<QNetworkAccessManager> network_;
     QNetworkReply* activeReply_{nullptr};
