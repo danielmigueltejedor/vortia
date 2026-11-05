@@ -38,9 +38,10 @@ QString stripVersionPrefix(QString v) {
 }
 
 QString downloadDir() {
-    const QString base = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    const QString dir = base + QStringLiteral("/vortia-update");
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    const QString dir = base + QStringLiteral("/update");
     QDir().mkpath(dir);
+    QFile::setPermissions(dir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
     return dir;
 }
 
