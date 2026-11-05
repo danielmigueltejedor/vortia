@@ -16,18 +16,22 @@ from pathlib import Path
 
 def load_xy(path: Path) -> list[tuple[float, float]]:
     rows: list[tuple[float, float]] = []
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         line = line.replace(",", " ")
         parts = line.split()
         if len(parts) < 2:
+            if rows:
+                raise ValueError(f"malformed row at line {line_number} in {path}")
             continue
         try:
             x = float(parts[0])
             y = float(parts[1])
-        except ValueError:
+        except ValueError as exc:
+            if rows:
+                raise ValueError(f"malformed numeric row at line {line_number} in {path}") from exc
             continue  # header
         rows.append((x, y))
     if len(rows) < 2:

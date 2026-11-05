@@ -130,6 +130,8 @@ if(Python3_Interpreter_FOUND)
         COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/resources/flow/test_prepare.py)
     add_test(NAME nozzle_video_reference
         COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/nozzle-video-2026/test_prepare.py)
+    add_test(NAME compare_profiles
+        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/native/test_compare_profiles.py)
 endif()
 
 # Small standalone exporter for actual OpenFOAM blockMesh/checkMesh smoke tests.
