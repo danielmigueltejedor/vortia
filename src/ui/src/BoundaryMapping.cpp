@@ -86,9 +86,10 @@ QJsonObject reconcileFlowBoundaries(const Sketch2D& before,const Sketch2D& after
     }
     // An inserted tangent arc between two already assigned walls is a wall.
     // Different/open physical boundary types are deliberately left unresolved.
-    for(std::size_t i=0;i<after.segmentCount();++i)if(!assigned[i]&&after.arc(i)&&after.segmentCount()>2){
-        const auto prev=(i+after.segmentCount()-1)%after.segmentCount(),next=(i+1)%after.segmentCount();
-        if(!after.closed()&&(i==0||i+1==after.segmentCount()))continue;
+    const auto segments=after.segmentCount();
+    if(segments>2)for(std::size_t i=0;i<segments;++i)if(!assigned[i]&&after.arc(i)){
+        const auto prev=(i+segments-1)%segments,next=(i+1)%segments;
+        if(!after.closed()&&(i==0||i+1==segments))continue;
         const auto left=mapped[static_cast<qsizetype>(prev)].toObject(),right=mapped[static_cast<qsizetype>(next)].toObject();
         if(assigned[prev]&&assigned[next]&&left.value("type")=="wall"&&right.value("type")=="wall"){
             auto bc=left;if(left.value("name")!=right.value("name"))bc.insert("name",QString("rounded_wall_%1").arg(i+1));mapped[static_cast<qsizetype>(i)]=bc;assigned[i]=true;

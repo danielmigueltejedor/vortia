@@ -280,6 +280,17 @@ functions {{ {functions} }}
     (root/'README.md').write_text('# General axisymmetric flow case\n\nGenerated from the saved sketch and flow-setup.json. Ideal gas and energy. Inviscid mode uses Euler equations, slip walls and zero transport diffusion; laminar/Spalart-Allmaras modes use viscosity and adiabatic no-slip walls. Pressures are absolute Pa. The initial field is a uniform starting guess, not a simulation result. The custom OpenFOAM v2606 helper enforces no swirl and includes viscous energy transport. CFD convergence, mass balance and mesh dependence must be checked. The numerical backend is experimental; no Fluent equivalence is asserted.\n')
 
 
+def accept_path(path):
+    """Resolve a CLI path. Relative paths must stay under cwd; absolute paths are kept after normalisation."""
+    raw = Path(path).expanduser()
+    resolved = raw.resolve()
+    if not raw.is_absolute():
+        cwd = Path.cwd().resolve()
+        if not resolved.is_relative_to(cwd):
+            raise ValueError(f'Refusing relative path outside the working directory: {path}')
+    return resolved
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sketch', type=Path, required=True); parser.add_argument('--config', type=Path, required=True)
@@ -287,16 +298,17 @@ if __name__ == '__main__':
     parser.add_argument('--preview', action='store_true')
     parser.add_argument('--gmsh-runtime', type=Path)
     args = parser.parse_args()
-    if args.gmsh_runtime: sys.path.insert(0, str(args.gmsh_runtime.resolve()))
+    if args.gmsh_runtime: sys.path.insert(0, str(accept_path(args.gmsh_runtime)))
     try:
-        sketch, cfg = json.loads(args.sketch.read_text()), json.loads(args.config.read_text())
+        sketch_path, config_path, case_path = accept_path(args.sketch), accept_path(args.config), accept_path(args.case)
+        sketch, cfg = json.loads(sketch_path.read_text()), json.loads(config_path.read_text())
         if args.preview:
-            if args.case.exists() and any(args.case.iterdir()): raise ValueError('Preview destination must be empty')
-            args.case.mkdir(parents=True, exist_ok=True)
-            mesh_case(args.case, sketch, cfg, preview=True)
+            if case_path.exists() and any(case_path.iterdir()): raise ValueError('Preview destination must be empty')
+            case_path.mkdir(parents=True, exist_ok=True)
+            mesh_case(case_path, sketch, cfg, preview=True)
         else:
             if args.solver_sources is None: raise ValueError('Solver sources are required for final generation')
-            prepare(args.case, sketch, cfg, args.solver_sources)
+            prepare(case_path, sketch, cfg, accept_path(args.solver_sources))
     except Exception as error:
         print('ERROR: '+str(error),file=sys.stderr)
         sys.exit(1)

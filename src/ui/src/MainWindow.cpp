@@ -1299,7 +1299,7 @@ void MainWindow::onImportFluent() {
         tr("Detected Fluent format: %1\n").arg(QString::fromStdString(std::string(toString(format)))));
 
     if (format == FluentFormat::CaseHdf5 || format == FluentFormat::DataHdf5) {
-        auto result = FluentCffImporter::import(path.toStdString());
+        auto result = FluentCffImporter::openCase(path.toStdString());
         if (!result.ok) {
             QMessageBox::warning(this, tr("Import failed"), tr("Could not open CFF file."));
             return;

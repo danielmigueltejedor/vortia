@@ -9,9 +9,23 @@ from pathlib import Path
 import shutil
 
 
+def accept_path(path):
+    """Resolve a CLI path. Relative paths must stay under cwd; absolute paths are kept after normalisation."""
+    raw = Path(path).expanduser()
+    resolved = raw.resolve()
+    if not raw.is_absolute():
+        cwd = Path.cwd().resolve()
+        if not resolved.is_relative_to(cwd):
+            raise ValueError(f"Refusing relative path outside the working directory: {path}")
+    return resolved
+
+
 def bundle_engine(source, app):
-    source = Path(source).resolve()
-    destination = Path(app) / "Contents/Resources/OpenFOAM-v2606"
+    source = accept_path(source)
+    app_root = accept_path(app)
+    destination = (app_root / "Contents/Resources/OpenFOAM-v2606").resolve()
+    if not destination.is_relative_to(app_root):
+        raise ValueError("Refusing engine destination outside the app bundle")
     if not source.is_file() or source.name != "OpenFOAM-v2606.dmg":
         raise ValueError("Supply the native OpenFOAM-v2606.dmg disk image")
     if destination.exists():

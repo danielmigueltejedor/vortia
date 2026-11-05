@@ -81,10 +81,10 @@ Expected<StepOutcome> CaseRunner::execute(const std::string& label,
         callbacks.onProgress(progress());
     outcome.name = label;
     outcome.process = std::move(result.value());
-    const auto final=progress();
-    outcome.diverged = final.diverged;
-    outcome.divergenceKind = final.divergenceKind;
-    outcome.divergenceReason = final.divergenceReason;
+    const auto latest=progress();
+    outcome.diverged = latest.diverged;
+    outcome.divergenceKind = latest.divergenceKind;
+    outcome.divergenceReason = latest.divergenceReason;
     outcome.finalTime = parser.progress().time;
     return outcome;
     } catch (const std::exception& e) {

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "vortia/geometry/StlReader.hpp"
+#include "PrivateTempDir.hpp"
 
 #include <cstring>
 #include <filesystem>
@@ -13,13 +14,7 @@ namespace {
 class StlReaderTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        dir_ = std::filesystem::temp_directory_path() /
-               ("vortia-stl-" + std::to_string(std::hash<std::string>{}(
-                                    ::testing::UnitTest::GetInstance()
-                                        ->current_test_info()
-                                        ->name())));
-        std::filesystem::remove_all(dir_);
-        std::filesystem::create_directories(dir_);
+        dir_ = vortia::test::makePrivateTempDir("vortia-stl-");
     }
     void TearDown() override { std::filesystem::remove_all(dir_); }
 

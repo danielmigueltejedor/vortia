@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "vortia/solver/openfoam/CaseWriter.hpp"
+#include "PrivateTempDir.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -48,12 +49,7 @@ Capabilities esiCaps() {
 class CaseWriterTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        dir_ = std::filesystem::temp_directory_path() /
-               ("vortia-case-" + std::to_string(std::hash<std::string>{}(
-                                     ::testing::UnitTest::GetInstance()
-                                         ->current_test_info()
-                                         ->name())));
-        std::filesystem::remove_all(dir_);
+        dir_ = vortia::test::makePrivateTempDir("vortia-case-");
     }
     void TearDown() override { std::filesystem::remove_all(dir_); }
 

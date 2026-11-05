@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "vortia/core/Project.hpp"
+#include "PrivateTempDir.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -13,12 +14,7 @@ namespace {
 class ProjectTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        root_ = std::filesystem::temp_directory_path() /
-                ("vortia-test-" + std::to_string(
-                     std::hash<std::string>{}(::testing::UnitTest::GetInstance()
-                                                  ->current_test_info()
-                                                  ->name())));
-        std::filesystem::remove_all(root_);
+        root_ = vortia::test::makePrivateTempDir("vortia-test-");
     }
     void TearDown() override { std::filesystem::remove_all(root_); }
 
