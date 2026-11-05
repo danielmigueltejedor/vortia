@@ -45,7 +45,8 @@ QString createNozzlePractice(QWidget* parent) {
     intro->setWordWrap(true); layout->addWidget(intro);
     auto* tabs = new QTabWidget(&dialog); layout->addWidget(tabs,1);
     std::vector<std::pair<Parameter,QDoubleSpinBox*>> editors;
-    const auto page = [&](const QString& title, std::initializer_list<Parameter> parameters) {
+    QFormLayout* physics = nullptr;
+    const auto page = [&](const QString& title, std::initializer_list<Parameter> parameters, bool keepForm) {
         auto* content = new QWidget(tabs);
         auto* form = new QFormLayout(content);
         for (const auto& p : parameters) {
@@ -59,9 +60,9 @@ QString createNozzlePractice(QWidget* parent) {
         }
         auto* scroll = new QScrollArea(tabs); scroll->setWidgetResizable(true); scroll->setWidget(content);
         tabs->addTab(scroll,title);
-        return form;
+        if (keepForm) physics = form;
     };
-    [[maybe_unused]] auto* geometry = page(tr("Geometry"),{
+    page(tr("Geometry"),{
         {"inletHeight","Inlet height (mm)",1000,3},
         {"throatHeight","Throat height after rounding (mm)",1000,3},
         {"outletHeight","Nozzle exit height (mm)",1000,3},
@@ -72,8 +73,8 @@ QString createNozzlePractice(QWidget* parent) {
         {"nozzleExitX","Nozzle exit X (mm)",1000,3},
         {"exteriorLength","Exterior length from nozzle exit (mm)",1000,3},
         {"exteriorHeightAboveExit","Exterior height above nozzle exit (mm)",1000,3}
-    });
-    auto* physics = page(tr("Physics and calculation"),{
+    }, false);
+    page(tr("Physics and calculation"),{
         {"operatingPressure","Operating pressure (Pa)",1,1},
         {"inletGaugeTotalPressure","Inlet total gauge pressure (Pa)",1,1},
         {"exteriorGaugePressure","Exterior gauge pressure (Pa)",1,1},
@@ -84,7 +85,7 @@ QString createNozzlePractice(QWidget* parent) {
         {"mu","Dynamic viscosity (Pa s)",1,9},
         {"conductivity","Thermal conductivity (W/m/K)",1,6},
         {"turbulentViscosityRatio","Turbulent viscosity ratio",1,3}
-    });
+    }, true);
     auto* refinement = new QSpinBox(&dialog); refinement->setRange(1,3); refinement->setValue(1);
     physics->addRow(tr("Mesh refinement (1 / 2 / 3)"),refinement);
     auto* iterations = new QSpinBox(&dialog); iterations->setRange(100,200000); iterations->setValue(50000);
