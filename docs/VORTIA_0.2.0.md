@@ -73,6 +73,8 @@ Quantitative error tolerances are set **per benchmark** before runs, with scient
 
 **Harness PR (Milestone B start):** `benchmark_write_case`, sample dictionaries, `compare_profiles.py`, CTest write smoke + OpenFOAM-gated runs (`SKIP_RETURN_CODE 2` when solvers are absent). No fabricated CFD results.
 
+**GCI tooling (Milestone B):** `vortia::verification::computeGci` + `benchmarks/common/gci.py` (Roache three-grid). Always-on unit/native tests with manufactured second-order data. Native Poiseuille/Ghia GCI numbers still require a complete OpenFOAM host — not claimed until recorded under `results/`.
+
 ---
 
 ## 4. Benchmark priority order

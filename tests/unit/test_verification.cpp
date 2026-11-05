@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "vortia/verification/Gci.hpp"
 #include "vortia/verification/GhiaCavity.hpp"
 #include "vortia/verification/Poiseuille.hpp"
 #include "vortia/verification/ProfileMetrics.hpp"
@@ -16,6 +17,41 @@
 using namespace vortia;
 using namespace vortia::verification;
 using namespace vortia::openfoam;
+
+TEST(Gci, ExactSecondOrderMonotonicRefinement) {
+    // Manufactured: f(h) = f* + C h^2 with f*=1, C=1, h={0.25,0.5,1}.
+    GciInput in;
+    in.f1 = 1.0 + 0.25 * 0.25;
+    in.f2 = 1.0 + 0.5 * 0.5;
+    in.f3 = 1.0 + 1.0 * 1.0;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_NEAR(g.observedOrder, 2.0, 1e-9);
+    EXPECT_NEAR(g.extrapolated, 1.0, 1e-9);
+    EXPECT_GT(g.gci12, 0.0);
+    EXPECT_NEAR(g.asymptoticRatio, 1.0, 1e-6);
+}
+
+TEST(Gci, RejectsInvalidRefinementRatio) {
+    GciInput in;
+    in.f1 = 1.0;
+    in.f2 = 1.1;
+    in.f3 = 1.3;
+    in.r21 = 1.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+}
+
+TEST(Gci, IdenticalMeshesReportZeroUncertainty) {
+    GciInput in;
+    in.f1 = in.f2 = in.f3 = 42.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_DOUBLE_EQ(g.gci12, 0.0);
+    EXPECT_DOUBLE_EQ(g.extrapolated, 42.0);
+}
 
 TEST(ProfileMetrics, IdenticalProfilesHaveZeroError) {
     const std::vector<double> a{1.0, -2.0, 0.5};

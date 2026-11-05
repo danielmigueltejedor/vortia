@@ -36,8 +36,14 @@ These thresholds apply to a **future OpenFOAM compare** against the analytic pro
 ./benchmarks/poiseuille-laminar-2d/scripts/run_openfoam.sh /path/to/work/dir
 ```
 
-The script documents that quantitative compare requires sampling \(U\) on a line \(x=L/2\) — wiring that sample is Milestone B follow-up once a native run is available in CI.
-
-## Harness
-
 Use `benchmark_write_case` and `scripts/run_openfoam.sh` (requires OpenFOAM on PATH). CTest skips with code 2 when solvers are absent.
+
+## Mesh independence
+
+Refine cells across \(H\) (e.g. 20 / 40 / 80) at fixed aspect, extract \(U_\mathrm{max}\) at \(x=L/2\), then:
+
+```bash
+python3 benchmarks/common/gci.py --f1 <Umax_fine> --f2 <Umax_mid> --f3 <Umax_coarse> --r21 2 --r32 2
+```
+
+Do not mark the case mesh-independent until asymptotic ratio ≈ 1 and GCI₁₂ meets the a-priori band you record with the run.
