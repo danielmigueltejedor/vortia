@@ -3,6 +3,7 @@
 #include "vortia/core/Process.hpp"
 #include "vortia/physics/Physics.hpp"
 #include "vortia/solver/openfoam/Installation.hpp"
+#include "vortia/ui/AppUpdater.hpp"
 #include "vortia/ui/ConsolePanel.hpp"
 #include "vortia/ui/ApplicationPreferences.hpp"
 #include "vortia/ui/JobController.hpp"
@@ -68,6 +69,9 @@ private slots:
     void onFindTool();
     void onDetectOpenFoam();
     void onAbout();
+    void onCheckForUpdates();
+    void onUpdateAvailable(const AppUpdateInfo& info);
+    void onUpdateBannerLink(const QString& link);
 
 private:
     friend struct WorkspaceTestAccess;
@@ -87,6 +91,8 @@ private:
     void applyFlowEdits(const QJsonObject&, bool physics);
     bool usesSketchFlow() const;
     void updateNozzleNotice();
+    void showUpdateBanner(const AppUpdateInfo& info);
+    void hideUpdateBanner();
     void showFlowAssessment(const QJsonObject& report);
     void addProjectTab(const QString& name, CaseSetup setup,
                        const std::filesystem::path& root = {},
@@ -170,6 +176,10 @@ private:
     FlowSetupPanel* physicsEditor_{nullptr};
     FlowSetupPanel* calculationEditor_{nullptr};
     QLabel* nozzleNotice_{nullptr};
+    QLabel* updateNotice_{nullptr};
+    AppUpdater* appUpdater_{nullptr};
+    AppUpdateInfo pendingUpdate_;
+    bool updateCheckStarted_{false};
     QString lastVtmPath_;
     std::unique_ptr<QSettings> settings_;
 };

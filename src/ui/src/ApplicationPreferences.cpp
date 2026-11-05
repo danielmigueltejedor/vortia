@@ -45,6 +45,7 @@ ApplicationPreferences ApplicationPreferences::load(QSettings& s) {
     p.interfaceScale=integer(s,"ui/scale",100,90,140);
     p.showToolLabels=s.value("ui/showToolLabels",true).toBool();
     p.automaticMeshPreview=s.value("mesh/automaticPreview",true).toBool();
+    p.checkForUpdatesAutomatically=s.value("updates/automaticCheck",true).toBool();
     p.defaultProcesses=integer(s,"calculation/processes",0,0,8);
     p.checkpointInterval=integer(s,"calculation/checkpointInterval",500,1,200000);
     p.iterationLimit=integer(s,"calculation/iterationLimit",50000,1,200000);
@@ -66,6 +67,7 @@ void ApplicationPreferences::save(QSettings& s) const {
     s.setValue("language",language);s.setValue("theme",theme);s.setValue("ui/density",density);s.setValue("ui/scale",interfaceScale);
     s.setValue("ui/showToolLabels",showToolLabels);s.remove("ui/showStageNumbers");
     s.setValue("mesh/automaticPreview",automaticMeshPreview);
+    s.setValue("updates/automaticCheck",checkForUpdatesAutomatically);
     s.setValue("calculation/processes",defaultProcesses);s.setValue("calculation/checkpointInterval",checkpointInterval);
     s.setValue("calculation/iterationLimit",iterationLimit);s.setValue("console/lines",consoleLines);
     s.setValue("sketch/zoomSensitivity",zoomSensitivity);s.setValue("sketch/snapSpacing",snapSpacing);
@@ -103,6 +105,7 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     auto* scale=spin(appearance,"scale","Interface size (%)",previous.interfaceScale,90,140);scale->setSingleStep(10);
     auto* remember=check(appearance,"remember-layout","Remember window and panel layout",previous.rememberLayout);
     auto* labels=check(appearance,"tool-labels","Show labels beside tool icons",previous.showToolLabels);
+    auto* autoUpdates=check(appearance,"auto-updates","Check for updates automatically when Vortia starts",previous.checkForUpdatesAutomatically);
     info(appearance,"Appearance and navigation changes apply immediately. Language changes apply after restarting.");
     auto* sketch=page("Sketch and navigation","sketch","Sketch");
     auto* grid=check(sketch,"grid","Show construction grid",previous.showGrid);
@@ -154,6 +157,7 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     if(dialog.exec()!=QDialog::Accepted)return {};
     auto p=previous;p.language=language->currentData().toString();p.theme=theme->currentData().toString();p.density=density->currentData().toString();p.interfaceScale=scale->value();
     p.showToolLabels=labels->isChecked();
+    p.checkForUpdatesAutomatically=autoUpdates->isChecked();
     p.automaticMeshPreview=meshPreview->isChecked();
     p.rememberLayout=remember->isChecked();p.showGrid=grid->isChecked();p.showDimensions=dimensions->isChecked();p.snapToGrid=snap->isChecked();p.snapSpacing=spacing->value();p.zoomSensitivity=zoom->value();
     p.cfdZoomSensitivity=cfdZoom->value();p.cfdPanSensitivity=cfdPan->value();

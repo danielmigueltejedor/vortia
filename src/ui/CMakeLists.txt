@@ -1,6 +1,7 @@
 # vortia_ui — Qt Widgets: main window, docks, panels, job control.
 
 add_library(vortia_ui STATIC
+    include/vortia/ui/AppUpdater.hpp
     include/vortia/ui/ConsolePanel.hpp
     include/vortia/ui/JobController.hpp
     include/vortia/ui/MainWindow.hpp
@@ -11,6 +12,7 @@ add_library(vortia_ui STATIC
     include/vortia/ui/UiIcon.hpp
     include/vortia/ui/FlowSetup.hpp
     include/vortia/ui/SketchEditorDialog.hpp
+    src/AppUpdater.cpp
     src/EngineeringReport.cpp
     src/EngineeringWorkbench.cpp
     src/ApplicationPreferences.cpp
@@ -51,6 +53,7 @@ target_link_libraries(vortia_ui
         vortia::core
         Qt6::Widgets
         Qt6::OpenGLWidgets
+        Qt6::Network
     PRIVATE vortia_warnings)
 
 set_target_properties(vortia_ui PROPERTIES
