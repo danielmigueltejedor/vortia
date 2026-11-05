@@ -98,10 +98,11 @@ bool AppUpdater::canApplyInPlace() {
 }
 
 void AppUpdater::cancel() {
-    if (activeReply_) {
-        activeReply_->abort();
-        activeReply_->deleteLater();
+    if (QNetworkReply* reply = activeReply_) {
         activeReply_ = nullptr;
+        disconnect(reply, nullptr, this, nullptr);
+        reply->abort();
+        reply->deleteLater();
     }
     checking_ = false;
     downloading_ = false;
