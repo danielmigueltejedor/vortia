@@ -32,6 +32,24 @@ class LoadXyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "malformed row at line 2"):
                 load_xy(path)
 
+    def test_rejects_relative_path_escape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / "secret.csv"
+            outside.write_text("0,1\n1,2\n", encoding="utf-8")
+            nested = root / "nested"
+            nested.mkdir()
+            escape = Path("..") / "secret.csv"
+            previous = Path.cwd()
+            try:
+                import os
+
+                os.chdir(nested)
+                with self.assertRaisesRegex(ValueError, "outside the working directory"):
+                    load_xy(escape)
+            finally:
+                os.chdir(previous)
+
 
 if __name__ == "__main__":
     unittest.main()
