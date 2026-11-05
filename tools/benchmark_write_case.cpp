@@ -6,12 +6,11 @@
 #include "vortia/verification/Poiseuille.hpp"
 #include "vortia/verification/SampleFunctions.hpp"
 
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <unistd.h>
+#include <string_view>
 
 namespace {
 
@@ -24,28 +23,7 @@ bool writeText(const std::filesystem::path& path, const std::string& contents) {
     return static_cast<bool>(out);
 }
 
-bool commandOnPath(const char* name) {
-    const char* pathEnv = std::getenv("PATH");
-    if (!pathEnv)
-        return false;
-    std::string path = pathEnv;
-    std::size_t start = 0;
-    while (start <= path.size()) {
-        const auto end = path.find(':', start);
-        const auto dir = path.substr(start, end == std::string::npos ? std::string::npos : end - start);
-        if (!dir.empty()) {
-            const auto candidate = (std::filesystem::path(dir) / name).string();
-            if (::access(candidate.c_str(), X_OK) == 0)
-                return true;
-        }
-        if (end == std::string::npos)
-            break;
-        start = end + 1;
-    }
-    return false;
-}
-
-vortia::openfoam::Capabilities capsFor(const std::string& dist) {
+vortia::openfoam::Capabilities capsFor(std::string_view dist) {
     vortia::openfoam::Installation i;
     if (dist == "foundation") {
         i.distribution = vortia::openfoam::Distribution::Foundation;
@@ -57,22 +35,6 @@ vortia::openfoam::Capabilities capsFor(const std::string& dist) {
     return vortia::openfoam::capabilitiesFor(i);
 }
 
-std::string detectDistribution(const std::string& explicitDist) {
-    if (!explicitDist.empty())
-        return explicitDist;
-    if (const char* env = std::getenv("VORTIA_BENCHMARK_DISTRIBUTION")) {
-        const std::string v = env;
-        if (v == "esi" || v == "foundation")
-            return v;
-    }
-    // Prefer classic solvers when present; otherwise Foundation module layout.
-    if (commandOnPath("simpleFoam"))
-        return "esi";
-    if (commandOnPath("foamRun"))
-        return "foundation";
-    return "esi";
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
@@ -82,7 +44,12 @@ int main(int argc, char** argv) {
     }
     const std::string kind = argv[1];
     const std::filesystem::path caseDir = argv[2];
-    const std::string dist = detectDistribution(argc == 4 ? argv[3] : "");
+    // Default ESI; scripts pass foundation explicitly when foamRun is selected.
+    const std::string dist = (argc == 4) ? argv[3] : "esi";
+    if (dist != "esi" && dist != "foundation") {
+        std::cerr << "Unknown distribution: " << dist << " (expected esi|foundation)\n";
+        return 2;
+    }
 
     vortia::CaseSetup setup;
     std::string sampleU;
