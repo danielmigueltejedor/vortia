@@ -10,6 +10,7 @@ add_executable(test_core
     unit/test_units.cpp
     unit/test_expected.cpp
     unit/test_version.cpp
+    unit/test_private_temp_dir.cpp
     unit/test_process.cpp
     unit/test_project.cpp)
 target_include_directories(test_core PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
