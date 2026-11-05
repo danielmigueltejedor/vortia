@@ -45,10 +45,13 @@ QString createNozzlePractice(QWidget* parent) {
     intro->setWordWrap(true); layout->addWidget(intro);
     auto* tabs = new QTabWidget(&dialog); layout->addWidget(tabs,1);
     std::vector<std::pair<Parameter,QDoubleSpinBox*>> editors;
+    QFormLayout* geometryForm = nullptr;
     QFormLayout* physics = nullptr;
-    const auto page = [&](const QString& title, std::initializer_list<Parameter> parameters, bool keepForm) {
+    const auto page = [&](const QString& title, std::initializer_list<Parameter> parameters, QFormLayout*& outForm) {
         auto* content = new QWidget(tabs);
-        auto* form = new QFormLayout(content);
+        auto* form = new QFormLayout;
+        content->setLayout(form);
+        outForm = form;
         for (const auto& p : parameters) {
             auto* spin = new QDoubleSpinBox(content);
             spin->setObjectName(QString::fromUtf8(p.key));
@@ -60,7 +63,6 @@ QString createNozzlePractice(QWidget* parent) {
         }
         auto* scroll = new QScrollArea(tabs); scroll->setWidgetResizable(true); scroll->setWidget(content);
         tabs->addTab(scroll,title);
-        if (keepForm) physics = form;
     };
     page(tr("Geometry"),{
         {"inletHeight","Inlet height (mm)",1000,3},
@@ -73,7 +75,7 @@ QString createNozzlePractice(QWidget* parent) {
         {"nozzleExitX","Nozzle exit X (mm)",1000,3},
         {"exteriorLength","Exterior length from nozzle exit (mm)",1000,3},
         {"exteriorHeightAboveExit","Exterior height above nozzle exit (mm)",1000,3}
-    }, false);
+    }, geometryForm);
     page(tr("Physics and calculation"),{
         {"operatingPressure","Operating pressure (Pa)",1,1},
         {"inletGaugeTotalPressure","Inlet total gauge pressure (Pa)",1,1},
@@ -85,7 +87,8 @@ QString createNozzlePractice(QWidget* parent) {
         {"mu","Dynamic viscosity (Pa s)",1,9},
         {"conductivity","Thermal conductivity (W/m/K)",1,6},
         {"turbulentViscosityRatio","Turbulent viscosity ratio",1,3}
-    }, true);
+    }, physics);
+    geometryForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     auto* refinement = new QSpinBox(&dialog); refinement->setRange(1,3); refinement->setValue(1);
     physics->addRow(tr("Mesh refinement (1 / 2 / 3)"),refinement);
     auto* iterations = new QSpinBox(&dialog); iterations->setRange(100,200000); iterations->setValue(50000);
