@@ -5,11 +5,10 @@
 ///
 /// Convention: index 1 = finest, 2 = mid, 3 = coarsest.
 /// Refinement ratios r21 = h2/h1 and r32 = h3/h2 must be > 1.
-/// Oscillatory triples (sign change in consecutive differences) are rejected.
+/// Oscillatory triples and equal-ratio divergent sequences (|ε32/ε21| ≤ 1) are rejected.
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <string>
 
 namespace vortia::verification {
@@ -41,12 +40,17 @@ struct GciResult {
     return std::isfinite(x) && x > 0.0;
 }
 
-[[nodiscard]] inline bool sameBits(double a, double b) {
-    return std::memcmp(&a, &b, sizeof(double)) == 0;
+/// True for ±0 and for bit-identical values (0.0 and -0.0 count as equal).
+[[nodiscard]] inline bool numericallyEqual(double a, double b) {
+    return std::fabs(a - b) <= 0.0;
 }
 
-/// Three-grid GCI. Returns ok=false when inputs are invalid, oscillatory, or
-/// the observed-order iteration does not converge.
+[[nodiscard]] inline bool isNumericZero(double x) {
+    return std::fabs(x) <= 0.0;
+}
+
+/// Three-grid GCI. Returns ok=false when inputs are invalid, oscillatory,
+/// equal-ratio divergent, or the observed-order iteration does not converge.
 [[nodiscard]] inline GciResult computeGci(const GciInput& in) {
     GciResult out;
     if (!std::isfinite(in.f1) || !std::isfinite(in.f2) || !std::isfinite(in.f3)) {
@@ -65,11 +69,10 @@ struct GciResult {
     const double eps21 = in.f2 - in.f1;
     const double eps32 = in.f3 - in.f2;
 
-    // Bit-identical values only — small nonzero differences are valid QoIs.
-    if (sameBits(in.f1, in.f2) && sameBits(in.f2, in.f3)) {
+    if (numericallyEqual(in.f1, in.f2) && numericallyEqual(in.f2, in.f3)) {
         out.ok = true;
         out.observedOrder = 0.0;
-        out.extrapolated = in.f1;
+        out.extrapolated = in.f1 + 0.0; // canonical +0
         out.gci12 = 0.0;
         out.gci23 = 0.0;
         out.relativeGci = true;
@@ -77,7 +80,7 @@ struct GciResult {
         out.message = "identical solutions on all three meshes";
         return out;
     }
-    if (sameBits(eps21, 0.0) || sameBits(eps32, 0.0)) {
+    if (isNumericZero(eps21) || isNumericZero(eps32)) {
         out.message = "zero consecutive difference; cannot estimate observed order";
         return out;
     }
@@ -93,12 +96,20 @@ struct GciResult {
         return out;
     }
 
+    const bool equalRatios = std::abs(in.r21 - in.r32) <= 1e-12;
+    // Equal-r studies require |ε32/ε21| > 1 (errors shrink toward the fine mesh).
+    // Taking abs(log) here would invent a positive order for divergent data.
+    if (equalRatios && !(absRatio > 1.0)) {
+        out.message = "equal-ratio study requires |eps32/eps21| > 1 (positive observed order)";
+        return out;
+    }
+
     // Celik et al. (2008): p = (1/ln r21) |ln|ε32/ε21| + q(p)| with
-    // q(p) = ln((r21^p − s)/(r32^p − s)), s = sign(ε32/ε21). Monotonic ⇒ s = +1.
-    // Outer abs keeps the seed positive when |ε32/ε21| < 1 (e.g. r32 < r21).
+    // q(p) = ln((r21^p − s)/(r32^p − s)), s = +1 for monotonic triples.
     constexpr double s = 1.0;
-    double p = std::abs(std::log(absRatio)) / std::log(in.r21);
-    if (std::abs(in.r21 - in.r32) > 1e-12) {
+    double p = equalRatios ? (std::log(absRatio) / std::log(in.r21))
+                           : (std::abs(std::log(absRatio)) / std::log(in.r21));
+    if (!equalRatios) {
         bool converged = false;
         for (int iter = 0; iter < 50; ++iter) {
             const double rp21 = std::pow(in.r21, p);

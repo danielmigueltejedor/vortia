@@ -62,6 +62,22 @@ class GciLibraryTests(unittest.TestCase):
         self.assertEqual(result["gci12"], 0.0)
         self.assertEqual(result["extrapolated"], 42.0)
 
+    def test_signed_zeros_identical(self):
+        result = compute_gci(0.0, -0.0, 0.0, r21=2.0, r32=2.0)
+        self.assertEqual(result["gci12"], 0.0)
+
+    def test_signed_zero_difference_is_zero(self):
+        with self.assertRaisesRegex(ValueError, "zero consecutive"):
+            compute_gci(0.0, -0.0, -1.0, r21=2.0, r32=2.0)
+
+    def test_rejects_equal_ratio_divergent(self):
+        with self.assertRaisesRegex(ValueError, "equal-ratio"):
+            compute_gci(1.0, 2.0, 2.5, r21=2.0, r32=2.0)
+
+    def test_rejects_equal_ratio_errors_growing_toward_fine(self):
+        with self.assertRaisesRegex(ValueError, "equal-ratio"):
+            compute_gci(100.02, 100.01, 100.005, r21=2.0, r32=2.0)
+
     def test_zero_consecutive_difference(self):
         with self.assertRaisesRegex(ValueError, "zero consecutive"):
             compute_gci(1.0, 1.0, 2.0, r21=2.0, r32=2.0)

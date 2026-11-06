@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import argparse
 import math
-import struct
 import sys
 
 
-def _bits_equal(a: float, b: float) -> bool:
-    return struct.pack("!d", a) == struct.pack("!d", b)
+def _numerically_equal(a: float, b: float) -> bool:
+    """True when a and b differ by ±0 only (treats 0.0 and -0.0 as equal)."""
+    return abs(a - b) <= 0.0
+
+
+def _is_numeric_zero(x: float) -> bool:
+    return abs(x) <= 0.0
 
 
 def _same_sign(a: float, b: float) -> bool:
@@ -31,28 +35,33 @@ def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: flo
     eps21 = f2 - f1
     eps32 = f3 - f2
 
-    # Bit-identical values only — small nonzero differences are valid QoIs.
-    if _bits_equal(f1, f2) and _bits_equal(f2, f3):
+    if _numerically_equal(f1, f2) and _numerically_equal(f2, f3):
         return {
             "observed_order": 0.0,
-            "extrapolated": f1,
+            "extrapolated": f1 + 0.0,
             "gci12": 0.0,
             "gci23": 0.0,
             "relative_gci": True,
             "asymptotic_ratio": 1.0,
             "message": "identical solutions on all three meshes",
         }
-    if _bits_equal(eps21, 0.0) or _bits_equal(eps32, 0.0):
+    if _is_numeric_zero(eps21) or _is_numeric_zero(eps32):
         raise ValueError("zero consecutive difference; cannot estimate observed order")
     if not _same_sign(eps21, eps32):
         raise ValueError("oscillatory convergence; monotonic GCI does not apply")
 
     abs_ratio = abs(eps32 / eps21)
-    # Celik et al. (2008): iterate q(p) when r21 != r32. Monotonic ⇒ s = +1.
-    # Outer abs keeps the seed positive when |ε32/ε21| < 1 (e.g. r32 < r21).
+    equal_ratios = abs(r21 - r32) <= 1e-12
+    # Equal-r studies require |ε32/ε21| > 1 (errors shrink toward the fine mesh).
+    if equal_ratios and not (abs_ratio > 1.0):
+        raise ValueError("equal-ratio study requires |eps32/eps21| > 1 (positive observed order)")
+
+    # Celik et al. (2008). Outer abs on the seed only for unequal ratios.
     s = 1.0
-    p = abs(math.log(abs_ratio)) / math.log(r21)
-    if abs(r21 - r32) > 1e-12:
+    if equal_ratios:
+        p = math.log(abs_ratio) / math.log(r21)
+    else:
+        p = abs(math.log(abs_ratio)) / math.log(r21)
         converged = False
         for _ in range(50):
             num = r21**p - s

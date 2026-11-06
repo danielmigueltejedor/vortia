@@ -207,6 +207,40 @@ TEST(Gci, IdenticalMeshesReportZeroUncertainty) {
     EXPECT_DOUBLE_EQ(g.extrapolated, 42.0);
 }
 
+TEST(Gci, SignedZerosCountAsIdentical) {
+    GciInput in;
+    in.f1 = 0.0;
+    in.f2 = -0.0;
+    in.f3 = 0.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_DOUBLE_EQ(g.gci12, 0.0);
+}
+
+TEST(Gci, RejectsEqualRatioDivergentSequence) {
+    // |ε32/ε21| < 1 with equal r ⇒ negative observed order / diverging differences.
+    GciInput in;
+    in.f1 = 1.0;
+    in.f2 = 2.0;
+    in.f3 = 2.5;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+    EXPECT_NE(g.message.find("equal-ratio"), std::string::npos);
+}
+
+TEST(Gci, RejectsEqualRatioErrorsGrowingTowardFineMesh) {
+    GciInput in;
+    in.f1 = 100.02;
+    in.f2 = 100.01;
+    in.f3 = 100.005;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+}
+
 TEST(ProfileMetrics, IdenticalProfilesHaveZeroError) {
     const std::vector<double> a{1.0, -2.0, 0.5};
     const auto e = compareProfiles(a, a);
