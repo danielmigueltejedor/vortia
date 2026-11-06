@@ -5,7 +5,8 @@
 ///
 /// Convention: index 1 = finest, 2 = mid, 3 = coarsest.
 /// Refinement ratios r21 = h2/h1 and r32 = h3/h2 must be > 1.
-/// Oscillatory triples and equal-ratio divergent sequences (|ε32/ε21| ≤ 1) are rejected.
+/// Oscillatory triples and sequences without a positive observed order
+/// (|ε32/ε21| ≤ ln(r32)/ln(r21)) are rejected.
 
 #include <algorithm>
 #include <cmath>
@@ -50,7 +51,7 @@ struct GciResult {
 }
 
 /// Three-grid GCI. Returns ok=false when inputs are invalid, oscillatory,
-/// equal-ratio divergent, or the observed-order iteration does not converge.
+/// lack a positive observed order, or the observed-order iteration fails.
 [[nodiscard]] inline GciResult computeGci(const GciInput& in) {
     GciResult out;
     if (!std::isfinite(in.f1) || !std::isfinite(in.f2) || !std::isfinite(in.f3)) {
@@ -97,10 +98,14 @@ struct GciResult {
     }
 
     const bool equalRatios = std::abs(in.r21 - in.r32) <= 1e-12;
-    // Equal-r studies require |ε32/ε21| > 1 (errors shrink toward the fine mesh).
-    // Taking abs(log) here would invent a positive order for divergent data.
-    if (equalRatios && !(absRatio > 1.0)) {
-        out.message = "equal-ratio study requires |eps32/eps21| > 1 (positive observed order)";
+    // Positive-order Richardson solutions require |ε32/ε21| > ln(r32)/ln(r21)
+    // (= 1 when ratios are equal). Taking abs(log) below that bound invents a
+    // spurious positive order.
+    const double minAbsRatio = std::log(in.r32) / std::log(in.r21);
+    if (!(absRatio > minAbsRatio)) {
+        out.message = equalRatios
+            ? "equal-ratio study requires |eps32/eps21| > 1 (positive observed order)"
+            : "unequal-ratio study requires a positive observed order";
         return out;
     }
 

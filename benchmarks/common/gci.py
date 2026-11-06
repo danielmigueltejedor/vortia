@@ -52,9 +52,16 @@ def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: flo
 
     abs_ratio = abs(eps32 / eps21)
     equal_ratios = abs(r21 - r32) <= 1e-12
-    # Equal-r studies require |ε32/ε21| > 1 (errors shrink toward the fine mesh).
-    if equal_ratios and not (abs_ratio > 1.0):
-        raise ValueError("equal-ratio study requires |eps32/eps21| > 1 (positive observed order)")
+    # Positive-order Richardson solutions require
+    # |ε32/ε21| > ln(r32)/ln(r21) (= 1 when r21 == r32). Below that bound the
+    # outer abs() in Celik's iteration invents a spurious positive order.
+    min_abs_ratio = math.log(r32) / math.log(r21)
+    if not (abs_ratio > min_abs_ratio):
+        if equal_ratios:
+            raise ValueError(
+                "equal-ratio study requires |eps32/eps21| > 1 (positive observed order)"
+            )
+        raise ValueError("unequal-ratio study requires a positive observed order")
 
     # Celik et al. (2008). Outer abs on the seed only for unequal ratios.
     s = 1.0

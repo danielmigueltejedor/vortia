@@ -241,6 +241,19 @@ TEST(Gci, RejectsEqualRatioErrorsGrowingTowardFineMesh) {
     EXPECT_FALSE(g.ok);
 }
 
+TEST(Gci, RejectsUnequalRatioWithoutPositiveOrder) {
+    // |ε32/ε21|=0.1 < ln(1.3)/ln(2) ≈ 0.379 ⇒ no positive-order Richardson fit.
+    GciInput in;
+    in.f1 = 1.0;
+    in.f2 = 2.0;
+    in.f3 = 2.1;
+    in.r21 = 2.0;
+    in.r32 = 1.3;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+    EXPECT_NE(g.message.find("unequal-ratio"), std::string::npos);
+}
+
 TEST(ProfileMetrics, IdenticalProfilesHaveZeroError) {
     const std::vector<double> a{1.0, -2.0, 0.5};
     const auto e = compareProfiles(a, a);

@@ -78,6 +78,11 @@ class GciLibraryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "equal-ratio"):
             compute_gci(100.02, 100.01, 100.005, r21=2.0, r32=2.0)
 
+    def test_rejects_unequal_ratio_without_positive_order(self):
+        # |ε32/ε21|=0.1 < ln(1.3)/ln(2) ≈ 0.379 ⇒ no positive-order fit.
+        with self.assertRaisesRegex(ValueError, "unequal-ratio"):
+            compute_gci(1.0, 2.0, 2.1, r21=2.0, r32=1.3)
+
     def test_zero_consecutive_difference(self):
         with self.assertRaisesRegex(ValueError, "zero consecutive"):
             compute_gci(1.0, 1.0, 2.0, r21=2.0, r32=2.0)
