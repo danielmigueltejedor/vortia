@@ -10,7 +10,16 @@ from __future__ import annotations
 
 import argparse
 import math
+import struct
 import sys
+
+
+def _bits_equal(a: float, b: float) -> bool:
+    return struct.pack("!d", a) == struct.pack("!d", b)
+
+
+def _same_sign(a: float, b: float) -> bool:
+    return math.copysign(1.0, a) == math.copysign(1.0, b)
 
 
 def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: float = 1.25):
@@ -22,8 +31,8 @@ def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: flo
     eps21 = f2 - f1
     eps32 = f3 - f2
 
-    # Exact equality only — small nonzero differences are valid QoIs.
-    if f1 == f2 == f3:
+    # Bit-identical values only — small nonzero differences are valid QoIs.
+    if _bits_equal(f1, f2) and _bits_equal(f2, f3):
         return {
             "observed_order": 0.0,
             "extrapolated": f1,
@@ -33,15 +42,16 @@ def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: flo
             "asymptotic_ratio": 1.0,
             "message": "identical solutions on all three meshes",
         }
-    if eps21 == 0.0 or eps32 == 0.0:
+    if _bits_equal(eps21, 0.0) or _bits_equal(eps32, 0.0):
         raise ValueError("zero consecutive difference; cannot estimate observed order")
-    if (eps21 * eps32) < 0.0:
+    if not _same_sign(eps21, eps32):
         raise ValueError("oscillatory convergence; monotonic GCI does not apply")
 
     abs_ratio = abs(eps32 / eps21)
     # Celik et al. (2008): iterate q(p) when r21 != r32. Monotonic ⇒ s = +1.
+    # Outer abs keeps the seed positive when |ε32/ε21| < 1 (e.g. r32 < r21).
     s = 1.0
-    p = math.log(abs_ratio) / math.log(r21)
+    p = abs(math.log(abs_ratio)) / math.log(r21)
     if abs(r21 - r32) > 1e-12:
         converged = False
         for _ in range(50):

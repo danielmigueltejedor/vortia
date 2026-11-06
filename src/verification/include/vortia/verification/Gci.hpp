@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <string>
 
 namespace vortia::verification {
@@ -26,15 +27,22 @@ struct GciResult {
     bool ok{false};
     double observedOrder{0.0};   ///< p_obs
     double extrapolated{0.0};    ///< Richardson extrapolated continuum estimate
-    double gci12{0.0};           ///< Fine-grid GCI (relative to |f1| when |f1|>0; else absolute)
-    double gci23{0.0};           ///< Mid-grid GCI (relative to |f2| when |f2|>0; else absolute)
-    bool relativeGci{true};      ///< false when a QoI scale was zero and absolute GCI is reported
-    double asymptoticRatio{0.0}; ///< gci23 / (r21^p · gci12) using the reported (relative) GCIs
+    /// Fine-grid GCI. Relative to |f1| when relativeGci is true; otherwise absolute.
+    double gci12{0.0};
+    /// Mid-grid GCI. Relative to |f2| when relativeGci is true; otherwise absolute.
+    /// relativeGci is true only when both |f1| and |f2| are nonzero.
+    double gci23{0.0};
+    bool relativeGci{true}; ///< false ⇒ gci12/gci23 are absolute (a QoI scale was zero)
+    double asymptoticRatio{0.0}; ///< gci23 / (r21^p · gci12) using the reported GCIs
     std::string message;
 };
 
 [[nodiscard]] inline bool isFinitePositive(double x) {
     return std::isfinite(x) && x > 0.0;
+}
+
+[[nodiscard]] inline bool sameBits(double a, double b) {
+    return std::memcmp(&a, &b, sizeof(double)) == 0;
 }
 
 /// Three-grid GCI. Returns ok=false when inputs are invalid, oscillatory, or
@@ -57,8 +65,8 @@ struct GciResult {
     const double eps21 = in.f2 - in.f1;
     const double eps32 = in.f3 - in.f2;
 
-    // Exact equality only — small nonzero differences are valid QoIs.
-    if (in.f1 == in.f2 && in.f2 == in.f3) {
+    // Bit-identical values only — small nonzero differences are valid QoIs.
+    if (sameBits(in.f1, in.f2) && sameBits(in.f2, in.f3)) {
         out.ok = true;
         out.observedOrder = 0.0;
         out.extrapolated = in.f1;
@@ -69,11 +77,12 @@ struct GciResult {
         out.message = "identical solutions on all three meshes";
         return out;
     }
-    if (eps21 == 0.0 || eps32 == 0.0) {
+    if (sameBits(eps21, 0.0) || sameBits(eps32, 0.0)) {
         out.message = "zero consecutive difference; cannot estimate observed order";
         return out;
     }
-    if ((eps21 * eps32) < 0.0) {
+    // Compare signs directly — products of tiny values can underflow to ±0.
+    if (std::signbit(eps21) != std::signbit(eps32)) {
         out.message = "oscillatory convergence; monotonic GCI does not apply";
         return out;
     }
@@ -86,8 +95,9 @@ struct GciResult {
 
     // Celik et al. (2008): p = (1/ln r21) |ln|ε32/ε21| + q(p)| with
     // q(p) = ln((r21^p − s)/(r32^p − s)), s = sign(ε32/ε21). Monotonic ⇒ s = +1.
+    // Outer abs keeps the seed positive when |ε32/ε21| < 1 (e.g. r32 < r21).
     constexpr double s = 1.0;
-    double p = std::log(absRatio) / std::log(in.r21);
+    double p = std::abs(std::log(absRatio)) / std::log(in.r21);
     if (std::abs(in.r21 - in.r32) > 1e-12) {
         bool converged = false;
         for (int iter = 0; iter < 50; ++iter) {

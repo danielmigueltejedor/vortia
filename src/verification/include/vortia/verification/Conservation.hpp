@@ -1,8 +1,10 @@
 #pragma once
 
 /// Discrete flux conservation checks for incompressible verification cases.
-/// These compare measured inlet/outlet volume (or mass) fluxes; they do not
-/// invent CFD fields. Relative imbalance = |Qin − Qout| / max(|Qin|, |Qout|, ε).
+/// Callers must supply **non-negative flow magnitudes** (volume or mass rates
+/// as positive scalars). OpenFOAM signed monitors must be converted with
+/// `std::abs` before calling. Relative imbalance =
+/// |Qin − Qout| / max(Qin, Qout) when that max is > 0.
 
 #include <algorithm>
 #include <cmath>
@@ -11,8 +13,8 @@
 namespace vortia::verification {
 
 struct FluxConservationInput {
-    double inletFlux{0.0};
-    double outletFlux{0.0};
+    double inletFlux{0.0};  ///< Non-negative inlet flow magnitude
+    double outletFlux{0.0}; ///< Non-negative outlet flow magnitude
     double relativeTolerance{1e-3}; ///< a-priori acceptance band
 };
 
@@ -30,10 +32,13 @@ struct FluxConservationResult {
         out.message = "fluxes and tolerance must be finite; tolerance > 0";
         return out;
     }
+    if (in.inletFlux < 0.0 || in.outletFlux < 0.0) {
+        out.message = "fluxes must be non-negative magnitudes (use abs on signed monitors)";
+        return out;
+    }
     out.absoluteImbalance = std::abs(in.inletFlux - in.outletFlux);
-    const double scale = std::max(std::abs(in.inletFlux), std::abs(in.outletFlux));
+    const double scale = std::max(in.inletFlux, in.outletFlux);
     if (!(scale > 0.0)) {
-        // Both fluxes are exactly zero → perfectly balanced empty system.
         out.relativeImbalance = 0.0;
         out.ok = true;
         out.message = "both fluxes zero";

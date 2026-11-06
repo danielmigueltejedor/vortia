@@ -38,9 +38,24 @@ class GciLibraryTests(unittest.TestCase):
         self.assertAlmostEqual(result["observed_order"], 2.0, places=6)
         self.assertAlmostEqual(result["extrapolated"], 1.0, places=6)
 
+    def test_unequal_refinement_smaller_coarse_ratio(self):
+        result = compute_gci(
+            f1=1.0 + 1.0**2,
+            f2=1.0 + 2.0**2,
+            f3=1.0 + 2.2**2,
+            r21=2.0,
+            r32=1.1,
+        )
+        self.assertAlmostEqual(result["observed_order"], 2.0, places=5)
+        self.assertAlmostEqual(result["extrapolated"], 1.0, places=5)
+
     def test_rejects_oscillatory(self):
         with self.assertRaisesRegex(ValueError, "oscillatory"):
             compute_gci(1.0, 2.0, 0.0, r21=2.0, r32=2.0)
+
+    def test_rejects_tiny_oscillatory(self):
+        with self.assertRaisesRegex(ValueError, "oscillatory"):
+            compute_gci(1e-170, 2e-170, -2e-170, r21=2.0, r32=2.0)
 
     def test_identical_meshes(self):
         result = compute_gci(42.0, 42.0, 42.0, r21=2.0, r32=2.0)

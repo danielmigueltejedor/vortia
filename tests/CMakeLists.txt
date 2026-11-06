@@ -54,10 +54,13 @@ target_compile_definitions(test_verification PRIVATE
     VORTIA_BENCHMARK_ROOT="${PROJECT_SOURCE_DIR}/benchmarks")
 gtest_discover_tests(test_verification)
 
-# Always-on: CLI can materialize a Poiseuille case directory (no OpenFOAM run).
+# Always-on: CLI can materialize case directories (no OpenFOAM run).
 add_test(NAME benchmark_write_poiseuille_smoke
     COMMAND $<TARGET_FILE:benchmark_write_case> poiseuille
             "${CMAKE_BINARY_DIR}/benchmark-smoke/poiseuille")
+add_test(NAME benchmark_write_blasius_smoke
+    COMMAND $<TARGET_FILE:benchmark_write_case> blasius
+            "${CMAKE_BINARY_DIR}/benchmark-smoke/blasius")
 
 # Native OpenFOAM verification: exit 2 = tools missing → CTest SKIP.
 add_test(NAME benchmark_poiseuille_openfoam

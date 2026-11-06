@@ -85,6 +85,16 @@ TEST(Conservation, TinyOutletAgainstZeroInletFails) {
     EXPECT_NEAR(r.relativeImbalance, 1.0, 1e-12);
 }
 
+TEST(Conservation, RejectsNegativeSignedMonitors) {
+    FluxConservationInput in;
+    in.inletFlux = -1.0;
+    in.outletFlux = 1.0;
+    in.relativeTolerance = 1e-3;
+    const auto r = assessVolumeFluxBalance(in);
+    EXPECT_FALSE(r.ok);
+    EXPECT_NE(r.message.find("non-negative"), std::string::npos);
+}
+
 TEST(Conservation, PoiseuilleAnalyticFluxSelfConsistent) {
     PoiseuilleChannel c;
     const double q = analyticalFlowPerDepth(c);
@@ -127,11 +137,37 @@ TEST(Gci, UnequalRefinementRecoversSecondOrder) {
     EXPECT_NEAR(g.extrapolated, 1.0, 1e-6);
 }
 
+TEST(Gci, UnequalRefinementWhenCoarseRatioIsSmaller) {
+    // f(h)=1+h² at h={1,2,2.2} ⇒ r21=2, r32=1.1 (seed |ε32/ε21|<1).
+    GciInput in;
+    in.f1 = 1.0 + 1.0;
+    in.f2 = 1.0 + 4.0;
+    in.f3 = 1.0 + 2.2 * 2.2;
+    in.r21 = 2.0;
+    in.r32 = 1.1;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_NEAR(g.observedOrder, 2.0, 1e-5);
+    EXPECT_NEAR(g.extrapolated, 1.0, 1e-5);
+}
+
 TEST(Gci, RejectsOscillatorySequence) {
     GciInput in;
     in.f1 = 1.0;
     in.f2 = 2.0;
     in.f3 = 0.0;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+    EXPECT_NE(g.message.find("oscillatory"), std::string::npos);
+}
+
+TEST(Gci, RejectsTinyOscillatoryWithoutProductUnderflow) {
+    GciInput in;
+    in.f1 = 1e-170;
+    in.f2 = 2e-170;
+    in.f3 = -2e-170;
     in.r21 = 2.0;
     in.r32 = 2.0;
     const auto g = computeGci(in);
