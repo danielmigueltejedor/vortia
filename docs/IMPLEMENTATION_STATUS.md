@@ -1,8 +1,13 @@
 # Estado de implementación
 
-Actualizado: 2026-10-22
+Actualizado: 2026-11-06 (release 0.2.0)
 
 ## Implementado (con pruebas)
+
+**0.2.0 — Verificación (unitario / analítico)**
+- `vortia::verification`: métricas de perfil, Poiseuille, Ghia Re=100, Blasius clásico, GCI Roache/Celik, balance de flujo volumétrico.
+- `benchmarks/` + `benchmark_write_case` + `compare_profiles.py`; CTest de escritura y GCI; runs OpenFOAM nativos siguen opcionales (`SKIP_RETURN_CODE` sin solver).
+- **No** se afirman resultados CFD nativos hasta `benchmarks/*/results/` con referencias.
 
 **Fase 0 — Fundamentos**
 - Investigación técnica y decisiones de arquitectura (`docs/architecture/research.md`, `docs/ARCHITECTURE.md`).
@@ -33,11 +38,11 @@ Actualizado: 2026-10-22
 
 ## Parcial / pendiente
 
-- Validación numérica real: requiere OpenFOAM instalado (Linux/WSL2/Docker). La detección y el escritor han sido probados sobre árboles de directorios y casos generados; la ejecución real está pendiente en esta máquina (macOS sin OpenFOAM nativo).
-- snappyHexMesh, STEP/IGES (OCCT), MPI, remoto/HPC, informes PDF.
+- Validación numérica real nativa (Poiseuille/Ghia/Blasius + GCI registrado): requiere OpenFOAM en Linux/WSL2/Docker — objetivo 0.3.0.
+- snappyHexMesh, STEP/IGES (OCCT), MPI, remoto/HPC, informes PDF; fuerzas / CL·CD.
 - Editor completo de condiciones de contorno (MVP: plantilla de cavidad con tapa móvil).
 - Internacionalización completa (solo scaffold en/es).
-- Empaquetado e instaladores.
+- Notarización Apple Developer ID (DMG sigue ad-hoc).
 
 ## Nunca afirmar como hecho
 

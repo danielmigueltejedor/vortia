@@ -4,12 +4,23 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+Trabajo hacia **0.3.0** — ver `docs/VORTIA_0.3.0.md`.
+
+## [0.2.0] — 2026-11-06
+
+Fundamentos de verificación y validación (milestones A–B del plan 0.2.0). No se afirman resultados CFD nativos de OpenFOAM hasta registrarlos bajo `benchmarks/*/results/`.
+
 ### Añadido
-- Plan técnico **Vortia 0.2.0** (`docs/VORTIA_0.2.0.md`) tras auditoría de la línea base 0.1.1.
-- Módulo `vortia::verification` (métricas L2/L∞, Poiseuille analítico, tablas Ghia Re=100, CSV/interpolación, sampleDicts).
-- Árbol `benchmarks/` para Poiseuille 2D y cavidad Ghia Re=100 (referencias citadas).
-- CLI `benchmark_write_case` y `benchmarks/common/compare_profiles.py` (write→run→sample→compare).
-- CTest: `test_verification`, smoke de escritura, y benchmarks OF con `SKIP_RETURN_CODE` si no hay solver.
+- Plan técnico `docs/VORTIA_0.2.0.md` y módulo `vortia::verification` (métricas L2/L∞, Poiseuille, Ghia Re=100, Blasius clásico, CSV/interpolación).
+- Árbol `benchmarks/` (Poiseuille 2D, cavidad Ghia Re=100, placa plana Blasius) con referencias citadas.
+- CLI `benchmark_write_case`, `benchmarks/common/compare_profiles.py` y harness CTest (smoke de escritura; runs OF con `SKIP_RETURN_CODE` si no hay solver).
+- GCI de tres mallas (Roache/Celik): `computeGci` (C++) y `benchmarks/common/gci.py`, con rechazo de oscilatorios y de órdenes no positivos.
+- Valoración de balance de flujo volumétrico inlet/outlet (`assessVolumeFluxBalance`).
+
+### Notas
+- Empaquetado macOS DMG + Linux AppImage como en 0.1.1 (ad-hoc; sin notarización Apple).
+- OpenFOAM sigue siendo motor externo; no va embebido en los instaladores.
+- Hitos C–F del plan 0.2.0 (fuerzas/CL·CD, endurecimiento de workflow, rendimiento, RC completo) se continúan en **0.3.0**.
 
 ## [0.1.1] — 2026-11-05
 
