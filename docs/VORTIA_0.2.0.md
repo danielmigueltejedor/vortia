@@ -1,9 +1,10 @@
 # Vortia 0.2.0 — Technical diagnosis and plan
 
 **Baseline audited:** `main` at 0.1.1 (tag `v0.1.1`), 2026-11-05.
-**Machine gate (UI off):** configure/build + 171 CTest passed (1 Detector native smoke skipped).
+**Released:** 0.2.0 (tag `v0.2.0`), 2026-11-06 — milestones **A–B tooling** shipped; C–F continue in `docs/VORTIA_0.3.0.md`.
+**Machine gate (UI off):** configure/build + CTest (Detector native smoke still skippable without OF).
 
-This document is the versioned engineering plan for **0.2.0**. It records what exists today, what is missing for scientific credibility, and the milestone path. It does **not** claim validation that has not been executed.
+This document is the versioned engineering plan for **0.2.0**. It records what existed at audit time, what shipped, and what remains. It does **not** claim native OpenFOAM validation that has not been executed and recorded.
 
 ---
 
@@ -67,7 +68,7 @@ Quantitative error tolerances are set **per benchmark** before runs, with scient
 | **C** | Engineering Workflow | Geometry/mesh/physics/run hardening |
 | **D** | Professional Postprocessing | Forces, CL/CD/Cp where fields allow; comparisons; reports |
 | **E** | Performance & Reliability | Profiling, MPI scaling evidence, regressions |
-| **F** | 0.2.0 RC | Packaging, docs, release criteria checklist |
+| **F** | 0.2.0 RC | Packaging, docs, release criteria checklist — **partial** at tag `v0.2.0`; remainder → 0.3.0 |
 
 **First PR (Milestone A):** verification library + Poiseuille/Ghia packages + always-on analytic tests.
 

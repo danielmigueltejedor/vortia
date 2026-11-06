@@ -2,6 +2,8 @@
 
 Leyenda: ✅ completado · 🟡 en curso · ⬜ pendiente · 🧪 validado con backend real
 
+**Versión publicada:** 0.2.0 (fundamentos V&V + GCI/conservación). Continuación: `docs/VORTIA_0.3.0.md`.
+
 ## Fase 0 — Investigación y fundamentos
 - ✅ Investigación de dependencias, versiones y licencias
 - ✅ Arquitectura y ADRs
