@@ -73,7 +73,7 @@ Quantitative error tolerances are set **per benchmark** before runs, with scient
 
 **Harness PR (Milestone B start):** `benchmark_write_case`, sample dictionaries, `compare_profiles.py`, CTest write smoke + OpenFOAM-gated runs (`SKIP_RETURN_CODE 2` when solvers are absent). No fabricated CFD results.
 
-**GCI tooling (Milestone B):** `vortia::verification::computeGci` + `benchmarks/common/gci.py` (Roache three-grid). Always-on unit/native tests with manufactured second-order data. Native Poiseuille/Ghia GCI numbers still require a complete OpenFOAM host — not claimed until recorded under `results/`.
+**GCI tooling (Milestone B):** `vortia::verification::computeGci` + `benchmarks/common/gci.py` (Roache three-grid). C++ unit tests are always on; the Python `gci_tool` CTest is registered only when CMake finds a Python 3 interpreter. Native Poiseuille/Ghia GCI numbers still require a complete OpenFOAM host — not claimed until recorded under `results/`.
 
 **Blasius + conservation (Milestone B):** third benchmark package (`blasius-flat-plate/`) with classical \(c_f\)/\(\delta_{99}\)/\(f'(\eta)\) checks; `assessVolumeFluxBalance` for inlet/outlet flux imbalance. Analytic/unit only until native OF results exist.
 

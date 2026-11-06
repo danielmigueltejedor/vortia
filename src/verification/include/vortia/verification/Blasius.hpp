@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace vortia::verification {
@@ -35,8 +36,11 @@ struct Sample1DBlasius {
     return 0.664 / std::sqrt(rex);
 }
 
+/// δ99 = 5 √(ν x / U∞). At x=0 the thickness is zero (not 0/0).
 [[nodiscard]] inline double delta99(const BlasiusPlate& p, double x) {
-    return 5.0 * x / std::sqrt(reynoldsX(p, x));
+    if (!(x >= 0.0) || !std::isfinite(x) || !(p.freestream > 0.0) || !(p.nu > 0.0))
+        return std::numeric_limits<double>::quiet_NaN();
+    return 5.0 * std::sqrt(p.nu * x / p.freestream);
 }
 
 /// Classical Blasius f'(η) table (Howarth / Schlichting). Units: η dimensionless.
@@ -64,8 +68,8 @@ struct Sample1DBlasius {
     CaseSetup s;
     s.domain = BoxDomain::fromExtents({0, 0, 0}, {p.length, p.height, p.depth}).value();
     s.mesh.cells = cells;
-    // Stretch toward the wall (y=0) for boundary-layer resolution.
-    s.mesh.grading = {1.0, 0.2, 1.0};
+    // simpleGrading = last/first cell size: >1 packs cells toward y=0 (the plate).
+    s.mesh.grading = {1.0, 8.0, 1.0};
     s.mesh.patches = {{
         {BoxDomain::XMin, "inlet", PatchKind::Patch},
         {BoxDomain::XMax, "outlet", PatchKind::Patch},

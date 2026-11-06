@@ -27,4 +27,4 @@
 
 ## Software checks (always)
 
-`Blasius.*` unit tests lock \(c_f\), \(\delta_{99}\), table endpoints, and writable `CaseSetup`.
+`Blasius.*` unit tests lock \(c_f\), \(\delta_{99}\) (including \(x=0\)), table endpoints, and structural `CaseSetup` validity (`validate()`). Case writing is covered by `benchmark_write_case blasius`.

@@ -64,11 +64,13 @@ int main(int argc, char** argv) {
         sampleU = vortia::verification::ghiaUSampleDict();
         sampleV = vortia::verification::ghiaVSampleDict();
     } else if (kind == "blasius") {
-        setup = vortia::verification::makeBlasiusCase(vortia::verification::BlasiusPlate{}, {80, 40, 1});
-        // Wall-normal sample at x = L/2 (reuse vertical centreline helper).
+        setup = vortia::verification::makeBlasiusCase(vortia::verification::BlasiusPlate{}, {80, 60, 1});
+        // Wall-normal sample at x = L/2, concentrated inside η ≲ 5 (≈ δ99).
         const vortia::verification::BlasiusPlate plate;
+        const double x = 0.5 * plate.length;
+        const double yEnd = vortia::verification::delta99(plate, x);
         sampleU = vortia::verification::verticalCentrelineSampleDict(
-            0.5 * plate.length, 0.0, plate.height, 0.5 * plate.depth, 80);
+            x, 0.0, yEnd, 0.5 * plate.depth, 80);
     } else {
         std::cerr << "Unknown case kind: " << kind << "\n";
         return 2;

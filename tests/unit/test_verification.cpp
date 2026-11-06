@@ -27,6 +27,7 @@ TEST(Blasius, SkinFrictionAndDeltaMatchClassicalCorrelations) {
     EXPECT_NEAR(rex, p.freestream * x / p.nu, 1e-12);
     EXPECT_NEAR(localSkinFriction(p, x), 0.664 / std::sqrt(rex), 1e-12);
     EXPECT_NEAR(delta99(p, x), 5.0 * x / std::sqrt(rex), 1e-12);
+    EXPECT_DOUBLE_EQ(delta99(p, 0.0), 0.0);
     const auto& table = blasiusFPrimeTable();
     ASSERT_GE(table.size(), 3u);
     EXPECT_DOUBLE_EQ(table.front().eta, 0.0);
@@ -41,6 +42,7 @@ TEST(Blasius, CaseSetupIsStructurallyValid) {
     for (const auto& issue : issues)
         EXPECT_NE(issue.severity, Severity::Error) << issue.message;
     EXPECT_GT(setup.estimateReynolds(), 0.0);
+    EXPECT_GT(setup.mesh.grading[1], 1.0); // packs toward the plate at y=0
 }
 
 TEST(Conservation, BalancedFluxesPass) {
@@ -61,6 +63,26 @@ TEST(Conservation, ImbalancedFluxesFail) {
     const auto r = assessVolumeFluxBalance(in);
     EXPECT_FALSE(r.ok);
     EXPECT_NEAR(r.relativeImbalance, 0.1, 1e-12);
+}
+
+TEST(Conservation, ToleranceBoundaryIsInclusive) {
+    FluxConservationInput in;
+    in.inletFlux = 100.0;
+    in.outletFlux = 99.0;
+    in.relativeTolerance = 0.01; // |100-99|/100 == 0.01 exactly
+    const auto r = assessVolumeFluxBalance(in);
+    ASSERT_TRUE(r.ok) << r.message;
+    EXPECT_DOUBLE_EQ(r.relativeImbalance, 0.01);
+}
+
+TEST(Conservation, TinyOutletAgainstZeroInletFails) {
+    FluxConservationInput in;
+    in.inletFlux = 0.0;
+    in.outletFlux = 1e-34;
+    in.relativeTolerance = 1e-3;
+    const auto r = assessVolumeFluxBalance(in);
+    EXPECT_FALSE(r.ok);
+    EXPECT_NEAR(r.relativeImbalance, 1.0, 1e-12);
 }
 
 TEST(Conservation, PoiseuilleAnalyticFluxSelfConsistent) {
@@ -87,7 +109,47 @@ TEST(Gci, ExactSecondOrderMonotonicRefinement) {
     EXPECT_NEAR(g.observedOrder, 2.0, 1e-9);
     EXPECT_NEAR(g.extrapolated, 1.0, 1e-9);
     EXPECT_GT(g.gci12, 0.0);
-    EXPECT_NEAR(g.asymptoticRatio, 1.0, 1e-6);
+    // With equal r, relative GCIs give asym ≈ |f1|/|f2| (not an independent check).
+    EXPECT_NEAR(g.asymptoticRatio, std::abs(in.f1) / std::abs(in.f2), 1e-6);
+}
+
+TEST(Gci, UnequalRefinementRecoversSecondOrder) {
+    // f(h)=1+h² at h={1,2,6} ⇒ r21=2, r32=3.
+    GciInput in;
+    in.f1 = 1.0 + 1.0;
+    in.f2 = 1.0 + 4.0;
+    in.f3 = 1.0 + 36.0;
+    in.r21 = 2.0;
+    in.r32 = 3.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_NEAR(g.observedOrder, 2.0, 1e-6);
+    EXPECT_NEAR(g.extrapolated, 1.0, 1e-6);
+}
+
+TEST(Gci, RejectsOscillatorySequence) {
+    GciInput in;
+    in.f1 = 1.0;
+    in.f2 = 2.0;
+    in.f3 = 0.0;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+    EXPECT_NE(g.message.find("oscillatory"), std::string::npos);
+}
+
+TEST(Gci, SmallMagnitudeSecondOrderStillComputes) {
+    GciInput in;
+    in.f1 = 1e-16 + 1e-16 * 0.25 * 0.25;
+    in.f2 = 1e-16 + 1e-16 * 0.5 * 0.5;
+    in.f3 = 1e-16 + 1e-16 * 1.0;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_NEAR(g.observedOrder, 2.0, 1e-6);
+    EXPECT_NEAR(g.extrapolated, 1e-16, 1e-20);
 }
 
 TEST(Gci, RejectsInvalidRefinementRatio) {

@@ -31,7 +31,14 @@ struct FluxConservationResult {
         return out;
     }
     out.absoluteImbalance = std::abs(in.inletFlux - in.outletFlux);
-    const double scale = std::max({std::abs(in.inletFlux), std::abs(in.outletFlux), 1e-30});
+    const double scale = std::max(std::abs(in.inletFlux), std::abs(in.outletFlux));
+    if (!(scale > 0.0)) {
+        // Both fluxes are exactly zero → perfectly balanced empty system.
+        out.relativeImbalance = 0.0;
+        out.ok = true;
+        out.message = "both fluxes zero";
+        return out;
+    }
     out.relativeImbalance = out.absoluteImbalance / scale;
     out.ok = out.relativeImbalance <= in.relativeTolerance;
     out.message = out.ok ? "within tolerance" : "imbalance exceeds tolerance";

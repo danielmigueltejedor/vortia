@@ -12,12 +12,6 @@ import argparse
 import math
 import sys
 
-_ZERO = 1e-15
-
-
-def _near_zero(value: float) -> bool:
-    return math.isclose(value, 0.0, rel_tol=0.0, abs_tol=_ZERO)
-
 
 def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: float = 1.25):
     if not all(math.isfinite(v) for v in (f1, f2, f3, r21, r32, fs)):
@@ -27,24 +21,45 @@ def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: flo
 
     eps21 = f2 - f1
     eps32 = f3 - f2
-    if _near_zero(eps21) and _near_zero(eps32):
+
+    # Exact equality only — small nonzero differences are valid QoIs.
+    if f1 == f2 == f3:
         return {
             "observed_order": 0.0,
             "extrapolated": f1,
             "gci12": 0.0,
             "gci23": 0.0,
+            "relative_gci": True,
             "asymptotic_ratio": 1.0,
             "message": "identical solutions on all three meshes",
         }
-    if _near_zero(eps21) or _near_zero(eps32):
+    if eps21 == 0.0 or eps32 == 0.0:
         raise ValueError("zero consecutive difference; cannot estimate observed order")
+    if (eps21 * eps32) < 0.0:
+        raise ValueError("oscillatory convergence; monotonic GCI does not apply")
 
-    oscillatory = (eps21 * eps32) < 0.0
-    ratio = abs(eps32 / eps21)
-    p = math.log(ratio) / math.log(r21)
+    abs_ratio = abs(eps32 / eps21)
+    # Celik et al. (2008): iterate q(p) when r21 != r32. Monotonic ⇒ s = +1.
+    s = 1.0
+    p = math.log(abs_ratio) / math.log(r21)
     if abs(r21 - r32) > 1e-12:
-        q = math.log((r21**p - 1.0) / (r32**p - 1.0))
-        p = (math.log(ratio) + q) / math.log(r21)
+        converged = False
+        for _ in range(50):
+            num = r21**p - s
+            den = r32**p - s
+            if not (num > 0.0 and den > 0.0 and math.isfinite(num) and math.isfinite(den)):
+                raise ValueError("observed-order iteration left the valid domain")
+            q = math.log(num / den)
+            p_new = abs(math.log(abs_ratio) + q) / math.log(r21)
+            if not math.isfinite(p_new) or p_new <= 0.0:
+                raise ValueError("observed order is non-positive or non-finite")
+            if abs(p_new - p) < 1e-10 * max(1.0, abs(p_new)):
+                p = p_new
+                converged = True
+                break
+            p = p_new
+        if not converged:
+            raise ValueError("observed-order iteration did not converge")
     if not math.isfinite(p) or p <= 0.0:
         raise ValueError("observed order is non-positive or non-finite")
 
@@ -53,18 +68,22 @@ def compute_gci(f1: float, f2: float, f3: float, r21: float, r32: float, fs: flo
     f_exact = (rp21 * f1 - f2) / (rp21 - 1.0)
     abs_gci12 = fs * abs(eps21) / (rp21 - 1.0)
     abs_gci23 = fs * abs(eps32) / (rp32 - 1.0)
-    scale1 = abs(f1) if abs(f1) > _ZERO else 1.0
-    scale2 = abs(f2) if abs(f2) > _ZERO else 1.0
-    gci12 = abs_gci12 / scale1
-    gci23 = abs_gci23 / scale2
-    asym = abs_gci23 / (rp21 * abs_gci12) if abs_gci12 > _ZERO else 0.0
+    scale1 = abs(f1)
+    scale2 = abs(f2)
+    relative = scale1 > 0.0 and scale2 > 0.0
+    gci12 = abs_gci12 / scale1 if relative else abs_gci12
+    gci23 = abs_gci23 / scale2 if relative else abs_gci23
+    if not (gci12 > 0.0):
+        raise ValueError("fine-grid GCI is zero; asymptotic ratio undefined")
+    asym = gci23 / (rp21 * gci12)
     return {
         "observed_order": p,
         "extrapolated": f_exact,
         "gci12": gci12,
         "gci23": gci23,
+        "relative_gci": relative,
         "asymptotic_ratio": asym,
-        "message": "oscillatory convergence" if oscillatory else "ok",
+        "message": "ok" if relative else "ok (absolute GCI; QoI scale was zero)",
     }
 
 

@@ -46,4 +46,4 @@ Refine cells across \(H\) (e.g. 20 / 40 / 80) at fixed aspect, extract \(U_\math
 python3 benchmarks/common/gci.py --f1 <Umax_fine> --f2 <Umax_mid> --f3 <Umax_coarse> --r21 2 --r32 2
 ```
 
-Do not mark the case mesh-independent until asymptotic ratio ≈ 1 and GCI₁₂ meets the a-priori band you record with the run.
+Do not treat the three-grid asymptotic ratio alone as proof of an asymptotic range when \(r_{21}=r_{32}\): it is not an independent check of the observed order. Prefer comparing \(p_\mathrm{obs}\) to the expected scheme order and/or a fourth mesh. Reject oscillatory triples. Record GCI₁₂ only after those checks.
