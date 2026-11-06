@@ -17,7 +17,7 @@ fi
 
 exe="$(readlink -f "$1")"
 out="$2"
-version="${3:-0.2.0}"
+version="${3:-0.2.1}"
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 icon="$repo/resources/icons/vortia.png"

@@ -4,7 +4,7 @@
 
 Vortia aspira a ser una alternativa abierta, moderna y rigurosa a las suites CFD comerciales: geometría → malla → física → ejecución supervisada → posproceso 3D interactivo, sin tocar la terminal.
 
-> Estado: **0.2.0 publicado** (fundamentos V&V: benchmarks, GCI, conservación). Mejoras siguientes en **0.3.0** — ver `docs/VORTIA_0.3.0.md`, `docs/VALIDATION.md`, `benchmarks/`.
+> Estado: **0.2.1 publicado** (fix actualizador macOS ad-hoc). Continuación en **0.3.0** — ver `docs/VORTIA_0.3.0.md`, `docs/VALIDATION.md`, `benchmarks/`.
 
 ## Stack
 

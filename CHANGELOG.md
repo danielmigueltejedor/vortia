@@ -6,6 +6,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 Trabajo hacia **0.3.0** — ver `docs/VORTIA_0.3.0.md`.
 
+## [0.2.1] — 2026-11-06
+
+### Corregido
+- Actualizador in-app en macOS: las builds públicas van firmadas **ad-hoc** (`TeamIdentifier=not set`). 0.1.1/0.2.0 rechazaban ese caso tras descargar el DMG, así que la app no se sustituía y al reiniciar seguía pidiendo actualizar. Ahora se acepta ad-hoc → ad-hoc con el mismo `Identifier` (`dev.vortia.app`); Developer ID sigue exigiendo el mismo Team ID.
+
+### Notas
+- Quien esté en **0.1.1** o **0.2.0** debe instalar este DMG **a mano** una vez (el binario antiguo sigue con el fallo). A partir de 0.2.1 las actualizaciones in-app macOS vuelven a aplicar.
+
 ## [0.2.0] — 2026-11-06
 
 Fundamentos de verificación y validación (milestones A–B del plan 0.2.0). No se afirman resultados CFD nativos de OpenFOAM hasta registrarlos bajo `benchmarks/*/results/`.

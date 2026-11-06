@@ -108,13 +108,23 @@ if(TARGET vortia_visualization)
     gtest_discover_tests(test_vtk_input)
 endif()
 
+# AppUpdater pure helpers (SHA-256 digest + macOS publisher policy). Needs Qt Core only.
+find_package(Qt6 QUIET COMPONENTS Core)
+if(Qt6_FOUND)
+    add_executable(test_app_updater unit/test_app_updater.cpp)
+    target_include_directories(test_app_updater PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/ui/include
+        ${PROJECT_SOURCE_DIR}/src/ui/src)
+    target_link_libraries(test_app_updater PRIVATE Qt6::Core GTest::gtest_main vortia_warnings)
+    gtest_discover_tests(test_app_updater)
+endif()
+
 # CI regression: ensures that lrelease ran and the built app embeds a readable
 # Spanish catalog in the same resource path used at runtime.
 if(TARGET vortia)
     add_test(NAME vortia_spanish_catalog
              COMMAND $<TARGET_FILE:vortia> --verify-spanish)
     add_executable(test_workspace unit/test_workspace.cpp unit/test_engineering.cpp unit/test_run_diagnostics.cpp
-        unit/test_app_updater.cpp
         "${PROJECT_SOURCE_DIR}/resources/vortia.qrc")
     set_target_properties(test_workspace PROPERTIES AUTORCC ON)
     target_link_libraries(test_workspace PRIVATE vortia::ui GTest::gtest vortia_warnings)
