@@ -24,25 +24,9 @@
 #include <algorithm>
 
 namespace vortia {
-namespace detail {
-
-QString githubAssetSha256(const QJsonObject& asset) {
-    static const QRegularExpression digestPattern(QStringLiteral("^sha256:([0-9a-fA-F]{64})$"));
-    const auto match = digestPattern.match(asset.value(QStringLiteral("digest")).toString());
-    return match.hasMatch() ? match.captured(1).toLower() : QString();
-}
-
-bool matchesSha256(const QByteArray& data, const QString& expected) {
-    static const QRegularExpression digestPattern(QStringLiteral("^[0-9a-fA-F]{64}$"));
-    if (!digestPattern.match(expected).hasMatch())
-        return false;
-    const QByteArray actual = QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
-    return actual == expected.toLatin1().toLower();
-}
-
-} // namespace detail
-
 namespace {
+
+// SHA-256 / macOS publisher helpers live in AppUpdaterInternal.hpp (header-only).
 
 constexpr auto kReleasesApi =
     "https://api.github.com/repos/danielmigueltejedor/vortia/releases/latest";
@@ -91,7 +75,7 @@ QString macOSBundlePath() {
 }
 
 #ifdef Q_OS_MACOS
-bool verifyCodeSignature(const QString& bundle, QString* teamIdentifier, QString* identifier, QString* error) {
+bool readCodeIdentity(const QString& bundle, detail::MacOSCodeIdentity* identity, QString* error) {
     QProcess verify;
     verify.start(QStringLiteral("/usr/bin/codesign"),
                  {QStringLiteral("--verify"), QStringLiteral("--deep"), QStringLiteral("--strict"), bundle});
@@ -110,20 +94,15 @@ bool verifyCodeSignature(const QString& bundle, QString* teamIdentifier, QString
             *error = QObject::tr("Could not identify the macOS app publisher.");
         return false;
     }
-    const QString output = QString::fromLocal8Bit(display.readAllStandardError());
-    const QRegularExpression teamPattern(QStringLiteral("(?:^|\\n)TeamIdentifier=([^\\r\\n]+)"));
-    const QRegularExpression identifierPattern(QStringLiteral("(?:^|\\n)Identifier=([^\\r\\n]+)"));
-    const auto teamMatch = teamPattern.match(output);
-    const auto identifierMatch = identifierPattern.match(output);
-    if (!teamMatch.hasMatch() || teamMatch.captured(1) == QStringLiteral("not set") || !identifierMatch.hasMatch()) {
+    const detail::MacOSCodeIdentity parsed =
+        detail::parseCodesignDisplay(QString::fromLocal8Bit(display.readAllStandardError()));
+    if (parsed.identifier.isEmpty()) {
         if (error)
-            *error = QObject::tr("The macOS app is not signed by a verifiable publisher.");
+            *error = QObject::tr("Could not identify the macOS app publisher.");
         return false;
     }
-    if (teamIdentifier)
-        *teamIdentifier = teamMatch.captured(1);
-    if (identifier)
-        *identifier = identifierMatch.captured(1);
+    if (identity)
+        *identity = parsed;
     return true;
 }
 
@@ -148,10 +127,8 @@ bool verifyMacOSUpdateSignature(const QString& dmgPath, QString* error) {
     }
 
     QString verificationError;
-    QString downloadedTeam;
-    QString downloadedIdentifier;
-    QString installedTeam;
-    QString installedIdentifier;
+    detail::MacOSCodeIdentity downloadedIdentity;
+    detail::MacOSCodeIdentity installedIdentity;
     QString appPath;
     QDirIterator it(mountDir.path(), {QStringLiteral("Vortia.app")},
                     QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
@@ -161,13 +138,11 @@ bool verifyMacOSUpdateSignature(const QString& dmgPath, QString* error) {
     if (!valid)
         verificationError = QObject::tr("The downloaded disk image does not contain Vortia.app.");
     if (valid)
-        valid = verifyCodeSignature(appPath, &downloadedTeam, &downloadedIdentifier, &verificationError);
+        valid = readCodeIdentity(appPath, &downloadedIdentity, &verificationError);
     if (valid)
-        valid = verifyCodeSignature(installedBundle, &installedTeam, &installedIdentifier, &verificationError);
-    if (valid && (downloadedTeam != installedTeam || downloadedIdentifier != installedIdentifier)) {
-        valid = false;
-        verificationError = QObject::tr("The downloaded macOS app is signed by a different publisher.");
-    }
+        valid = readCodeIdentity(installedBundle, &installedIdentity, &verificationError);
+    if (valid)
+        valid = detail::sameMacOSUpdatePublisher(installedIdentity, downloadedIdentity, &verificationError);
 
     QProcess detach;
     detach.start(QStringLiteral("/usr/bin/hdiutil"),

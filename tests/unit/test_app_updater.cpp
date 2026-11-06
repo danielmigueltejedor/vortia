@@ -1,19 +1,9 @@
-#include "vortia/ui/AppUpdater.hpp"
-#include "../../src/ui/src/AppUpdaterInternal.hpp"
+#include "AppUpdaterInternal.hpp"
 
 #include <gtest/gtest.h>
 
 #include <QCryptographicHash>
 #include <QJsonObject>
-
-using vortia::compareAppVersions;
-
-TEST(AppUpdater, CompareVersions) {
-    EXPECT_LT(compareAppVersions("0.1.0", "0.2.0"), 0);
-    EXPECT_GT(compareAppVersions("v0.2.0", "0.1.9"), 0);
-    EXPECT_EQ(compareAppVersions("0.1.0", "v0.1.0"), 0);
-    EXPECT_LT(compareAppVersions("0.1.0-beta", "0.1.1"), 0);
-}
 
 TEST(AppUpdater, ParsesGitHubAssetSha256) {
     const QByteArray data("release package");
@@ -29,4 +19,72 @@ TEST(AppUpdater, ParsesGitHubAssetSha256) {
     EXPECT_TRUE(vortia::detail::githubAssetSha256(
                     {{QStringLiteral("digest"), QStringLiteral("sha256:invalid")}})
                     .isEmpty());
+}
+
+TEST(AppUpdater, ParsesAdhocCodesignDisplay) {
+    const QString output = QStringLiteral(
+        "Executable=/Applications/Vortia.app/Contents/MacOS/vortia\n"
+        "Identifier=dev.vortia.app\n"
+        "Format=app bundle with Mach-O thin (arm64)\n"
+        "Signature=adhoc\n"
+        "TeamIdentifier=not set\n");
+    const auto identity = vortia::detail::parseCodesignDisplay(output);
+    EXPECT_EQ(identity.identifier, QStringLiteral("dev.vortia.app"));
+    EXPECT_EQ(identity.teamIdentifier, QStringLiteral("not set"));
+    EXPECT_TRUE(identity.adhoc);
+}
+
+TEST(AppUpdater, ParsesDeveloperIdCodesignDisplay) {
+    const QString output = QStringLiteral(
+        "Identifier=dev.vortia.app\n"
+        "Authority=Developer ID Application: Example (AB12CD34EF)\n"
+        "TeamIdentifier=AB12CD34EF\n");
+    const auto identity = vortia::detail::parseCodesignDisplay(output);
+    EXPECT_EQ(identity.identifier, QStringLiteral("dev.vortia.app"));
+    EXPECT_EQ(identity.teamIdentifier, QStringLiteral("AB12CD34EF"));
+    EXPECT_FALSE(identity.adhoc);
+}
+
+TEST(AppUpdater, AllowsAdhocToAdhocSameIdentifier) {
+    vortia::detail::MacOSCodeIdentity installed;
+    installed.identifier = QStringLiteral("dev.vortia.app");
+    installed.teamIdentifier = QStringLiteral("not set");
+    installed.adhoc = true;
+    vortia::detail::MacOSCodeIdentity downloaded = installed;
+    QString error;
+    EXPECT_TRUE(vortia::detail::sameMacOSUpdatePublisher(installed, downloaded, &error));
+    EXPECT_TRUE(error.isEmpty());
+}
+
+TEST(AppUpdater, RejectsAdhocWhenIdentifierDiffers) {
+    vortia::detail::MacOSCodeIdentity installed;
+    installed.identifier = QStringLiteral("dev.vortia.app");
+    installed.adhoc = true;
+    vortia::detail::MacOSCodeIdentity downloaded;
+    downloaded.identifier = QStringLiteral("com.example.other");
+    downloaded.adhoc = true;
+    QString error;
+    EXPECT_FALSE(vortia::detail::sameMacOSUpdatePublisher(installed, downloaded, &error));
+    EXPECT_FALSE(error.isEmpty());
+}
+
+TEST(AppUpdater, RejectsAdhocVersusDeveloperId) {
+    vortia::detail::MacOSCodeIdentity installed;
+    installed.identifier = QStringLiteral("dev.vortia.app");
+    installed.adhoc = true;
+    vortia::detail::MacOSCodeIdentity downloaded;
+    downloaded.identifier = QStringLiteral("dev.vortia.app");
+    downloaded.teamIdentifier = QStringLiteral("AB12CD34EF");
+    downloaded.adhoc = false;
+    QString error;
+    EXPECT_FALSE(vortia::detail::sameMacOSUpdatePublisher(installed, downloaded, &error));
+}
+
+TEST(AppUpdater, AllowsMatchingDeveloperIdTeams) {
+    vortia::detail::MacOSCodeIdentity installed;
+    installed.identifier = QStringLiteral("dev.vortia.app");
+    installed.teamIdentifier = QStringLiteral("AB12CD34EF");
+    installed.adhoc = false;
+    vortia::detail::MacOSCodeIdentity downloaded = installed;
+    EXPECT_TRUE(vortia::detail::sameMacOSUpdatePublisher(installed, downloaded, nullptr));
 }

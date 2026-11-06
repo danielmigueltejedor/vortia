@@ -214,7 +214,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             QMessageBox::information(this, tr("Update"), text);
     });
     connect(appUpdater_, &AppUpdater::applyFailed, this, [this](const QString& message) {
-        hideUpdateBanner();
+        if (!pendingUpdate_.version.isEmpty())
+            showUpdateBanner(pendingUpdate_);
         QMessageBox::warning(this, tr("Update"), message);
     });
     connect(appUpdater_, &AppUpdater::applyStarted, this, [this](const QString& message) {

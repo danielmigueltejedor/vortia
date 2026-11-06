@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to attach the AppImage to (e.g. v0.2.0). Leave empty to only upload the workflow artifact."
+        description: "Release tag to attach the AppImage to (e.g. v0.2.1). Leave empty to only upload the workflow artifact."
         required: false
-        default: "v0.2.0"
+        default: "v0.2.1"
   release:
     types: [published]
 
@@ -27,7 +27,7 @@ jobs:
         id: ver
         shell: bash
         run: |
-          tag="${{ github.event.release.tag_name || inputs.tag || 'v0.2.0' }}"
+          tag="${{ github.event.release.tag_name || inputs.tag || 'v0.2.1' }}"
           version="${tag#v}"
           asset="Vortia-${version}-linux-x86_64.AppImage"
           {

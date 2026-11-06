@@ -14,7 +14,7 @@ fi
 
 app="$1"
 out="$2"
-version="${3:-0.2.0}"
+version="${3:-0.2.1}"
 here="$(cd "$(dirname "$0")" && pwd)"
 bg="$here/dmg-background.png"
 
