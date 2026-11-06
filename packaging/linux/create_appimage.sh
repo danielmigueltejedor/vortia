@@ -55,6 +55,8 @@ cp "$icon" "$appdir/usr/share/icons/hicolor/256x256/apps/vortia.png"
 cp "$icon" "$appdir/vortia.png"
 cp "$desktop" "$appdir/Vortia.desktop"
 
+# linuxdeploy collects libraries and Qt plugins; appimagetool packs the
+# final AppDir only AFTER we replace linuxdeploy's symlinked AppRun.
 base_url="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous"
 plugin_url="https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous"
 # Refuse HTTP redirects (Sonar shell:S6506).
@@ -62,6 +64,15 @@ curl_https=(curl -fsSL --proto '=https' --tlsv1.2)
 "${curl_https[@]}" "$base_url/linuxdeploy-x86_64.AppImage" -o "$tools/linuxdeploy.AppImage"
 "${curl_https[@]}" "$plugin_url/linuxdeploy-plugin-qt-x86_64.AppImage" -o "$tools/linuxdeploy-plugin-qt.AppImage"
 chmod +x "$tools"/linuxdeploy*.AppImage
+
+# Use a versioned, checksum-pinned appimagetool. A rolling 'continuous'
+# binary could change between CI jobs without any update to this script.
+appimagetool_url="https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+"${curl_https[@]}" "$appimagetool_url" -o "$tools/appimagetool.AppImage"
+printf '%s  %s\n' \
+  'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0' \
+  "$tools/appimagetool.AppImage" | sha256sum --check --status
+chmod +x "$tools/appimagetool.AppImage"
 
 if [[ -n "${CONDA_PREFIX:-}" ]]; then
   export PATH="$CONDA_PREFIX/bin:$CONDA_PREFIX/lib/qt6/bin:$PATH"
@@ -111,14 +122,30 @@ export DISABLE_COPYRIGHT_FILES_DEPLOYMENT=1
     --executable "$appdir/usr/bin/vortia" \
     --desktop-file "$appdir/Vortia.desktop" \
     --icon-file "$appdir/vortia.png" \
-    --plugin qt \
-    --output appimage
+    --plugin qt
 )
 
-shopt -s nullglob
-built=( "$work"/Vortia*.AppImage "$work"/*.AppImage )
-[[ "${#built[@]}" -ge 1 ]] || { echo "linuxdeploy did not produce an AppImage" >&2; exit 1; }
+# Release smoke tests previously checked only QCoreApplication; both 0.1.1
+# and 0.2.1 therefore shipped with an AppRun symlink and no Qt plugin path.
+# Fail packaging when linuxdeploy has omitted the platform plugin.
+[[ -s "$appdir/usr/plugins/platforms/libqxcb.so" ]] || {
+  echo "Missing bundled Qt xcb platform plugin in AppDir" >&2
+  exit 1
+}
 
-cp "${built[0]}" "$out"
+# linuxdeploy creates AppRun -> usr/bin/vortia. That drops the Qt plugin
+# environment and makes Qt search ~/Descargas/platforms instead.
+rm -f "$appdir/AppRun"
+install -m 0755 "$here/AppRun" "$appdir/AppRun"
+[[ -x "$appdir/AppRun" && ! -L "$appdir/AppRun" ]] || {
+  echo "AppRun must be an executable shell launcher, not a symlink" >&2
+  exit 1
+}
+
+# Produce the final AppImage from our fully prepared AppDir, without any
+# subsequent step that could overwrite the wrapper with a bare symlink.
+ARCH=x86_64 VERSION="$version" \
+  "$tools/appimagetool.AppImage" --appimage-extract-and-run "$appdir" "$out"
+[[ -s "$out" ]] || { echo "appimagetool did not create $out" >&2; exit 1; }
 chmod +x "$out"
 echo "Created $out"

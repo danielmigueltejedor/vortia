@@ -1,0 +1,34 @@
+#!/bin/sh
+# Vortia AppImage entry point.
+# Resolve every dependency relative to the mounted AppDir, never the user's
+# current working directory (e.g. ~/Descargas or ~/Aplicaciones).
+set -eu
+
+APPDIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+export APPDIR
+
+if [ ! -x "$APPDIR/usr/bin/vortia" ]; then
+  echo "Vortia AppImage: bundled executable not found" >&2
+  exit 127
+fi
+
+if [ ! -f "$APPDIR/usr/plugins/platforms/libqxcb.so" ]; then
+  echo "Vortia AppImage: bundled Qt xcb platform plugin not found" >&2
+  exit 127
+fi
+
+# Do not allow host Qt plugins to supersede our packaged Qt version.
+export QT_PLUGIN_PATH="$APPDIR/usr/plugins"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$APPDIR/usr/plugins/platforms"
+
+# The Linux AppImage currently bundles xcb, not the Wayland QPA plugin.
+# xcb works on both X11 and GNOME/KDE Wayland sessions via XWayland.
+# Respect an explicit user override for troubleshooting.
+: "${QT_QPA_PLATFORM:=xcb}"
+export QT_QPA_PLATFORM
+
+# Load bundled Qt/VTK dependencies before host libraries. Keep any user
+# overrides after the packaged paths, for unrelated host-side dependencies.
+export LD_LIBRARY_PATH="$APPDIR/usr/lib:$APPDIR/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+exec "$APPDIR/usr/bin/vortia" "$@"

@@ -4,6 +4,8 @@
 #include "vortia/solver/openfoam/Detector.hpp"
 
 #include <QApplication>
+#include <QGuiApplication>
+#include <QWidget>
 #include <QIcon>
 #include <QFileInfo>
 #include <QOpenGLContext>
@@ -60,6 +62,24 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         qInfo() << "Vortia Spanish Qt resources verified";
+        return 0;
+    }
+
+    // Exercise the actual QPA plugin and display connection in release CI.
+    // --verify-spanish uses QCoreApplication and cannot detect a missing
+    // platform plugin: that allowed broken AppImages to be published.
+    if (argc > 1 && QString::fromUtf8(argv[1]) == QStringLiteral("--verify-qt-platform")) {
+        QApplication smokeApp(argc, argv);
+        QWidget probe;
+        probe.resize(32, 32);
+        probe.show();
+        smokeApp.processEvents();
+        if (QGuiApplication::platformName().isEmpty() || !probe.isVisible()) {
+            qCritical() << "Vortia Qt platform/window verification failed";
+            return 4;
+        }
+        qInfo() << "Vortia graphical Qt platform verified:"
+                << QGuiApplication::platformName();
         return 0;
     }
 
