@@ -26,7 +26,7 @@ Pending first mesh-independence study. Provisional targets for a \(\ge 64^2\) ce
 | \(u(x=H/2)\) | \(\mathrm{rel}\,L_\infty\) vs Ghia Table I | \(< 5\%\) of \(U\) |
 | \(v(y=H/2)\) | \(\mathrm{rel}\,L_\infty\) vs Ghia Table II | \(< 5\%\) of \(U\) |
 
-**No claim of compliance is made in this PR.** Thresholds will be revisited with GCI before marking the case verified.
+**No claim of compliance is made until native compare + GCI are recorded.** Use `benchmarks/common/gci.py` on a centreline metric (e.g. mid-cavity \(u\)) from three meshes (\(N\), \(2N\), \(4N\)).
 
 ## Software checks (always)
 

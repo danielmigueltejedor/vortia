@@ -1,7 +1,8 @@
 // Writes a Vortia verification case (Poiseuille or Ghia cavity) for OpenFOAM.
-// Usage: benchmark_write_case <poiseuille|ghia> <caseDir> [esi|foundation]
+// Usage: benchmark_write_case <poiseuille|ghia|blasius> <caseDir> [esi|foundation]
 #include "vortia/solver/openfoam/CaseWriter.hpp"
 #include "vortia/solver/openfoam/Installation.hpp"
+#include "vortia/verification/Blasius.hpp"
 #include "vortia/verification/GhiaCavity.hpp"
 #include "vortia/verification/Poiseuille.hpp"
 #include "vortia/verification/SampleFunctions.hpp"
@@ -39,7 +40,7 @@ vortia::openfoam::Capabilities capsFor(std::string_view dist) {
 
 int main(int argc, char** argv) {
     if (argc < 3 || argc > 4) {
-        std::cerr << "Usage: benchmark_write_case <poiseuille|ghia> <caseDir> [esi|foundation]\n";
+        std::cerr << "Usage: benchmark_write_case <poiseuille|ghia|blasius> <caseDir> [esi|foundation]\n";
         return 2;
     }
     const std::string kind = argv[1];
@@ -62,6 +63,14 @@ int main(int argc, char** argv) {
         setup = vortia::verification::makeGhiaCavityCase({48, 48, 1});
         sampleU = vortia::verification::ghiaUSampleDict();
         sampleV = vortia::verification::ghiaVSampleDict();
+    } else if (kind == "blasius") {
+        setup = vortia::verification::makeBlasiusCase(vortia::verification::BlasiusPlate{}, {80, 60, 1});
+        // Wall-normal sample at x = L/2, concentrated inside η ≲ 5 (≈ δ99).
+        const vortia::verification::BlasiusPlate plate;
+        const double x = 0.5 * plate.length;
+        const double yEnd = vortia::verification::delta99(plate, x);
+        sampleU = vortia::verification::verticalCentrelineSampleDict(
+            x, 0.0, yEnd, 0.5 * plate.depth, 80);
     } else {
         std::cerr << "Unknown case kind: " << kind << "\n";
         return 2;

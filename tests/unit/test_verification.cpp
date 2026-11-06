@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include "vortia/verification/Blasius.hpp"
+#include "vortia/verification/Conservation.hpp"
+#include "vortia/verification/Gci.hpp"
 #include "vortia/verification/GhiaCavity.hpp"
 #include "vortia/verification/Poiseuille.hpp"
 #include "vortia/verification/ProfileMetrics.hpp"
@@ -16,6 +19,240 @@
 using namespace vortia;
 using namespace vortia::verification;
 using namespace vortia::openfoam;
+
+TEST(Blasius, SkinFrictionAndDeltaMatchClassicalCorrelations) {
+    BlasiusPlate p;
+    const double x = 0.5 * p.length;
+    const double rex = reynoldsX(p, x);
+    EXPECT_NEAR(rex, p.freestream * x / p.nu, 1e-12);
+    EXPECT_NEAR(localSkinFriction(p, x), 0.664 / std::sqrt(rex), 1e-12);
+    EXPECT_NEAR(delta99(p, x), 5.0 * x / std::sqrt(rex), 1e-12);
+    EXPECT_DOUBLE_EQ(delta99(p, 0.0), 0.0);
+    const auto& table = blasiusFPrimeTable();
+    ASSERT_GE(table.size(), 3u);
+    EXPECT_DOUBLE_EQ(table.front().eta, 0.0);
+    EXPECT_DOUBLE_EQ(table.front().fPrime, 0.0);
+    EXPECT_NEAR(table.back().fPrime, 1.0, 1e-9);
+    EXPECT_FALSE(std::string(blasiusCitation()).empty());
+}
+
+TEST(Blasius, CaseSetupIsStructurallyValid) {
+    const auto setup = makeBlasiusCase(BlasiusPlate{});
+    const auto issues = setup.validate();
+    for (const auto& issue : issues)
+        EXPECT_NE(issue.severity, Severity::Error) << issue.message;
+    EXPECT_GT(setup.estimateReynolds(), 0.0);
+    EXPECT_GT(setup.mesh.grading[1], 1.0); // packs toward the plate at y=0
+}
+
+TEST(Conservation, BalancedFluxesPass) {
+    FluxConservationInput in;
+    in.inletFlux = 1.0;
+    in.outletFlux = 1.0;
+    in.relativeTolerance = 1e-3;
+    const auto r = assessVolumeFluxBalance(in);
+    ASSERT_TRUE(r.ok) << r.message;
+    EXPECT_NEAR(r.relativeImbalance, 0.0, 1e-15);
+}
+
+TEST(Conservation, ImbalancedFluxesFail) {
+    FluxConservationInput in;
+    in.inletFlux = 1.0;
+    in.outletFlux = 0.9;
+    in.relativeTolerance = 1e-3;
+    const auto r = assessVolumeFluxBalance(in);
+    EXPECT_FALSE(r.ok);
+    EXPECT_NEAR(r.relativeImbalance, 0.1, 1e-12);
+}
+
+TEST(Conservation, ToleranceBoundaryIsInclusive) {
+    FluxConservationInput in;
+    in.inletFlux = 100.0;
+    in.outletFlux = 99.0;
+    in.relativeTolerance = 0.01; // |100-99|/100 == 0.01 exactly
+    const auto r = assessVolumeFluxBalance(in);
+    ASSERT_TRUE(r.ok) << r.message;
+    EXPECT_DOUBLE_EQ(r.relativeImbalance, 0.01);
+}
+
+TEST(Conservation, TinyOutletAgainstZeroInletFails) {
+    FluxConservationInput in;
+    in.inletFlux = 0.0;
+    in.outletFlux = 1e-34;
+    in.relativeTolerance = 1e-3;
+    const auto r = assessVolumeFluxBalance(in);
+    EXPECT_FALSE(r.ok);
+    EXPECT_NEAR(r.relativeImbalance, 1.0, 1e-12);
+}
+
+TEST(Conservation, RejectsNegativeSignedMonitors) {
+    FluxConservationInput in;
+    in.inletFlux = -1.0;
+    in.outletFlux = 1.0;
+    in.relativeTolerance = 1e-3;
+    const auto r = assessVolumeFluxBalance(in);
+    EXPECT_FALSE(r.ok);
+    EXPECT_NE(r.message.find("non-negative"), std::string::npos);
+}
+
+TEST(Conservation, PoiseuilleAnalyticFluxSelfConsistent) {
+    PoiseuilleChannel c;
+    const double q = analyticalFlowPerDepth(c);
+    FluxConservationInput in;
+    in.inletFlux = q;
+    in.outletFlux = q;
+    in.relativeTolerance = 1e-12;
+    const auto r = assessVolumeFluxBalance(in);
+    ASSERT_TRUE(r.ok) << r.message;
+}
+
+TEST(Gci, ExactSecondOrderMonotonicRefinement) {
+    // Manufactured: f(h) = f* + C h^2 with f*=1, C=1, h={0.25,0.5,1}.
+    GciInput in;
+    in.f1 = 1.0 + 0.25 * 0.25;
+    in.f2 = 1.0 + 0.5 * 0.5;
+    in.f3 = 1.0 + 1.0 * 1.0;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_NEAR(g.observedOrder, 2.0, 1e-9);
+    EXPECT_NEAR(g.extrapolated, 1.0, 1e-9);
+    EXPECT_GT(g.gci12, 0.0);
+    // With equal r, relative GCIs give asym ≈ |f1|/|f2| (not an independent check).
+    EXPECT_NEAR(g.asymptoticRatio, std::abs(in.f1) / std::abs(in.f2), 1e-6);
+}
+
+TEST(Gci, UnequalRefinementRecoversSecondOrder) {
+    // f(h)=1+h² at h={1,2,6} ⇒ r21=2, r32=3.
+    GciInput in;
+    in.f1 = 1.0 + 1.0;
+    in.f2 = 1.0 + 4.0;
+    in.f3 = 1.0 + 36.0;
+    in.r21 = 2.0;
+    in.r32 = 3.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_NEAR(g.observedOrder, 2.0, 1e-6);
+    EXPECT_NEAR(g.extrapolated, 1.0, 1e-6);
+}
+
+TEST(Gci, UnequalRefinementWhenCoarseRatioIsSmaller) {
+    // f(h)=1+h² at h={1,2,2.2} ⇒ r21=2, r32=1.1 (seed |ε32/ε21|<1).
+    GciInput in;
+    in.f1 = 1.0 + 1.0;
+    in.f2 = 1.0 + 4.0;
+    in.f3 = 1.0 + 2.2 * 2.2;
+    in.r21 = 2.0;
+    in.r32 = 1.1;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_NEAR(g.observedOrder, 2.0, 1e-5);
+    EXPECT_NEAR(g.extrapolated, 1.0, 1e-5);
+}
+
+TEST(Gci, RejectsOscillatorySequence) {
+    GciInput in;
+    in.f1 = 1.0;
+    in.f2 = 2.0;
+    in.f3 = 0.0;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+    EXPECT_NE(g.message.find("oscillatory"), std::string::npos);
+}
+
+TEST(Gci, RejectsTinyOscillatoryWithoutProductUnderflow) {
+    GciInput in;
+    in.f1 = 1e-170;
+    in.f2 = 2e-170;
+    in.f3 = -2e-170;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+    EXPECT_NE(g.message.find("oscillatory"), std::string::npos);
+}
+
+TEST(Gci, SmallMagnitudeSecondOrderStillComputes) {
+    GciInput in;
+    in.f1 = 1e-16 + 1e-16 * 0.25 * 0.25;
+    in.f2 = 1e-16 + 1e-16 * 0.5 * 0.5;
+    in.f3 = 1e-16 + 1e-16 * 1.0;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_NEAR(g.observedOrder, 2.0, 1e-6);
+    EXPECT_NEAR(g.extrapolated, 1e-16, 1e-20);
+}
+
+TEST(Gci, RejectsInvalidRefinementRatio) {
+    GciInput in;
+    in.f1 = 1.0;
+    in.f2 = 1.1;
+    in.f3 = 1.3;
+    in.r21 = 1.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+}
+
+TEST(Gci, IdenticalMeshesReportZeroUncertainty) {
+    GciInput in;
+    in.f1 = in.f2 = in.f3 = 42.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_DOUBLE_EQ(g.gci12, 0.0);
+    EXPECT_DOUBLE_EQ(g.extrapolated, 42.0);
+}
+
+TEST(Gci, SignedZerosCountAsIdentical) {
+    GciInput in;
+    in.f1 = 0.0;
+    in.f2 = -0.0;
+    in.f3 = 0.0;
+    const auto g = computeGci(in);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_DOUBLE_EQ(g.gci12, 0.0);
+}
+
+TEST(Gci, RejectsEqualRatioDivergentSequence) {
+    // |ε32/ε21| < 1 with equal r ⇒ negative observed order / diverging differences.
+    GciInput in;
+    in.f1 = 1.0;
+    in.f2 = 2.0;
+    in.f3 = 2.5;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+    EXPECT_NE(g.message.find("equal-ratio"), std::string::npos);
+}
+
+TEST(Gci, RejectsEqualRatioErrorsGrowingTowardFineMesh) {
+    GciInput in;
+    in.f1 = 100.02;
+    in.f2 = 100.01;
+    in.f3 = 100.005;
+    in.r21 = 2.0;
+    in.r32 = 2.0;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+}
+
+TEST(Gci, RejectsUnequalRatioWithoutPositiveOrder) {
+    // |ε32/ε21|=0.1 < ln(1.3)/ln(2) ≈ 0.379 ⇒ no positive-order Richardson fit.
+    GciInput in;
+    in.f1 = 1.0;
+    in.f2 = 2.0;
+    in.f3 = 2.1;
+    in.r21 = 2.0;
+    in.r32 = 1.3;
+    const auto g = computeGci(in);
+    EXPECT_FALSE(g.ok);
+    EXPECT_NE(g.message.find("unequal-ratio"), std::string::npos);
+}
 
 TEST(ProfileMetrics, IdenticalProfilesHaveZeroError) {
     const std::vector<double> a{1.0, -2.0, 0.5};
