@@ -6,7 +6,7 @@ class QSettings;
 class QWidget;
 namespace vortia {
 struct ApplicationPreferences {
-    QString language="system",theme="dark",density="comfortable",backendRoot,caseStorage;
+    QString language="system",theme="light",density="comfortable",backendRoot,caseStorage;
     int interfaceScale=100,defaultProcesses=0,checkpointInterval=500,iterationLimit=50000,consoleLines=10000;
     double zoomSensitivity=1,snapSpacing=1;
     double cfdZoomSensitivity=1,cfdPanSensitivity=1;

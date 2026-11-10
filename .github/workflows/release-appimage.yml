@@ -313,7 +313,14 @@ jobs:
       - name: Start the AppImage directly
         env:
           VORTIA_EXPECT_ENGINE: "1"
+          VORTIA_SCREENSHOT_DIR: ${{ github.workspace }}/screenshots
         run: bash packaging/linux/smoke_test_appimage.sh "dist/${{ needs.version.outputs.appimage }}" --fuse
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-screenshots-${{ matrix.os }}
+          path: screenshots/
+          retention-days: 14
 
   macos-dmg:
     needs: version
