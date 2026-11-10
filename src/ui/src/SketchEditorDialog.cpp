@@ -522,6 +522,10 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
         control->setDecimals(6);
         control->setSuffix(QStringLiteral(" mm"));
         control->setSingleStep(1.0);
+        // The Fusion size hint reserves room for the widest value of the
+        // range, which squeezed the labels out of the panel on Linux.
+        control->setMinimumWidth(130);
+        control->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
     // Keep the labels beside the fields on every platform style.
     form->setRowWrapPolicy(QFormLayout::DontWrapRows);
