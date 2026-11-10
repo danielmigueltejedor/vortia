@@ -122,11 +122,13 @@ jobs:
           # micromamba's login-shell activation does not run the compiler
           # packages' activate.d scripts, so do it here (0.2.x was silently
           # built by the runner's compiler for this reason).
-          set +eu
-          for script in "$CONDA_PREFIX"/etc/conda/activate.d/*.sh; do source "$script"; done
-          set -eu
-          echo "CC=${CC:-} CXX=${CXX:-}"
-          case "${CXX:-}" in *conda*) ;; *) echo "conda C++ compiler is not active" >&2; exit 1 ;; esac
+          echo "CONDA_PREFIX=$CONDA_PREFIX"
+          ls "$CONDA_PREFIX/etc/conda/activate.d" || true
+          export CC="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-cc"
+          export CXX="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-c++"
+          test -x "$CC" && test -x "$CXX"
+          "$CXX" --version | head -n1
+          "$CXX" -print-sysroot
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DVORTIA_BUILD_UI=ON \
