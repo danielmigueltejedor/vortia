@@ -6,9 +6,13 @@ remains the one used for the 2026-10 practice and production builds.
 
 ## Status
 
-- `vortia-core`: error types, units (runtime dimensional checking), project
-  manifest (serde JSON, atomic write), process runner (no shell, timeout).
-- All 5 tests pass.
+- `vortia-core`: error type, physical units checked at compile time, vectors and
+  bounding boxes, version parsing, project manifest (same schema as the C++
+  application, atomic write) and process runner (no shell, timeout).
+- The unit tests are the same cases as `tests/unit/test_units.cpp`,
+  `test_version.cpp` and `test_project.cpp`, plus the smoke tests of the process
+  runner. Not ported yet from `src/core`: host environment and logging.
+- Checked on every pull request by the `Rust` workflow (format, clippy, tests).
 
 ## Roadmap for the Rust port
 
