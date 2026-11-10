@@ -73,6 +73,10 @@ ln -s orterun "$sysroot/usr/bin/mpiexec"
 mkdir -p "$libdir/openmpi/lib"
 cp -a "/usr/lib/$triplet/openmpi/lib/openmpi3" "$libdir/openmpi/lib/"
 cp -a /usr/share/openmpi "$sysroot/usr/share/openmpi"
+# PMIx (process management used by mpirun) has its own plugins and help files.
+mkdir -p "$libdir/pmix/lib"
+cp -a "/usr/lib/$triplet/pmix/lib/pmix" "$libdir/pmix/lib/"
+cp -a /usr/share/pmix "$sysroot/usr/share/pmix"
 
 # Everything from the host C library and compiler runtime stays on the host:
 # any distribution new enough for this engine has newer ones.
@@ -113,13 +117,15 @@ _vortia_sysroot="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../sysroot" && pwd -P)"
 export OPAL_PREFIX="$_vortia_sysroot/usr"
 export PATH="$OPAL_PREFIX/bin:$PATH"
 export LD_LIBRARY_PATH="$OPAL_PREFIX/lib/x86_64-linux-gnu:$OPAL_PREFIX/lib/x86_64-linux-gnu/openmpi/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PMIX_INSTALL_PREFIX="$OPAL_PREFIX"
+export PMIX_MCA_mca_base_component_path="$OPAL_PREFIX/lib/x86_64-linux-gnu/pmix/lib/pmix"
+export OMPI_MCA_mca_base_component_path="$OPAL_PREFIX/lib/x86_64-linux-gnu/openmpi/lib/openmpi3"
 # Single-machine runs only: never look for ssh/rsh on the user's computer.
 export OMPI_MCA_plm=isolated
 export OMPI_MCA_rmaps_base_oversubscribe=1
 unset _vortia_sysroot
 RUNTIME
 
-# objdump exits non-zero for the few ELF files without a dynamic symbol table.
 # Mesher runtime (relocatable CPython + Gmsh), built here for the same
 # old-distribution compatibility.
 apt-get install -y --no-install-recommends unzip patchelf libglu1-mesa libxft2 libxcursor1 \
@@ -127,26 +133,33 @@ apt-get install -y --no-install-recommends unzip patchelf libglu1-mesa libxft2 l
 bash "$(dirname "$0")/../common/build_mesher_runtime.sh" "$out/mesher"
 
 # Self-check from a different location than the package's, with a clean
-# environment and without the system Open MPI on the path.
-# (OpenFOAM itself does not support blanks in its path; Vortia works around
-# that with a blank-free symlink, see bundledOpenFoamRoot().)
+# environment. The system Open MPI and PMIx are hidden first: the payload must
+# not lean on them. (OpenFOAM does not support blanks in its path; Vortia works
+# around that with a blank-free symlink, see bundledOpenFoamRoot().)
 relocated="$(mktemp -d)/relocated-engine"
 mkdir -p "$relocated"
 cp -a "$engine" "$sysroot" "$relocated/"
-env -i HOME=/root PATH=/usr/bin:/bin bash --noprofile --norc -c '
+for hidden in "/usr/lib/$triplet/openmpi" "/usr/lib/$triplet/pmix" /usr/share/openmpi /usr/share/pmix \
+              /usr/bin/orterun /usr/bin/orted "$root"; do
+  mv "$hidden" "$hidden.hidden"
+done
+env -i HOME=/root PATH=/usr/bin:/bin OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+  bash --noprofile --norc -c '
   # No "set -e": the engine bashrc legitimately ends with a non-zero status.
   source "$1/etc/bashrc" >/dev/null 2>&1
   source "$1/etc/vortia-runtime.sh" || exit 1
   echo "WM_PROJECT_DIR=$WM_PROJECT_DIR"
   echo "blockMesh=$(command -v blockMesh) mpirun=$(command -v mpirun)"
-  [ "$WM_PROJECT_DIR" = "$1" ] || { echo "WM_PROJECT_DIR=$WM_PROJECT_DIR" >&2; exit 1; }
+  [ "$WM_PROJECT_DIR" = "$1" ] || { echo "unexpected WM_PROJECT_DIR" >&2; exit 1; }
   case "$(command -v blockMesh)" in "$1"/*) ;; *) echo "blockMesh not from the payload" >&2; exit 1 ;; esac
   case "$(command -v mpirun)" in "$2"/*) ;; *) echo "mpirun not from the payload" >&2; exit 1 ;; esac
   blockMesh -help >/dev/null || { echo "blockMesh -help failed" >&2; exit 1; }
-  echo "Relocated engine works from: $WM_PROJECT_DIR"
+  mpirun -np 2 blockMesh -help >/dev/null || { echo "mpirun with 2 processes failed" >&2; exit 1; }
+  echo "Relocated engine and MPI launcher work from: $WM_PROJECT_DIR"
 ' bash "$relocated/OpenFOAM-v${version}" "$relocated/sysroot"
 rm -rf "$(dirname "$relocated")"
 
+# objdump exits non-zero for the few ELF files without a dynamic symbol table.
 needed_glibc="$(find "$out" -type f -print0 | xargs -0 file | awk -F: '/ELF/{print $1}' |
   { xargs -n 64 objdump -T 2>/dev/null || true; } |
   grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 1 | cut -d_ -f2)"

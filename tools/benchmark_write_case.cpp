@@ -94,6 +94,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (dist == "foundation") {
+        sampleU = vortia::verification::sampleDictForFoundation(sampleU);
+        if (!sampleV.empty())
+            sampleV = vortia::verification::sampleDictForFoundation(sampleV);
+    }
     if (!writeText(caseDir / "system" / "sampleU", sampleU)) {
         std::cerr << "Failed to write system/sampleU\n";
         return 1;
