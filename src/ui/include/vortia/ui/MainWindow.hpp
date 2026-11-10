@@ -38,6 +38,9 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
+    /// Opens a Vortia project or an OpenFOAM case directory in a tab, as the
+    /// Open action does. Used by `--screenshot` to capture real content.
+    bool openDirectory(const QString& directory) { return openProjectDirectory(directory); }
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
 
