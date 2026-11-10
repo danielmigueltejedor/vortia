@@ -132,7 +132,8 @@ jobs:
           test "$WM_PROJECT_DIR" = "$root"
           for tool in simpleFoam blockMesh mpirun; do command -v "$tool"; done
           export VORTIA_NATIVE_OF_ROOT="$root"
-          ctest --test-dir build --output-on-failure \
+          # Verbose: the measured errors are the evidence, pass or fail.
+          ctest --test-dir build -V \
             -R 'benchmark_|EngineSelfTest|NativeInstalledEnvironmentSmoke' | tee native-verification.log
           if grep -E 'Skipped|Not Run' native-verification.log; then
             echo "A native verification test did not run" >&2

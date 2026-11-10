@@ -59,6 +59,14 @@ if ! "${solver[@]}" > log.solver 2>&1; then
   tail -n 120 log.solver >&2
   exit 1
 fi
+# A profile from an unconverged run is not evidence of anything.
+grep -E '^Time = ' log.solver | tail -n 1
+if ! grep -q 'SIMPLE solution converged' log.solver; then
+  echo "FAIL: the solver used its whole iteration budget without meeting residualControl" >&2
+  tail -n 12 log.solver >&2
+  exit 1
+fi
+grep 'SIMPLE solution converged' log.solver
 if command -v postProcess >/dev/null 2>&1; then
   postProcess -func sampleU -latestTime > log.sampleU 2>&1 || true
 fi
