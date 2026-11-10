@@ -40,13 +40,17 @@ vtk_module_autoinit(TARGETS vortia MODULES ${VTK_LIBRARIES})
 # An optional Finder-launchable local macOS bundle. Keep the existing
 # build/bin/vortia executable unchanged for development and CI.
 if(APPLE)
+    # The bundle version always follows project(VERSION ...).
+    configure_file(
+        "${PROJECT_SOURCE_DIR}/packaging/macos/Info.plist.in"
+        "${CMAKE_BINARY_DIR}/Info.plist" @ONLY)
     add_custom_target(vortia_macos_bundle
         COMMAND /bin/bash
             "${PROJECT_SOURCE_DIR}/packaging/macos/create_bundle.sh"
             "$<TARGET_FILE:vortia>"
             "${PROJECT_SOURCE_DIR}/resources/icons/vortia.png"
             "${CMAKE_BINARY_DIR}/Vortia.app"
-            "${PROJECT_SOURCE_DIR}/packaging/macos/Info.plist"
+            "${CMAKE_BINARY_DIR}/Info.plist"
         DEPENDS vortia
         COMMENT "Creating Vortia.app with the Vortia Dock/Finder icon"
         VERBATIM)

@@ -1,66 +1,94 @@
-name: Release AppImage
+name: Release packages
+
+# Builds the Linux AppImage and the macOS DMG, starts both on clean machines
+# and only then attaches them to a GitHub Release.
 
 on:
   push:
     branches: [main]
     paths:
-      - "packaging/linux/**"
-      - "src/app/main.cpp"
+      - "packaging/**"
+      - "src/**"
+      - "resources/**"
+      - "cmake/**"
+      - "CMakeLists.txt"
       - ".github/workflows/release-appimage.yml"
   pull_request:
     paths:
-      - "packaging/linux/**"
-      - "src/app/main.cpp"
+      - "packaging/**"
+      - "src/**"
+      - "resources/**"
+      - "cmake/**"
+      - "CMakeLists.txt"
       - ".github/workflows/release-appimage.yml"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to attach the AppImage to (e.g. v0.2.1). Leave empty to only upload the workflow artifact."
+        description: "Existing release tag (draft or published) to attach the packages to, e.g. v0.3.0. Leave empty to only upload workflow artifacts."
         required: false
         default: ""
   release:
     types: [published]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: packages-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+      version: ${{ steps.ver.outputs.version }}
+      appimage: ${{ steps.ver.outputs.appimage }}
+      dmg: ${{ steps.ver.outputs.dmg }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve version
+        id: ver
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag || '' }}
+        run: |
+          project="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*$/\1/p' CMakeLists.txt | head -n1)"
+          test -n "$project"
+          if [[ -n "$TAG" ]]; then
+            version="${TAG#v}"
+            # A tag must describe the code it is built from.
+            if [[ "$version" != "$project" ]]; then
+              echo "Tag $TAG does not match project(VERSION $project)" >&2
+              exit 1
+            fi
+          else
+            # An untagged CI run must NEVER overwrite an existing GitHub Release.
+            version="$project"
+          fi
+          {
+            echo "tag=$TAG"
+            echo "version=$version"
+            echo "appimage=Vortia-${version}-linux-x86_64.AppImage"
+            echo "dmg=Vortia-${version}-macos-arm64.dmg"
+          } >> "$GITHUB_OUTPUT"
+
   linux-appimage:
+    needs: version
     runs-on: ubuntu-24.04
     defaults:
       run:
         shell: bash -el {0}
-
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      ASSET: ${{ needs.version.outputs.appimage }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Resolve version
-        id: ver
-        shell: bash
-        run: |
-          tag="${{ github.event.release.tag_name || inputs.tag || '' }}"
-          if [[ -n "$tag" ]]; then
-            version="${tag#v}"
-          else
-            # An untagged CI run must NEVER overwrite an existing GitHub Release.
-            version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*$/\1/p' CMakeLists.txt | head -n1)"
-          fi
-          test -n "$version"
-          asset="Vortia-${version}-linux-x86_64.AppImage"
-          {
-            echo "tag=$tag"
-            echo "version=$version"
-            echo "asset=$asset"
-          } >> "$GITHUB_OUTPUT"
 
       - name: System packages for OpenGL / X11
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev libglu1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 \
-            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
-            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xfixes0 \
-            libegl1 xvfb xauth curl ca-certificates
+            libgl1-mesa-dev libglu1-mesa-dev libegl1 curl ca-certificates file
 
       - name: Setup micromamba (Qt6 + VTK)
         # Pin to the commit currently tagged as v2 (Sonar githubactions:S7637).
@@ -101,66 +129,200 @@ jobs:
           test -x build/bin/vortia
           test -s build/vortia_es.qm
 
-      - name: Smoke-test binary
-        run: |
-          export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          # OpenFOAM is not bundled in this AppImage; --verify-engine exits 3 by design.
-          build/bin/vortia --verify-spanish
-
       - name: Create AppImage
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-          ASSET: ${{ steps.ver.outputs.asset }}
         run: |
-          chmod +x packaging/linux/create_appimage.sh
           export CMAKE_BINARY_DIR="$PWD/build"
           export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           export QMAKE="$CONDA_PREFIX/bin/qmake"
           mkdir -p dist
-          packaging/linux/create_appimage.sh \
-            "$PWD/build/bin/vortia" \
-            "$PWD/dist/$ASSET" \
-            "$VERSION"
+          bash packaging/linux/create_appimage.sh \
+            "$PWD/build/bin/vortia" "$PWD/dist/$ASSET" "$VERSION"
           test -x "dist/$ASSET"
           ls -lh dist/
           (cd dist && sha256sum "$ASSET" > "${ASSET}.sha256")
           (cd dist && sha256sum -c "${ASSET}.sha256")
 
-      - name: Smoke-test AppImage with real Qt graphical platform
-        env:
-          ASSET: ${{ steps.ver.outputs.asset }}
-        run: |
-          set -euo pipefail
-          chmod +x "dist/$ASSET"
-          sh -n packaging/linux/AppRun
-          # The old smoke test created only QCoreApplication. It could pass
-          # when libqxcb.so existed but the AppImage had no plugin search path.
-          "dist/$ASSET" --appimage-extract-and-run --verify-spanish
-          # Simulate a clean end-user machine (no conda/Qt env overrides),
-          # open a real QWidget on Xvfb, and check the bundled xcb plugin.
-          timeout 45s env -u LD_LIBRARY_PATH \
-            -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH \
-            -u QT_QPA_PLATFORM \
-            xvfb-run -a "dist/$ASSET" --appimage-extract-and-run --verify-qt-platform
-
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.ver.outputs.asset }}
-          path: |
-            dist/${{ steps.ver.outputs.asset }}
-            dist/${{ steps.ver.outputs.asset }}.sha256
+          name: linux-appimage
+          path: dist/
           if-no-files-found: error
 
-      - name: Attach AppImage to GitHub Release
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+  linux-clean-distros:
+    # Bare distribution images plus only what any desktop install has
+    # (X server, Mesa, fontconfig). No Qt, no xcb-util, no newer libstdc++.
+    needs: [version, linux-appimage]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - "ubuntu:22.04"
+          - "ubuntu:24.04"
+          - "debian:12"
+          - "debian:13"
+          - "fedora:latest"
+          - "archlinux:latest"
+          - "opensuse/tumbleweed:latest"
+          - "rockylinux:9"
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist
+      - name: Desktop baseline packages
+        run: sh packaging/linux/install_smoke_deps.sh
+      - name: Start the AppImage as a user would
+        run: bash packaging/linux/smoke_test_appimage.sh "dist/${{ needs.version.outputs.appimage }}"
+
+  linux-direct-run:
+    # Real virtual machines (not containers): run the image file itself, so
+    # the AppImage runtime mounts it through FUSE exactly like a double click.
+    needs: [version, linux-appimage]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist
+      - name: X server and Mesa
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth libgl1 libegl1 libgl1-mesa-dri libglx-mesa0
+      - name: Start the AppImage directly
+        run: bash packaging/linux/smoke_test_appimage.sh "dist/${{ needs.version.outputs.appimage }}" --fuse
+
+  macos-dmg:
+    needs: version
+    # Oldest Apple Silicon runner: its SDK/toolchain keeps the deployment
+    # target honest. Qt/VTK come from conda-forge (built for old macOS), not
+    # Homebrew bottles (built only for the runner's own macOS version).
+    runs-on: macos-14
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      ASSET: ${{ needs.version.outputs.dmg }}
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup micromamba (Qt6 + VTK)
+        uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
+        with:
+          environment-name: vortia
+          cache-environment: true
+          create-args: >-
+            -c conda-forge
+            cmake
+            ninja
+            cxx-compiler
+            qt6-main
+            vtk
+            nlohmann_json
+            hdf5
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVORTIA_BUILD_UI=ON \
+            -DVORTIA_BUILD_TESTS=OFF \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
+            -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+            -DCMAKE_IGNORE_PREFIX_PATH="/opt/homebrew;/usr/local"
+
+      - name: Build app bundle
+        run: |
+          cmake --build build --parallel "$(sysctl -n hw.ncpu)"
+          cmake --build build --target vortia_macos_bundle
+          test -s build/Vortia.app/Contents/Resources/Vortia.icns
+
+      - name: Bundle Qt/VTK and sign ad-hoc
+        run: |
+          plugins="$("$CONDA_PREFIX/bin/qmake" -query QT_INSTALL_PLUGINS)"
+          # Fail the release instead of shipping a DMG that silently needs a
+          # newer macOS than the release notes say.
+          /usr/bin/python3 packaging/macos/deploy_bundle.py build/Vortia.app "$plugins" \
+            --search "$CONDA_PREFIX/lib" --max-min-macos 14.0
+          du -sh build/Vortia.app
+
+      - name: Start the bundle outside the build environment
+        run: |
+          micromamba deactivate || true
+          env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+            bash packaging/macos/smoke_test_app.sh build/Vortia.app
+
+      - name: Create DMG
+        run: |
+          mkdir -p dist
+          bash packaging/macos/create_dmg.sh build/Vortia.app "dist/$ASSET" "$VERSION"
+          (cd dist && shasum -a 256 "$ASSET" > "${ASSET}.sha256")
+          (cd dist && shasum -a 256 -c "${ASSET}.sha256")
+          ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/
+          if-no-files-found: error
+
+  macos-clean-machines:
+    # Fresh runners without the build environment: mount the DMG, copy the
+    # app out and start it, on every macOS version GitHub offers for arm64.
+    needs: [version, macos-dmg]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist
+      - name: Install from the DMG and start
+        run: |
+          sw_vers
+          (cd dist && shasum -a 256 -c "${{ needs.version.outputs.dmg }}.sha256")
+          mount="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "dist/${{ needs.version.outputs.dmg }}"
+          install="$(mktemp -d)"
+          ditto "$mount/Vortia.app" "$install/Vortia.app"
+          hdiutil detach "$mount"
+          bash packaging/macos/smoke_test_app.sh "$install/Vortia.app"
+
+  attach-to-release:
+    # Nothing reaches a release unless every start-up test above passed.
+    needs: [version, linux-clean-distros, linux-direct-run, macos-clean-machines]
+    if: needs.version.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Attach packages to the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.ver.outputs.tag }}
-          ASSET: ${{ steps.ver.outputs.asset }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
+          ls -lh dist/
           gh release upload "$TAG" \
-            "dist/$ASSET" \
-            "dist/${ASSET}.sha256" \
+            "dist/${{ needs.version.outputs.appimage }}" \
+            "dist/${{ needs.version.outputs.appimage }}.sha256" \
+            "dist/${{ needs.version.outputs.dmg }}" \
+            "dist/${{ needs.version.outputs.dmg }}.sha256" \
             --repo "${{ github.repository }}" \
             --clobber

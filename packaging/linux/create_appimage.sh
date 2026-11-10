@@ -17,9 +17,10 @@ fi
 
 exe="$(readlink -f "$1")"
 out="$2"
-version="${3:-0.2.1}"
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
+version="${3:-$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*$/\1/p' "$repo/CMakeLists.txt" | head -n1)}"
+[[ -n "$version" ]] || { echo "Cannot determine the Vortia version" >&2; exit 1; }
 icon="$repo/resources/icons/vortia.png"
 desktop="$here/Vortia.desktop"
 
@@ -115,6 +116,19 @@ export VERSION="$version"
 export LINUXDEPLOY_OUTPUT_VERSION="$version"
 export DISABLE_COPYRIGHT_FILES_DEPLOYMENT=1
 
+# Also ship the native Wayland platform plugins when this Qt provides them.
+# AppRun only selects them for a Wayland session with no X display at all.
+qt_plugins="$("$QMAKE" -query QT_INSTALL_PLUGINS)"
+wayland_plugins=()
+for plugin in libqwayland-generic.so libqwayland-egl.so; do
+  [[ -f "$qt_plugins/platforms/$plugin" ]] && wayland_plugins+=("$plugin")
+done
+if ((${#wayland_plugins[@]})); then
+  EXTRA_PLATFORM_PLUGINS="$(IFS=';'; echo "${wayland_plugins[*]}")"
+  export EXTRA_PLATFORM_PLUGINS
+  echo "Bundling Wayland platform plugins: $EXTRA_PLATFORM_PLUGINS"
+fi
+
 (
   cd "$work"
   "$tools/linuxdeploy.AppImage" --appimage-extract-and-run \
@@ -125,13 +139,79 @@ export DISABLE_COPYRIGHT_FILES_DEPLOYMENT=1
     --plugin qt
 )
 
-# Release smoke tests previously checked only QCoreApplication; both 0.1.1
+# Release smoke tests previously checked only QCoreApplication; 0.1.1, 0.2.0
 # and 0.2.1 therefore shipped with an AppRun symlink and no Qt plugin path.
 # Fail packaging when linuxdeploy has omitted the platform plugin.
 [[ -s "$appdir/usr/plugins/platforms/libqxcb.so" ]] || {
   echo "Missing bundled Qt xcb platform plugin in AppDir" >&2
   exit 1
 }
+
+# The in-app updater downloads over HTTPS.
+[[ -s "$appdir/usr/plugins/tls/libqopensslbackend.so" ]] || {
+  echo "Missing bundled Qt OpenSSL TLS plugin in AppDir" >&2
+  exit 1
+}
+
+# linuxdeploy skips every library on the AppImage "excludelist" (harfbuzz,
+# freetype, fontconfig, zlib, expat, libstdc++, ...) on the assumption that
+# the build machine is the oldest supported distribution, so the host copy is
+# always new enough. Our Qt and VTK come from conda-forge and need *newer*
+# versions than Ubuntu 22.04/24.04 or Debian 12 provide: 0.2.1 failed there
+# with "libharfbuzz.so.0: cannot open shared object file" and
+# "CXXABI_1.3.15 not found". Bundle everything the build environment
+# resolved, except what must come from the host: glibc, the OpenGL/driver
+# stack and the core X11 protocol libraries.
+env_prefix="${CONDA_PREFIX:-}"
+host_only='^(ld-linux.*|libc|libm|libdl|libpthread|librt|libresolv|libutil|libnsl|libanl|libmvec|libBrokenLocale|libnss_.*|libGL|libEGL|libGLX|libOpenGL|libGLdispatch|libGLESv2|libGLU|libdrm|libgbm|libglapi|libvulkan|libX11|libX11-xcb|libxcb|libxcb-dri2|libxcb-dri3|libxcb-glx)\.so(\..*)?$'
+if [[ -n "$env_prefix" && -d "$env_prefix/lib" ]]; then
+  added=1
+  while ((added)); do
+    added=0
+    while IFS= read -r dep; do
+      base="$(basename "$dep")"
+      [[ "$base" =~ $host_only ]] && continue
+      [[ -e "$appdir/usr/lib/$base" ]] && continue
+      cp -L "$dep" "$appdir/usr/lib/$base"
+      chmod u+w "$appdir/usr/lib/$base"
+      echo "Bundled from build environment: $base"
+      added=1
+    done < <(
+      find "$appdir/usr" -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) -print0 |
+        LD_LIBRARY_PATH="$appdir/usr/lib:$env_prefix/lib" xargs -0 -n1 ldd 2>/dev/null |
+        awk -v prefix="$env_prefix/" 'index($3, prefix) == 1 { print $3 }' | sort -u
+    )
+  done
+else
+  echo "No conda build environment: relying on linuxdeploy's library set only" >&2
+fi
+
+# The C++ runtime is selected at start-up by AppRun (bundled vs host,
+# whichever is newer), so it must not sit on the unconditional library path.
+gcc_runtime="$appdir/usr/optional/gcc-runtime"
+mkdir -p "$gcc_runtime"
+for runtime_lib in libstdc++.so.6 libgcc_s.so.1; do
+  [[ -e "$appdir/usr/lib/$runtime_lib" ]] && mv "$appdir/usr/lib/$runtime_lib" "$gcc_runtime/"
+done
+if [[ -n "$env_prefix" ]]; then
+  [[ -s "$gcc_runtime/libstdc++.so.6" && -s "$gcc_runtime/libgcc_s.so.1" ]] || {
+    echo "Bundled C++ runtime missing from $gcc_runtime" >&2
+    exit 1
+  }
+fi
+
+# Used by AppRun only on hosts without /etc/fonts/fonts.conf.
+cat > "$appdir/usr/share/vortia/fonts.conf" <<'FONTS'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>/usr/share/fonts</dir>
+  <dir>/usr/local/share/fonts</dir>
+  <dir prefix="xdg">fonts</dir>
+  <dir>~/.fonts</dir>
+  <cachedir prefix="xdg">fontconfig</cachedir>
+</fontconfig>
+FONTS
 
 # linuxdeploy creates AppRun -> usr/bin/vortia. That drops the Qt plugin
 # environment and makes Qt search ~/Descargas/platforms instead.

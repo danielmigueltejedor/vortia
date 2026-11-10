@@ -14,8 +14,8 @@ fi
 
 app="$1"
 out="$2"
-version="${3:-0.2.1}"
 here="$(cd "$(dirname "$0")" && pwd)"
+version="${3:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$1/Contents/Info.plist")}"
 bg="$here/dmg-background.png"
 
 [[ -d "$app" && -f "$app/Contents/MacOS/vortia" ]] || {
@@ -37,15 +37,21 @@ ditto "$app" "$stage/Vortia.app"
 ln -s /Applications "$stage/Applications"
 cp "$bg" "$stage/.background/background.png"
 
+# Room for the app plus file-system overhead, whatever the bundle weighs.
+stage_mb="$(du -sm "$stage" | cut -f1)"
 hdiutil create -srcfolder "$stage" -volname "$volname" -fs HFS+ \
-  -fsargs "-c c=64,a=16,e=16" -format UDRW -size 250m "$rw" >/dev/null
+  -fsargs "-c c=64,a=16,e=16" -format UDRW -size "$((stage_mb + stage_mb / 5 + 40))m" "$rw" >/dev/null
 
 hdiutil attach -readwrite -noverify -noautoopen "$rw" >/dev/null
 mount="/Volumes/${volname}"
 for _ in $(seq 1 50); do [[ -d "$mount" ]] && break; sleep 0.1; done
 [[ -d "$mount" ]] || { echo "Failed to mount $rw" >&2; exit 1; }
 
+# The window layout is cosmetic. Finder scripting can be unavailable (CI
+# runners, missing Automation permission): the DMG is still valid without it.
+layout_window() {
 osascript <<EOF
+with timeout of 60 seconds
 tell application "Finder"
   tell disk "$volname"
     open
@@ -64,7 +70,10 @@ tell application "Finder"
     close
   end tell
 end tell
+end timeout
 EOF
+}
+layout_window || echo "warning: could not arrange the DMG window; continuing without the layout" >&2
 
 sync
 hdiutil detach "$mount" >/dev/null || diskutil eject "$mount" >/dev/null

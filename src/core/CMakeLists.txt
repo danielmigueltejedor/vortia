@@ -1,6 +1,7 @@
 # vortia_core — pure C++20 foundations: errors, units, logging, processes, projects.
 
 add_library(vortia_core STATIC
+    src/HostEnvironment.cpp
     src/Process.cpp
     src/Project.cpp
     src/Version.cpp)
