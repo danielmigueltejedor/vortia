@@ -35,6 +35,7 @@ impl VortiaError {
         }
     }
 
+    /// The message followed by the context in brackets, when there is one.
     pub fn describe(&self) -> String {
         if self.context.is_empty() {
             self.message.clone()
@@ -45,3 +46,18 @@ impl VortiaError {
 }
 
 pub type Result<T> = std::result::Result<T, VortiaError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn describe_appends_the_context_only_when_present() {
+        assert_eq!(
+            VortiaError::new(ErrorCode::IoError, "cannot open", "").describe(),
+            "cannot open"
+        );
+        let with_context = VortiaError::new(ErrorCode::IoError, "cannot open", "/tmp/x");
+        assert_eq!(with_context.describe(), "cannot open [/tmp/x]");
+    }
+}

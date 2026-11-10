@@ -60,7 +60,7 @@ pub fn run(request: &ProcessRequest) -> Result<ProcessResult> {
                 duration: start.elapsed(),
                 stdout: String::new(),
                 stderr: e.to_string(),
-            })
+            });
         }
     };
 
@@ -90,13 +90,17 @@ pub fn run(request: &ProcessRequest) -> Result<ProcessResult> {
                     ErrorCode::Internal,
                     e.to_string(),
                     request.executable.clone(),
-                ))
+                ));
             }
         }
     }
 
     let output = child.wait_with_output().map_err(|e| {
-        VortiaError::new(ErrorCode::Internal, e.to_string(), request.executable.clone())
+        VortiaError::new(
+            ErrorCode::Internal,
+            e.to_string(),
+            request.executable.clone(),
+        )
     })?;
 
     Ok(ProcessResult {

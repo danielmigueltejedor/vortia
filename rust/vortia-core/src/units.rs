@@ -1,122 +1,254 @@
-//! Units with runtime dimensional checking.
+//! Physical quantities in SI units, checked by the type system.
 //!
-//! The C++ side uses compile-time dimensions (const generics with integer
-//! exponents). Rust stable does not yet allow arithmetic in const-generic
-//! type parameters, so this port checks dimensions at runtime and exposes
-//! the same API surface. A future revision will move to `typenum` for
-//! compile-time checking.
+//! Each quantity is its own type, so a length cannot be added to a time. Products and
+//! quotients are defined only for the pairs the application uses: the C++ library derives
+//! every combination from template exponents, which stable Rust cannot express, so the
+//! relations are listed here one by one. Adding a new one is a single `relate!` line.
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Dim {
-    pub mass: i8,
-    pub length: i8,
-    pub time: i8,
-}
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-impl Dim {
-    pub const fn new(mass: i8, length: i8, time: i8) -> Self {
-        Self { mass, length, time }
-    }
-}
+macro_rules! quantity {
+    ($(#[$doc:meta])* $name:ident) => {
+        $(#[$doc])*
+        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+        pub struct $name(f64);
 
-#[derive(Clone, Copy, Debug)]
-pub struct Quantity {
-    pub value: f64,
-    pub dim: Dim,
-}
+        impl $name {
+            /// Builds the quantity from its value in SI units.
+            pub const fn new(si_value: f64) -> Self {
+                Self(si_value)
+            }
 
-impl Quantity {
-    pub fn new(value: f64, dim: Dim) -> Self {
-        Self { value, dim }
-    }
-    pub fn si_value(self) -> f64 {
-        self.value
-    }
+            /// The value in SI units.
+            pub const fn si_value(self) -> f64 {
+                self.0
+            }
 
-    fn check_same(&self, other: &Quantity, op: &str) {
-        if self.dim != other.dim {
-            panic!("dimension mismatch in {}: {:?} vs {:?}", op, self.dim, other.dim);
+            pub fn abs(self) -> Self {
+                Self(self.0.abs())
+            }
         }
-    }
 
-    pub fn add(self, rhs: Quantity) -> Quantity {
-        self.check_same(&rhs, "add");
-        Quantity::new(self.value + rhs.value, self.dim)
-    }
-    pub fn sub(self, rhs: Quantity) -> Quantity {
-        self.check_same(&rhs, "sub");
-        Quantity::new(self.value - rhs.value, self.dim)
-    }
-    pub fn mul_scalar(self, s: f64) -> Quantity {
-        Quantity::new(self.value * s, self.dim)
-    }
-    pub fn div_scalar(self, s: f64) -> Quantity {
-        Quantity::new(self.value / s, self.dim)
-    }
-    pub fn mul(self, rhs: Quantity) -> Quantity {
-        Quantity::new(
-            self.value * rhs.value,
-            Dim::new(
-                self.dim.mass + rhs.dim.mass,
-                self.dim.length + rhs.dim.length,
-                self.dim.time + rhs.dim.time,
-            ),
-        )
-    }
-    pub fn div(self, rhs: Quantity) -> Quantity {
-        Quantity::new(
-            self.value / rhs.value,
-            Dim::new(
-                self.dim.mass - rhs.dim.mass,
-                self.dim.length - rhs.dim.length,
-                self.dim.time - rhs.dim.time,
-            ),
-        )
-    }
-    pub fn ratio(self, rhs: Quantity) -> f64 {
-        self.check_same(&rhs, "ratio");
-        self.value / rhs.value
-    }
+        impl Add for $name {
+            type Output = Self;
+            fn add(self, o: Self) -> Self {
+                Self(self.0 + o.0)
+            }
+        }
+        impl Sub for $name {
+            type Output = Self;
+            fn sub(self, o: Self) -> Self {
+                Self(self.0 - o.0)
+            }
+        }
+        impl Neg for $name {
+            type Output = Self;
+            fn neg(self) -> Self {
+                Self(-self.0)
+            }
+        }
+        impl AddAssign for $name {
+            fn add_assign(&mut self, o: Self) {
+                self.0 += o.0;
+            }
+        }
+        impl SubAssign for $name {
+            fn sub_assign(&mut self, o: Self) {
+                self.0 -= o.0;
+            }
+        }
+        impl Mul<f64> for $name {
+            type Output = Self;
+            fn mul(self, s: f64) -> Self {
+                Self(self.0 * s)
+            }
+        }
+        impl Mul<$name> for f64 {
+            type Output = $name;
+            fn mul(self, q: $name) -> $name {
+                $name(self * q.0)
+            }
+        }
+        impl Div<f64> for $name {
+            type Output = Self;
+            fn div(self, s: f64) -> Self {
+                Self(self.0 / s)
+            }
+        }
+        impl MulAssign<f64> for $name {
+            fn mul_assign(&mut self, s: f64) {
+                self.0 *= s;
+            }
+        }
+        impl DivAssign<f64> for $name {
+            fn div_assign(&mut self, s: f64) {
+                self.0 /= s;
+            }
+        }
+        /// The ratio of two quantities of the same kind is a plain number.
+        impl Div for $name {
+            type Output = f64;
+            fn div(self, o: Self) -> f64 {
+                self.0 / o.0
+            }
+        }
+    };
 }
 
-// Named dimensions.
-pub const DIM_DIMENSIONLESS: Dim = Dim::new(0, 0, 0);
-pub const DIM_MASS: Dim = Dim::new(1, 0, 0);
-pub const DIM_LENGTH: Dim = Dim::new(0, 1, 0);
-pub const DIM_TIME: Dim = Dim::new(0, 0, 1);
-pub const DIM_VELOCITY: Dim = Dim::new(0, 1, -1);
-pub const DIM_DENSITY: Dim = Dim::new(1, -3, 0);
-pub const DIM_KINEMATIC_VISCOSITY: Dim = Dim::new(0, 2, -1);
-pub const DIM_PRESSURE: Dim = Dim::new(1, -1, -2);
+/// `relate!(A * B = C)` defines `A * B`, `B * A`, `C / A` and `C / B`.
+macro_rules! relate {
+    ($a:ident * $b:ident = $c:ident) => {
+        impl Mul<$b> for $a {
+            type Output = $c;
+            fn mul(self, o: $b) -> $c {
+                $c::new(self.si_value() * o.si_value())
+            }
+        }
+        impl Mul<$a> for $b {
+            type Output = $c;
+            fn mul(self, o: $a) -> $c {
+                $c::new(self.si_value() * o.si_value())
+            }
+        }
+        impl Div<$a> for $c {
+            type Output = $b;
+            fn div(self, o: $a) -> $b {
+                $b::new(self.si_value() / o.si_value())
+            }
+        }
+        impl Div<$b> for $c {
+            type Output = $a;
+            fn div(self, o: $b) -> $a {
+                $a::new(self.si_value() / o.si_value())
+            }
+        }
+    };
+    // A quantity times itself: only one product and one quotient exist.
+    ($a:ident squared = $c:ident) => {
+        impl Mul for $a {
+            type Output = $c;
+            fn mul(self, o: $a) -> $c {
+                $c::new(self.si_value() * o.si_value())
+            }
+        }
+        impl Div<$a> for $c {
+            type Output = $a;
+            fn div(self, o: $a) -> $a {
+                $a::new(self.si_value() / o.si_value())
+            }
+        }
+    };
+}
 
-pub type Dimensionless = Quantity;
-pub type Mass = Quantity;
-pub type Length = Quantity;
-pub type Time = Quantity;
-pub type Velocity = Quantity;
-pub type Density = Quantity;
-pub type KinematicViscosity = Quantity;
-pub type Pressure = Quantity;
+quantity!(
+    /// kg
+    Mass
+);
+quantity!(
+    /// m
+    Length
+);
+quantity!(
+    /// m²
+    Area
+);
+quantity!(
+    /// m³
+    Volume
+);
+quantity!(
+    /// s
+    Time
+);
+quantity!(
+    /// m·s⁻¹
+    Velocity
+);
+quantity!(
+    /// m·s⁻²
+    Acceleration
+);
+quantity!(
+    /// kg·m⁻³
+    Density
+);
+quantity!(
+    /// Pa·s
+    DynamicViscosity
+);
+quantity!(
+    /// m²·s⁻¹
+    KinematicViscosity
+);
+quantity!(
+    /// Pa
+    Pressure
+);
 
-// Convenience constructors as free functions (Rust has no const fn methods on
-// aliased types easily; keep them as associated functions on Quantity).
-impl Quantity {
-    pub fn length(v: f64) -> Self {
-        Self::new(v, DIM_LENGTH)
+relate!(Length squared = Area);
+relate!(Area * Length = Volume);
+relate!(Velocity * Time = Length);
+relate!(Acceleration * Time = Velocity);
+relate!(Velocity * Length = KinematicViscosity);
+relate!(KinematicViscosity * Density = DynamicViscosity);
+relate!(Density * Volume = Mass);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn close(a: f64, b: f64, tolerance: f64) -> bool {
+        (a - b).abs() <= tolerance
     }
-    pub fn time(v: f64) -> Self {
-        Self::new(v, DIM_TIME)
+
+    #[test]
+    fn same_dimension_arithmetic() {
+        let (a, b) = (Length::new(2.0), Length::new(3.0));
+        assert_eq!((a + b).si_value(), 5.0);
+        assert_eq!((a - b).si_value(), -1.0);
+        assert_eq!(b / a, 1.5); // dimensionless ratio
+        assert!(b > a);
     }
-    pub fn velocity(v: f64) -> Self {
-        Self::new(v, DIM_VELOCITY)
+
+    #[test]
+    fn dimensional_multiplication() {
+        let d: Length = Velocity::new(2.0) * Time::new(3.0);
+        assert_eq!(d.si_value(), 6.0);
     }
-    pub fn kinematic_viscosity(v: f64) -> Self {
-        Self::new(v, DIM_KINEMATIC_VISCOSITY)
+
+    #[test]
+    fn velocity_from_length_over_time() {
+        let v: Velocity = Length::new(10.0) / Time::new(4.0);
+        assert_eq!(v.si_value(), 2.5);
     }
-    pub fn pressure(v: f64) -> Self {
-        Self::new(v, DIM_PRESSURE)
+
+    #[test]
+    fn kinematic_viscosity_dimensions() {
+        let nu: KinematicViscosity = DynamicViscosity::new(1.8e-5) / Density::new(1.2);
+        assert!(close(nu.si_value(), 1.5e-5, 1e-12));
     }
-    pub fn dimensionless(v: f64) -> Self {
-        Self::new(v, DIM_DIMENSIONLESS)
+
+    #[test]
+    fn scalar_scaling() {
+        let a = Length::new(1.0) * 2.5;
+        assert_eq!(a.si_value(), 2.5);
+        assert_eq!((a / 2.0).si_value(), 1.25);
+        assert_eq!((2.0 * a).si_value(), 5.0);
+    }
+
+    #[test]
+    fn reynolds_number_is_dimensionless() {
+        let ul: KinematicViscosity = Velocity::new(1.0) * Length::new(0.1);
+        let re: f64 = ul / KinematicViscosity::new(1.5e-5);
+        assert!(close(re, 6666.6667, 1e-3));
+    }
+
+    #[test]
+    fn negation_and_absolute_value() {
+        assert_eq!((-Pressure::new(3.0)).abs(), Pressure::new(3.0));
+        let mut m = Mass::new(1.0);
+        m += Mass::new(2.0);
+        m *= 2.0;
+        assert_eq!(m.si_value(), 6.0);
     }
 }

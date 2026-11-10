@@ -6,15 +6,31 @@ remains the one used for the 2026-10 practice and production builds.
 
 ## Status
 
-- `vortia-core`: error types, units (runtime dimensional checking), project
-  manifest (serde JSON, atomic write), process runner (no shell, timeout).
-- All 5 tests pass.
+- `vortia-core`: error type, physical units checked at compile time, vectors and
+  bounding boxes, version parsing, project manifest (same schema as the C++
+  application, atomic write) and process runner (no shell, timeout).
+- The unit tests are the same cases as `tests/unit/test_units.cpp`,
+  `test_version.cpp` and `test_project.cpp`, plus the smoke tests of the process
+  runner. Not ported yet from `src/core`: host environment and logging.
+- Checked on every pull request by the `Rust` workflow (format, clippy, tests).
 
 ## Roadmap for the Rust port
 
-1. Geometry, mesh, physics modules (mirroring `src/geometry`, `src/mesh`, `src/physics`).
-2. OpenFOAM adapter (process-based, as in C++).
-3. GUI: evaluate `egui`/`iced` or keep Qt via `cxx`/`slint`. Decision pending.
-4. VTK interop via `vtk-rs` or FFI.
+Decided on 2026-11-10: the interface will be built with **egui**, the toolkit of the
+other Nodalia apps based on the Craft engines, so interface components and styles can
+be shared across the suite.
 
-The port is incremental and does not block the C++ deliverables.
+1. Finish `vortia-core`: host environment and logging.
+2. Geometry, mesh and physics (mirroring `src/geometry`, `src/mesh`, `src/physics`).
+   Physics depends on the box domain and the block-mesh parameters, so they go first.
+3. Solver: OpenFOAM adapter, process-based as in C++, case writer and log parser.
+4. Interop and verification (`src/interop`, `src/verification`).
+5. A command-line front end over those crates, to compare results with the C++ app.
+6. The egui application shell, built on the shared design language of the Nodalia apps
+   ([nodalia-design](https://github.com/danielmigueltejedor/nodalia-design)) rather than
+   on styles of its own.
+7. The 3D viewer. VTK has no mature Rust equivalent, so this is the largest open risk:
+   a wgpu renderer for meshes, contours and profiles is the planned route.
+
+Each crate carries the same test cases as its C++ counterpart. The port is incremental
+and does not block the C++ deliverables.
