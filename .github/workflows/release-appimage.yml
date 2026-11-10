@@ -201,10 +201,10 @@ jobs:
 
   macos-dmg:
     needs: version
-    # Oldest Apple Silicon runner: its SDK/toolchain keeps the deployment
-    # target honest. Qt/VTK come from conda-forge (built for old macOS), not
-    # Homebrew bottles (built only for the runner's own macOS version).
-    runs-on: macos-14
+    # Oldest Apple Silicon runner GitHub still offers. Qt/VTK come from
+    # conda-forge (built for old macOS), not Homebrew bottles (built only
+    # for the runner's own macOS version).
+    runs-on: macos-15
     defaults:
       run:
         shell: bash -el {0}
@@ -282,7 +282,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15, macos-26]
+        os: [macos-15, macos-26]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
