@@ -158,7 +158,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 #if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     // Keep AppKit's real traffic lights and fullscreen behavior. The document
     // header occupies the titlebar, reserving space beside the native controls.
-    if(!lienzo::usesClientSideDecorations()) {
+    if(!ndl::usesClientSideDecorations()) {
         setWindowFlags(windowFlags()|Qt::ExpandedClientAreaHint|Qt::NoTitleBarBackgroundHint);
         setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea,false);
         setAttribute(Qt::WA_LayoutOnEntireRect,true);
@@ -258,7 +258,7 @@ bool MainWindow::eventFilter(QObject* object,QEvent* event) {
 #if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     if(event->type()==QEvent::MouseButtonPress||event->type()==QEvent::MouseButtonDblClick) {
         auto* mouse=static_cast<QMouseEvent*>(event);
-        if(lienzo::usesClientSideDecorations())return QMainWindow::eventFilter(object,event);
+        if(ndl::usesClientSideDecorations())return QMainWindow::eventFilter(object,event);
         const bool header=object->objectName()=="vortia-document-header"||object->objectName()=="vortia-native-window-controls-space";
         const bool emptyTabs=object==projectTabs_&&projectTabs_->tabAt(mouse->position().toPoint())<0;
         if(mouse->button()==Qt::LeftButton&&(header||emptyTabs)) {
@@ -393,7 +393,7 @@ void MainWindow::buildMenusAndToolbar() {
     auto* navigator = new QWidget(workflow); navigator->setObjectName("vortia-workflow-navigation");
     navigator->setAttribute(Qt::WA_StyledBackground, true);
     navigator->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
-    auto* navLayout = new QVBoxLayout(navigator); navLayout->setContentsMargins(8,12,8,10);
+    auto* navLayout = new QVBoxLayout(navigator); navLayout->setContentsMargins(16,12,16,10); // 8 px of it is the side margin the style sheet gives the bar
     navLayout->setSpacing(5);
     auto* brand = new QLabel(navigator); brand->setPixmap(QPixmap(":/vortia/app-icon.png").scaled(32,32,Qt::KeepAspectRatio,Qt::SmoothTransformation));
     brand->setAccessibleName(tr("Vortia")); navLayout->addWidget(brand); navLayout->addSpacing(12);
@@ -815,7 +815,7 @@ void MainWindow::buildDocks() {
     setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowTabbedDocks
                    | QMainWindow::AllowNestedDocks);
     auto* central = new QWidget(this);
-    // Lienzo: the work area is a card floating on the canvas.
+    // The work area is a panel on the window surface.
     central->setObjectName(QStringLiteral("vortia-central-card"));
     central->setAttribute(Qt::WA_StyledBackground, true);
     auto* centralLayout = new QVBoxLayout(central);
@@ -832,11 +832,11 @@ void MainWindow::buildDocks() {
     // reserves room for them; Linux draws them in this bar (WindowChrome), so
     // there is no system title bar and no separate menu bar on top.
 #if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
-    const bool nativeUnifiedHeader=!lienzo::usesClientSideDecorations();
+    const bool nativeUnifiedHeader=!ndl::usesClientSideDecorations();
 #else
     const bool nativeUnifiedHeader=false;
 #endif
-    const bool clientDecorations=lienzo::usesClientSideDecorations();
+    const bool clientDecorations=ndl::usesClientSideDecorations();
     if(nativeUnifiedHeader||clientDecorations) {
         auto* topBar=findChild<QWidget*>("vortia-top-bar");
         auto* header=new QWidget(topBar);header->setObjectName("vortia-document-header");header->setFixedHeight(44);
@@ -847,7 +847,7 @@ void MainWindow::buildDocks() {
             trafficSpace->installEventFilter(this);
         } else {
             // The menus of the hidden menu bar live behind one button.
-            auto* appMenu=new QToolButton(header);appMenu->setObjectName("lienzo-app-menu");
+            auto* appMenu=new QToolButton(header);appMenu->setObjectName("ndl-app-menu");
             appMenu->setText(QStringLiteral("\u2261"));appMenu->setToolTip(tr("Main menu"));
             appMenu->setPopupMode(QToolButton::InstantPopup);appMenu->setFocusPolicy(Qt::NoFocus);
             auto* menu=new QMenu(appMenu);
@@ -861,7 +861,7 @@ void MainWindow::buildDocks() {
             // The header has a native titlebar hit target even in its unused tab area.
             header->installEventFilter(this);projectTabs_->installEventFilter(this);
         } else {
-            auto* chrome=new lienzo::WindowChrome(this,header,row,lienzo::systemButtonLayout());
+            auto* chrome=new ndl::WindowChrome(this,header,row,ndl::systemButtonLayout());
             chrome->addDragArea(projectTabs_);
             // A hidden menu bar no longer delivers shortcuts: keep every
             // menu action registered on the window itself.
@@ -2117,16 +2117,20 @@ void MainWindow::onPreferences() {
 }
 
 void MainWindow::applyPreferences() {
-    ThemeManager::apply(*qApp,ThemeManager::resolve(preferences_.theme));
     const bool compact=preferences_.density=="compact";
+    ThemeManager::apply(*qApp,ThemeManager::resolve(preferences_.theme),compact?QStringLiteral("compact"):QStringLiteral("regular"));
     qApp->setStyleSheet(qApp->styleSheet()+QString("\nQWidget { font-size:%1px; }").arg(13*preferences_.interfaceScale/100));
     if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setFixedHeight((compact?44:50)*preferences_.interfaceScale/100);
     for(auto* button:findChildren<QToolButton*>("vortia-ribbon-button")) {
         button->setIconSize(QSize(20,20));button->setMinimumSize(QSize(0,compact?28:34));
         button->setToolButtonStyle(preferences_.showToolLabels?Qt::ToolButtonTextBesideIcon:Qt::ToolButtonIconOnly);
     }
+    // A tool bar keeps the item margins of the base style whatever the style
+    // sheet says, which left the side bar lower and shorter than the panels
+    // beside it. Set after every style change, which resets them.
+    if(auto* bar=findChild<QToolBar*>("vortia-workflow-toolbar"))if(bar->layout())bar->layout()->setContentsMargins(0,0,0,0);
     if(auto* navigation=findChild<QWidget*>("vortia-workflow-navigation")) {
-        navigation->setFixedWidth(164*preferences_.interfaceScale/100);
+        navigation->setFixedWidth(180*preferences_.interfaceScale/100); // 164 of content plus the 8 px side margins of the style sheet
         for(auto* button:navigation->findChildren<QToolButton*>())if(button->property("stageIndex").isValid()) {
             button->setText(button->property("stageTitle").toString());
         }

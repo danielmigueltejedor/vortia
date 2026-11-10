@@ -19,7 +19,7 @@ Actualizado: 2026-11-10 (0.4.0). Resumen por áreas en
   X11/XWayland; el plugin Wayland nativo se incluye como reserva sin probar.
   Desde 0.4.0 la ventana no usa la barra de título del sistema: los controles
   van en la barra de la aplicación (probado con X11; `VORTIA_NATIVE_TITLEBAR=1`
-  recupera la barra del sistema). Ver [`LIENZO.md`](LIENZO.md).
+  recupera la barra del sistema). Ver [`DESIGN.md`](DESIGN.md).
 - **Motor integrado:** OpenFOAM v2606 en macOS y v2412 en Linux, con MPI y
   mallador (Python + Gmsh). No hace falta instalar OpenFOAM. `vortia
   --verify-engine` ejecuta un caso real en serie y con 2 procesos.

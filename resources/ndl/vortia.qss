@@ -1,0 +1,78 @@
+/* Vortia's own layer over the Nodalia Design Language sheet (nodalia.qss).
+   Only what is specific to Vortia lives here: its object names and the icons NDL does not ship.
+   Same placeholders, filled from nodalia-qt.json. */
+
+/* Icons for the standard sub-controls. A style sheet cannot recolour an image, so the theme
+   manager writes a copy of each icon named here in the text colour of the active scheme
+   (or in the on-accent colour when the URL ends in ?on-accent) and points the rule at it. */
+QToolButton::menu-indicator {image:url(:/vortia/icons/chevron-down.svg);width:{{space.sm}}px;height:{{space.sm}}px;subcontrol-origin:padding;subcontrol-position:center right;right:{{space.xs}}px;}
+QToolButton[popupMode="2"],QToolButton[popupMode="1"] {padding-right:{{size.iconLarge}}px;}
+QToolButton::menu-button {border:0;background:transparent;width:{{size.iconMedium}}px;}
+QComboBox::down-arrow {image:url(:/vortia/icons/chevron-down.svg);width:{{size.iconSmall}}px;height:{{size.iconSmall}}px;}
+QAbstractSpinBox {padding-right:{{size.targetMin}}px;}
+QAbstractSpinBox::up-arrow {image:url(:/vortia/icons/chevron-up.svg);width:{{space.sm}}px;height:{{space.sm}}px;}
+QAbstractSpinBox::down-arrow {image:url(:/vortia/icons/chevron-down.svg);width:{{space.sm}}px;height:{{space.sm}}px;}
+QCheckBox::indicator:checked {image:url(:/vortia/icons/check.svg?on-accent);}
+QMenu::right-arrow {image:url(:/vortia/icons/chevron-right.svg);width:{{size.iconSmall}}px;height:{{size.iconSmall}}px;}
+QTabBar::close-button {image:url(:/vortia/icons/close.svg);width:{{size.iconSmall}}px;height:{{size.iconSmall}}px;padding:{{space.xxs}}px;border-radius:{{radius.sm}}px;}
+QTabBar::close-button:hover {background:{{color.controlBgHover}};}
+QDockWidget::close-button {image:url(:/vortia/icons/close.svg);border:0;background:transparent;width:{{size.iconMedium}}px;height:{{size.iconMedium}}px;}
+QDockWidget::float-button {image:url(:/vortia/icons/undock.svg);border:0;background:transparent;width:{{size.iconMedium}}px;height:{{size.iconMedium}}px;}
+QDockWidget::close-button:hover,QDockWidget::float-button:hover {background:{{color.controlBgHover}};border-radius:{{radius.sm}}px;}
+
+/* A value field is as wide as a value, not as wide as the panel it sits in. */
+QAbstractSpinBox,QComboBox {max-width:{{size.toast}}px;}
+
+/* Window frame: the gaps between panels show the window surface. */
+QMainWindow::separator {background:{{color.surfaceWindow}};width:{{space.sm}}px;height:{{space.sm}}px;}
+QSplitter::handle {background:{{color.surfaceWindow}};}
+QSplitter::handle:horizontal {width:{{space.sm}}px;}
+QSplitter::handle:vertical {height:{{space.sm}}px;}
+QStatusBar {background:{{color.surfaceWindow}};border-top:0;}
+QStatusBar QLabel {padding:{{space.xxs}}px {{space.sm}}px;color:{{color.textSecondary}};}
+
+/* Top bar: document tabs and the action row sit on the window surface. */
+QToolBar,QToolBar#vortia-main-toolbar {background:{{color.surfaceWindow}};border:0;padding:0;}
+QWidget#vortia-top-bar,QWidget#vortia-document-header {background:{{color.surfaceWindow}};}
+QTabBar#vortia-project-tabs::tab {min-width:96px;margin:{{space.xs}}px {{space.xxs}}px 0 {{space.xxs}}px;color:{{color.textSecondary}};}
+QTabBar#vortia-project-tabs::tab:selected {color:{{color.textPrimary}};border-bottom-color:{{color.accentDefault}};}
+QToolButton#ndl-window-button,QToolButton#ndl-app-menu {background:transparent;border:0;border-radius:{{radius.md}}px;min-width:{{size.targetMin}}px;max-width:{{size.targetMin}}px;min-height:{{size.targetMin}}px;max-height:{{size.targetMin}}px;padding:0;margin:0 {{space.xxs}}px;}
+QToolButton#ndl-window-button:hover,QToolButton#ndl-app-menu:hover {background:{{color.controlBgHover}};}
+QToolButton#ndl-window-button[role="close"]:hover {background:{{color.statusDangerFg}};}
+QToolButton#ndl-app-menu::menu-indicator {image:none;}
+
+/* Ribbon: the action row under the document tabs. */
+QTabWidget#vortia-ribbon {background:{{color.surfaceWindow}};}
+QTabWidget#vortia-ribbon::pane {border:0;background:{{color.surfaceWindow}};}
+QToolButton#vortia-ribbon-button {padding:{{space.xs}}px {{space.sm}}px;}
+QLabel#vortia-ribbon-group {color:{{color.textSecondary}};font-size:{{font.caption}}px;}
+QFrame#vortia-ribbon-separator {background:{{color.borderDefault}};border:0;min-width:{{border.thin}}px;max-width:{{border.thin}}px;margin:{{space.sm}}px {{space.xs}}px;}
+QTabWidget#vortia-ribbon QScrollArea,QTabWidget#vortia-ribbon QScrollArea > QWidget,QTabWidget#vortia-ribbon QScrollArea > QWidget > QWidget {background:transparent;}
+
+/* Workflow navigation: a sunken side bar with one row per stage. */
+QToolBar#vortia-workflow-toolbar {background:{{color.surfaceWindow}};border:0;padding:0;spacing:0;}
+/* The side bar spans exactly the height of the panels beside it; its side gaps are its own margin. */
+QWidget#vortia-workflow-navigation {margin:0 {{space.sm}}px;background:{{color.surfaceSunken}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;}
+QWidget#vortia-workflow-navigation QToolButton {text-align:left;min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;border-radius:{{radius.md}}px;color:{{color.textPrimary}};border-color:transparent;}
+QWidget#vortia-workflow-navigation QToolButton:hover {background:{{color.controlBgHover}};}
+QWidget#vortia-workflow-navigation QToolButton:checked {background:{{color.selectionBg}};color:{{color.accentText}};font-weight:{{weight.medium}};border-color:transparent;}
+QWidget#flow-navigation-sidebar QPushButton,QWidget#preferences-navigation-sidebar QPushButton {text-align:left;background:transparent;border:{{border.thin}}px solid transparent;border-radius:{{radius.md}}px;min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;color:{{color.textPrimary}};font-weight:{{weight.regular}};}
+QWidget#flow-navigation-sidebar QPushButton:hover,QWidget#preferences-navigation-sidebar QPushButton:hover {background:{{color.controlBgHover}};}
+QWidget#flow-navigation-sidebar QPushButton:checked,QWidget#preferences-navigation-sidebar QPushButton:checked {background:{{color.selectionBg}};color:{{color.accentText}};font-weight:{{weight.medium}};}
+
+/* Content panels. */
+QWidget#vortia-central-card {background:{{color.surfacePanel}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;}
+QTabWidget#vortia-editor-tabs::pane {border:0;background:transparent;}
+QTabWidget#vortia-editor-tabs QDialog,QWidget#vortia-mesh-workspace,QWidget#vortia-physics-workspace {background:transparent;}
+QDockWidget > QWidget {background:{{color.surfacePanel}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;}
+QDockWidget::title {background:transparent;border-bottom:0;padding:{{space.sm}}px {{space.md}}px;}
+/* Scroll areas are layout, not surfaces: they show the panel they sit on. */
+QScrollArea {background:transparent;border:0;}
+QScrollArea > QWidget > QWidget {background:transparent;}
+QTreeWidget {border:0;}
+QPlainTextEdit {border:0;font-family:Menlo,"DejaVu Sans Mono",monospace;font-size:{{font.small}}px;padding:{{space.sm}}px;background:{{color.surfacePanel}};}
+
+/* Notices. */
+QLabel#vortia-update-notice,QLabel#vortia-nozzle-validation-notice,QLabel#vortia-flow-assessment {background:{{color.statusInfoBg}};color:{{color.textPrimary}};border:0;border-radius:{{radius.md}}px;padding:{{space.sm}}px {{space.md}}px;}
+QLabel#vortia-nozzle-validation-notice {background:{{color.statusWarningBg}};border:{{border.thin}}px solid {{color.statusWarningFg}};}
+QComboBox {padding-right:{{size.targetMin}}px;}

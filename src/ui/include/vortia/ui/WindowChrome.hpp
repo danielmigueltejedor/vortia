@@ -12,7 +12,7 @@ class QMainWindow;
 class QToolButton;
 class QWidget;
 
-namespace vortia::lienzo {
+namespace vortia::ndl {
 
 enum class WindowButton { Minimize, Maximize, Close };
 
@@ -74,4 +74,4 @@ private:
     std::optional<QPoint> dragOrigin_; ///< Press position of a possible window drag.
 };
 
-} // namespace vortia::lienzo
+} // namespace vortia::ndl
