@@ -21,6 +21,7 @@
 
   <p>
     <a href="#overview">Overview</a> ·
+    <a href="#screenshots">Screenshots</a> ·
     <a href="#what-it-does">What it does</a> ·
     <a href="#installation">Installation</a> ·
     <a href="#verification">Verification</a> ·
@@ -30,6 +31,10 @@
     <a href="#contributing">Contribute</a>
   </p>
 </div>
+
+<p align="center">
+  <img src="docs/screenshots/hero.webp" width="920" alt="Vortia showing the speed and temperature fields of a jet, in dark and light mode">
+</p>
 
 ---
 
@@ -49,6 +54,18 @@ with the evidence behind it in [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MAT
 > dependence, and read [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md)
 > and [`docs/VALIDATION.md`](docs/VALIDATION.md) before trusting a result. The
 > native cases are numerical verification, not validation of a design.
+
+## Screenshots
+
+| | |
+|---|---|
+| <img src="docs/screenshots/results-speed-dark.webp" alt="Speed field of a jet in the results view, dark mode"> | <img src="docs/screenshots/results-temperature-light.webp" alt="Temperature field in the results view, light mode"> |
+| Results: speed field of a jet | Results: temperature field, light mode |
+| <img src="docs/screenshots/geometry-dark.webp" alt="2D sketch editor with its tools"> | <img src="docs/screenshots/physics-light.webp" alt="Physics models and material form"> |
+| Geometry: 2D sketch editor | Physics: models and material |
+
+The result views show the `examples/nozzle-practice-2026` case. They are
+interface captures, not validation: see [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
 ## What it does
 

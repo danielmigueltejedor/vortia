@@ -38,6 +38,21 @@ VORTIA_DENSITY=compact vortia        # compact | regular | comfortable
 
 `VORTIA_SCREENSHOT_STAGE` va de 0 (Proyecto) a 5 (Resultados).
 
+Para capturar contenido real:
+
+```sh
+VORTIA_SCREENSHOT_PROJECT=examples/nozzle-practice-2026 \
+VORTIA_SCREENSHOT_STAGE=5 VORTIA_SCREENSHOT_FIELD=Rapidez \
+VORTIA_SCREENSHOT_HIDE_CONSOLE=1 VORTIA_SCREENSHOT_DELAY_MS=7000 \
+vortia --screenshot resultados.png
+```
+
+`VORTIA_SCREENSHOT_PROJECT` abre antes un proyecto o un caso de OpenFOAM,
+`VORTIA_SCREENSHOT_FIELD` elige el primer campo cuyo nombre contenga ese
+texto y `VORTIA_SCREENSHOT_DELAY_MS` da tiempo a que cargue. Las capturas del
+README están en `docs/screenshots/`. Abrir un caso puede escribir archivos en
+su carpeta: conviene hacerlo sobre una copia.
+
 ## Límites conocidos
 
 - Solo se ofrecen los modos claro y oscuro; los de alto contraste están en los

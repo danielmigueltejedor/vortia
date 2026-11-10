@@ -24,6 +24,8 @@
 #include <QProcess>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QComboBox>
+#include <QDockWidget>
 
 #include <vector>
 #ifdef Q_OS_LINUX
@@ -292,6 +294,12 @@ int main(int argc, char* argv[]) {
     // drawn by Qt (the 3D viewport may be blank) and exits.
     if (argc > 2 && QString::fromUtf8(argv[1]) == QStringLiteral("--screenshot")) {
         const QString target = QString::fromUtf8(argv[2]);
+        // VORTIA_SCREENSHOT_PROJECT=<dir> opens a project or an OpenFOAM case
+        // first, so the capture shows real content instead of an empty project.
+        if (qEnvironmentVariableIsSet("VORTIA_SCREENSHOT_PROJECT"))
+            QTimer::singleShot(300, &app, [&window] {
+                window.openDirectory(qEnvironmentVariable("VORTIA_SCREENSHOT_PROJECT"));
+            });
         // VORTIA_SCREENSHOT_STAGE=0..5 selects the workflow stage to capture.
         if (qEnvironmentVariableIsSet("VORTIA_SCREENSHOT_STAGE")) {
             QTimer::singleShot(1200, &app, [&window] {
@@ -301,7 +309,28 @@ int main(int argc, char* argv[]) {
                     stage->click();
             });
         }
-        QTimer::singleShot(2500, &app, [&app, &window, target] {
+        // VORTIA_SCREENSHOT_FIELD=<text> selects the first result field whose
+        // name contains the text; VORTIA_SCREENSHOT_HIDE_CONSOLE hides the console.
+        QTimer::singleShot(3200, &app, [&window] {
+            if (qEnvironmentVariableIsSet("VORTIA_SCREENSHOT_HIDE_CONSOLE"))
+                for (auto* dock : window.findChildren<QDockWidget*>())
+                    if (dock->windowTitle().contains(QStringLiteral("onsol")))
+                        dock->hide();
+            const QString wanted = qEnvironmentVariable("VORTIA_SCREENSHOT_FIELD");
+            auto* fields = window.findChild<QComboBox*>(QStringLiteral("vortia-field-selector"));
+            if (wanted.isEmpty() || !fields)
+                return;
+            QStringList names;
+            for (int i = 0; i < fields->count(); ++i) {
+                names << fields->itemText(i);
+                if (fields->itemText(i).contains(wanted, Qt::CaseInsensitive)) {
+                    fields->setCurrentIndex(i);
+                    return;
+                }
+            }
+            qWarning().noquote() << "No result field contains" << wanted << "- available:" << names.join(QStringLiteral(" | "));
+        });
+        QTimer::singleShot(qEnvironmentVariableIntValue("VORTIA_SCREENSHOT_DELAY_MS") > 0 ? qEnvironmentVariableIntValue("VORTIA_SCREENSHOT_DELAY_MS") : 2500, &app, [&app, &window, target] {
             const bool saved = window.grab().save(target, "PNG");
             if (!saved)
                 qCritical() << "Could not save the screenshot to" << target;
