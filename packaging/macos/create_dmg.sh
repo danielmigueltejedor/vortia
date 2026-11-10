@@ -62,15 +62,20 @@ tell application "Finder"
     set toolbar visible of container window to false
     set statusbar visible of container window to false
     set sidebar width of container window to 0
-    set the bounds of container window to {200, 120, 860, 520}
+    try
+      set pathbar visible of container window to false
+    end try
+    -- 660 x 460 including the title bar: the whole composition is visible
+    -- without resizing, also when the user's Finder adds a path bar.
+    set the bounds of container window to {200, 120, 860, 580}
     set theViewOptions to the icon view options of container window
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to 128
     set text size of theViewOptions to 13
     set label position of theViewOptions to bottom
     set background picture of theViewOptions to file ".background:background.tiff"
-    set position of item "Vortia.app" of container window to {160, 200}
-    set position of item "Applications" of container window to {500, 200}
+    set position of item "Vortia.app" of container window to {160, 190}
+    set position of item "Applications" of container window to {500, 190}
     update without registering applications
     delay 2
     close
