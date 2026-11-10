@@ -93,9 +93,10 @@ else
   echo "nothing unresolved"
 fi
 # A library we ship must never be taken from the host instead.
-leaks="$(awk -v app="$app/" '$3 == "=>" && index($4, "/") == 1 && index($4, app) != 1 { print $2 " " $4 }' "$report" |
-  sort -u | while read -r name path; do
-    [[ -e "$app/usr/lib/$name" ]] && echo "$name resolved to host copy $path"
+leaks="$(sed -nE 's/^[^:]+: \t?([^ ]+) => (\/.*) \(0x[0-9a-f]+\)$/\1\t\2/p' "$report" | sort -u |
+  while IFS=$'\t' read -r name path; do
+    [[ "$path" == "$app/"* ]] && continue
+    if [[ -e "$app/usr/lib/$name" ]]; then echo "$name resolved to host copy $path"; fi
   done)"
 if [[ -n "$leaks" ]]; then
   echo "$leaks" | head -n 20
@@ -107,7 +108,10 @@ note "Headless start (--verify-spanish)"
 
 note "Full application start on a clean X display"
 log="$work/start.log"
-if grep -a -q -- '--verify-startup' "$app/usr/bin/vortia"; then
+# 0.3.0 introduced the launcher environment hand-over and --verify-startup.
+modern=0
+grep -q 'VORTIA_LAUNCHER_ENV' "$app/AppRun" 2>/dev/null && modern=1
+if ((modern)); then
   "${clean_env[@]}" timeout --signal=TERM --kill-after=10 60 \
     "${xvfb[@]}" "$app/AppRun" --verify-startup >"$log" 2>&1
   rc=$?
@@ -134,8 +138,8 @@ if [[ -x "$app/AppRun" && ! -L "$app/AppRun" ]]; then
 
   note "Desktop launch without a terminal: failures leave a log"
   rc=0
-  "${clean_env[@]}" -u VORTIA_NO_STARTUP_DIALOG QT_QPA_PLATFORM=vortia-missing-platform \
-    timeout 30 "$app/AppRun" </dev/null >/dev/null 2>/dev/null || rc=$?
+  "${clean_env[@]}" QT_QPA_PLATFORM=vortia-missing-platform \
+    env -u VORTIA_NO_STARTUP_DIALOG timeout 30 "$app/AppRun" </dev/null >/dev/null 2>/dev/null || rc=$?
   startup_log="$work/home/.local/state/vortia/startup.log"
   if [[ "$rc" -ge 126 && -s "$startup_log" ]]; then
     echo "OK: rc=$rc, log kept at ~/.local/state/vortia/startup.log:"
@@ -145,7 +149,7 @@ if [[ -x "$app/AppRun" && ! -L "$app/AppRun" ]]; then
   fi
 fi
 
-if grep -a -q -- '--verify-startup' "$app/usr/bin/vortia"; then
+if ((modern)); then
   note "No usable OpenGL: a clear message instead of a crash"
   # Mesa is told to offer OpenGL 2.1 only, for the driver and for the
   # software-rendering retry alike.
@@ -163,7 +167,7 @@ fi
 if [[ "$mode" == "--fuse" ]]; then
   note "Direct run of the image file (FUSE mount, as a double click)"
   "${clean_env[@]}" "$image" --verify-spanish || bad "direct --verify-spanish rc=$?"
-  if grep -a -q -- '--verify-startup' "$app/usr/bin/vortia"; then
+  if ((modern)); then
     "${clean_env[@]}" timeout --kill-after=10 60 "${xvfb[@]}" "$image" --verify-startup \
       || bad "direct --verify-startup rc=$?"
   fi

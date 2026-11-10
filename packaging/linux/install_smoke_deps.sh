@@ -2,15 +2,15 @@
 # Install the minimum a stock desktop install already has (X server, Mesa,
 # fontconfig) into a bare distro container, so the AppImage smoke test runs
 # against a "clean machine". Deliberately does NOT install Qt, xcb-util
-# libraries (libxcb-cursor0 & co.) or a newer libstdc++: the AppImage must
-# carry those itself.
+# libraries (libxcb-cursor0 & co.), libopengl0 or a newer libstdc++: the
+# AppImage must carry those itself.
 set -eu
 
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y --no-install-recommends \
-    xvfb xauth libgl1 libegl1 libgl1-mesa-dri libglx-mesa0 libopengl0 \
+    xvfb xauth libgl1 libegl1 libgl1-mesa-dri libglx-mesa0 \
     fontconfig fonts-dejavu-core file binutils ca-certificates
 elif command -v dnf >/dev/null 2>&1; then
   dnf install -y \

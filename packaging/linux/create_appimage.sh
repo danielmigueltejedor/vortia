@@ -200,6 +200,34 @@ if [[ -n "$env_prefix" ]]; then
   }
 fi
 
+# libOpenGL.so.0 stays out of the unconditional path for the same reason:
+# AppRun adds it only on hosts that do not have one.
+glvnd="$appdir/usr/optional/glvnd"
+mkdir -p "$glvnd"
+if [[ -n "$env_prefix" ]]; then
+  opengl_lib="$(readlink -f "$env_prefix/lib/libOpenGL.so.0" || true)"
+  [[ -s "$opengl_lib" ]] || { echo "libOpenGL.so.0 missing from the build environment" >&2; exit 1; }
+  cp "$opengl_lib" "$glvnd/libOpenGL.so.0"
+fi
+
+# The whole image must run on the glibc of the oldest supported distribution.
+# A binary built by the runner's own compiler instead of the conda toolchain
+# silently raises this (0.3.0 development builds needed glibc 2.38).
+max_glibc="${VORTIA_MAX_GLIBC:-2.28}"
+needed_glibc="$(
+  find "$appdir/usr" -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) -print0 |
+    xargs -0 -n 64 objdump -T 2>/dev/null |
+    grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 1 | cut -d_ -f2
+)"
+echo "Newest glibc symbol version required by the AppImage: ${needed_glibc:-unknown} (limit $max_glibc)"
+if [[ -z "$needed_glibc" || "$(printf '%s\n%s\n' "$needed_glibc" "$max_glibc" | sort -V | tail -n 1)" != "$max_glibc" ]]; then
+  echo "The AppImage would need glibc ${needed_glibc:-?}, newer than the supported $max_glibc. Offenders:" >&2
+  find "$appdir/usr" -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) | while read -r elf; do
+    objdump -T "$elf" 2>/dev/null | grep -q "GLIBC_$needed_glibc" && echo "  $elf" >&2
+  done
+  exit 1
+fi
+
 # Used by AppRun only on hosts without /etc/fonts/fonts.conf.
 cat > "$appdir/usr/share/vortia/fonts.conf" <<'FONTS'
 <?xml version="1.0"?>

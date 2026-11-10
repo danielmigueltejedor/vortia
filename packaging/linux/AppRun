@@ -50,6 +50,9 @@ export QT_QPA_PLATFORM
 # point them at this machine's fonts, keyboard layouts and compose tables.
 if [ -z "${FONTCONFIG_FILE:-}" ] && [ -z "${FONTCONFIG_PATH:-}" ]; then
   if [ -r /etc/fonts/fonts.conf ]; then
+    # FONTCONFIG_PATH alone is not enough: the compiled-in default file is an
+    # absolute path into the build prefix.
+    export FONTCONFIG_FILE=/etc/fonts/fonts.conf
     export FONTCONFIG_PATH=/etc/fonts
   else
     export FONTCONFIG_FILE="$APPDIR/usr/share/vortia/fonts.conf"
@@ -68,18 +71,19 @@ glibcxx_level() {
     | sort -t. -k3,3n | tail -n 1 | cut -d. -f3
 }
 
-host_libstdcxx() {
+# Path of a 64-bit host library by soname, or failure when the host has none.
+host_library() {
   for ldconfig in /sbin/ldconfig /usr/sbin/ldconfig ldconfig; do
-    found="$("$ldconfig" -p 2>/dev/null \
-      | sed -n 's|.*libstdc++\.so\.6 (libc6,x86-64) => \(.*\)$|\1|p' | head -n 1)" || true
+    found="$("$ldconfig" -p 2>/dev/null | grep -F "$1 (libc6,x86-64" \
+      | sed -n 's|.* => \(.*\)$|\1|p' | head -n 1)" || true
     if [ -n "${found:-}" ] && [ -r "$found" ]; then
       echo "$found"
       return 0
     fi
   done
   for dir in /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib64 /lib64 /usr/lib; do
-    if [ -r "$dir/libstdc++.so.6" ]; then
-      echo "$dir/libstdc++.so.6"
+    if [ -r "$dir/$1" ]; then
+      echo "$dir/$1"
       return 0
     fi
   done
@@ -94,12 +98,20 @@ library_path="$APPDIR/usr/lib"
 if [ -r "$gcc_runtime/libstdc++.so.6" ]; then
   bundled_level="$(glibcxx_level "$gcc_runtime/libstdc++.so.6")"
   host_level=""
-  if host_lib="$(host_libstdcxx)"; then
+  if host_lib="$(host_library libstdc++.so.6)"; then
     host_level="$(glibcxx_level "$host_lib")"
   fi
   if [ -z "$host_level" ] || [ "${bundled_level:-0}" -ge "$host_level" ]; then
     library_path="$library_path:$gcc_runtime"
   fi
+fi
+
+# VTK links the GLVND entry point libOpenGL.so.0, which stock Ubuntu and
+# Debian desktops do not install (package libopengl0). Ours is used only
+# then; it dispatches to the host's own libGLdispatch and drivers.
+if [ -r "$APPDIR/usr/optional/glvnd/libOpenGL.so.0" ] \
+   && ! host_library libOpenGL.so.0 >/dev/null; then
+  library_path="$library_path:$APPDIR/usr/optional/glvnd"
 fi
 
 # Bundled Qt/VTK and their dependencies come before anything in the user's
