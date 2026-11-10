@@ -21,7 +21,7 @@ guard let source = CGImageSourceCreateWithURL(input as CFURL, nil),
                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
 else { fatalError("Cannot read the original Vortia icon") }
 let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-// Icon plate colour of resources/icons/vortia.svg: sRGB #0B1A30. No crop,
+// Fallback plate colour, used only without a full-bleed icon: sRGB #0B1A30. No crop,
 // rescale or redraw of the glyph is performed here; only its transparent
 // canvas is filled.
 canvas.setFillColor(red: 11.0 / 255.0, green: 26.0 / 255.0, blue: 48.0 / 255.0, alpha: 1)
