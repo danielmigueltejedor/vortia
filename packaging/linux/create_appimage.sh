@@ -200,6 +200,23 @@ if [[ -n "$env_prefix" ]]; then
   }
 fi
 
+# Integrated CFD engine (see build_openfoam_payload.sh). Kept in its own tree
+# with its own libraries: it never shares a library path with the GUI.
+engine_glibc=""
+if [[ -n "${VORTIA_OPENFOAM_PAYLOAD:-}" ]]; then
+  payload="$(cd "$VORTIA_OPENFOAM_PAYLOAD" && pwd)"
+  compgen -G "$payload/OpenFOAM-*/etc/bashrc" >/dev/null || {
+    echo "No OpenFOAM-*/etc/bashrc in payload $payload" >&2
+    exit 1
+  }
+  mkdir -p "$appdir/usr/lib/openfoam-engine"
+  cp -a "$payload/." "$appdir/usr/lib/openfoam-engine/"
+  engine_glibc="$(cat "$payload/GLIBC_REQUIRED")"
+  echo "Bundled OpenFOAM engine from $payload (needs glibc $engine_glibc)"
+else
+  echo "No VORTIA_OPENFOAM_PAYLOAD: this AppImage will need an external OpenFOAM" >&2
+fi
+
 # libOpenGL.so.0 stays out of the unconditional path for the same reason:
 # AppRun adds it only on hosts that do not have one.
 glvnd="$appdir/usr/optional/glvnd"
@@ -215,18 +232,24 @@ fi
 # silently raises this (0.3.0 development builds needed glibc 2.38).
 max_glibc="${VORTIA_MAX_GLIBC:-2.28}"
 needed_glibc="$(
-  find "$appdir/usr" -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) -print0 |
+  find "$appdir/usr/bin" "$appdir/usr/lib" "$appdir/usr/plugins" "$appdir/usr/optional" \
+    -path "$appdir/usr/lib/openfoam-engine" -prune -o -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) -print0 |
     xargs -0 -n 64 objdump -T 2>/dev/null |
     grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 1 | cut -d_ -f2
 )"
 echo "Newest glibc symbol version required by the AppImage: ${needed_glibc:-unknown} (limit $max_glibc)"
 if [[ -z "$needed_glibc" || "$(printf '%s\n%s\n' "$needed_glibc" "$max_glibc" | sort -V | tail -n 1)" != "$max_glibc" ]]; then
   echo "The AppImage would need glibc ${needed_glibc:-?}, newer than the supported $max_glibc. Offenders:" >&2
-  find "$appdir/usr" -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) | while read -r elf; do
+  find "$appdir/usr" -path "$appdir/usr/lib/openfoam-engine" -prune -o -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) -print | while read -r elf; do
     objdump -T "$elf" 2>/dev/null | grep -q "GLIBC_$needed_glibc" && echo "  $elf" >&2
   done
   exit 1
 fi
+
+# What the release notes may honestly state as the minimum distribution.
+overall_glibc="$(printf '%s\n%s\n' "$needed_glibc" "${engine_glibc:-0}" | sort -V | tail -n 1)"
+echo "$overall_glibc" > "$appdir/usr/share/vortia/GLIBC_REQUIRED"
+echo "Minimum glibc for the complete AppImage (GUI + engine): $overall_glibc"
 
 # Used by AppRun only on hosts without /etc/fonts/fonts.conf.
 cat > "$appdir/usr/share/vortia/fonts.conf" <<'FONTS'

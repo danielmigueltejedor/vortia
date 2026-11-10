@@ -83,6 +83,7 @@ set_tests_properties(benchmark_ghia_openfoam PROPERTIES
 add_executable(test_solver
     unit/test_installation.cpp
     unit/test_detector.cpp
+    unit/test_engine_self_test.cpp
     unit/test_case_writer.cpp
     unit/test_log_parser.cpp
     unit/test_convergence_policy.cpp)

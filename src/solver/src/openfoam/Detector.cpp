@@ -256,10 +256,17 @@ Detector::captureEnvironment(const Installation& installation, IProcessRunner& r
     if (!std::filesystem::is_regular_file(installation.bashrc, ec))
         return Error::make(ErrorCode::NotFound, "bashrc not found", bashrc);
 
+    // An engine packaged with Vortia may add what its own bashrc does not
+    // know about: the bundled MPI launcher and third-party libraries.
+    const std::filesystem::path runtime = installation.bashrc.parent_path() / "vortia-runtime.sh";
+    std::string command = "source '" + bashrc + "' >/dev/null 2>&1";
+    if (std::filesystem::is_regular_file(runtime, ec))
+        command += " && source '" + runtime.string() + "' >/dev/null 2>&1";
+    command += " && env";
+
     ProcessRequest request;
     request.executable = "/bin/bash";
-    request.arguments = {"--noprofile", "--norc", "-c",
-                         "source '" + bashrc + "' >/dev/null 2>&1 && env"};
+    request.arguments = {"--noprofile", "--norc", "-c", command};
     request.timeout = std::chrono::milliseconds{15'000};
 
     auto result = runner.run(request);

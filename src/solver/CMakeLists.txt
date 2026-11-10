@@ -4,6 +4,7 @@ add_library(vortia_solver STATIC
     src/openfoam/CaseRunner.cpp
     src/openfoam/CaseWriter.cpp
     src/openfoam/Detector.cpp
+    src/openfoam/EngineSelfTest.cpp
     src/openfoam/Installation.cpp
     src/openfoam/LogParser.cpp)
 target_sources(vortia_solver PRIVATE src/openfoam/MassBalance.cpp)
@@ -17,6 +18,6 @@ target_include_directories(vortia_solver
 
 target_link_libraries(vortia_solver
     PUBLIC vortia::physics
-    PRIVATE vortia_warnings)
+    PRIVATE vortia::verification vortia_warnings)
 
 target_compile_features(vortia_solver PUBLIC cxx_std_20)

@@ -72,8 +72,35 @@ jobs:
             echo "dmg=Vortia-${version}-macos-arm64.dmg"
           } >> "$GITHUB_OUTPUT"
 
+  linux-openfoam-engine:
+    # The CFD engine shipped inside the AppImage. Rebuilt only when its
+    # recipe changes.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: openfoam-engine.tar
+          key: openfoam-engine-${{ hashFiles('packaging/linux/build_openfoam_payload.sh') }}
+      - name: Assemble relocatable OpenFOAM in Ubuntu 20.04
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir payload
+          docker run --rm -v "$PWD:/work" -w /work ubuntu:20.04 \
+            bash packaging/linux/build_openfoam_payload.sh /work/payload 2412
+          sudo tar -C payload -cf openfoam-engine.tar .
+          sudo chown "$(id -u)" openfoam-engine.tar
+          ls -lh openfoam-engine.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-openfoam-engine
+          path: openfoam-engine.tar
+          if-no-files-found: error
+          retention-days: 3
+
   linux-appimage:
-    needs: version
+    needs: [version, linux-openfoam-engine]
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -84,11 +111,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: System packages for OpenGL / X11
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgl1-mesa-dev libglu1-mesa-dev libegl1 curl ca-certificates file
+      # No system -dev packages: an include path under /usr would bring the
+      # runner's glibc headers into a build that must target an old glibc.
 
       - name: Setup micromamba (Qt6 + VTK)
         # Pin to the commit currently tagged as v2 (Sonar githubactions:S7637).
@@ -109,6 +133,10 @@ jobs:
             gtest
             mesalib
             libopengl
+            libgl-devel
+            libegl-devel
+            libopengl-devel
+            libglx-devel
             xorg-libx11
             xorg-libxext
             xorg-libxrender
@@ -135,16 +163,30 @@ jobs:
             -DVORTIA_BUILD_TESTS=OFF \
             -DCMAKE_C_COMPILER="$CC" \
             -DCMAKE_CXX_COMPILER="$CXX" \
-            -DCMAKE_PREFIX_PATH="$CONDA_PREFIX"
+            -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+            -DCMAKE_IGNORE_PREFIX_PATH="/usr;/usr/local"
+          if grep -n -- '-isystem /usr/include\|-I/usr/include' build/build.ninja | head -n 5 | grep .; then
+            echo "System include directories leaked into the build" >&2
+            exit 1
+          fi
 
       - name: Build
         run: |
           cmake --build build --parallel "$(nproc)"
           test -x build/bin/vortia
           test -s build/vortia_es.qm
+          echo "glibc symbol versions needed by the executable:"
+          "$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-objdump" -T build/bin/vortia |
+            grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 3
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-openfoam-engine
 
       - name: Create AppImage
         run: |
+          mkdir openfoam-engine && tar -C openfoam-engine -xf openfoam-engine.tar && rm openfoam-engine.tar
+          export VORTIA_OPENFOAM_PAYLOAD="$PWD/openfoam-engine"
           export CMAKE_BINARY_DIR="$PWD/build"
           export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           export QMAKE="$CONDA_PREFIX/bin/qmake"
@@ -171,6 +213,7 @@ jobs:
       fail-fast: false
       matrix:
         image:
+          - "ubuntu:20.04"
           - "ubuntu:22.04"
           - "ubuntu:24.04"
           - "debian:12"
@@ -189,6 +232,8 @@ jobs:
       - name: Desktop baseline packages
         run: sh packaging/linux/install_smoke_deps.sh
       - name: Start the AppImage as a user would
+        env:
+          VORTIA_EXPECT_ENGINE: "1"
         run: bash packaging/linux/smoke_test_appimage.sh "dist/${{ needs.version.outputs.appimage }}"
 
   linux-direct-run:
@@ -211,6 +256,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb xauth libgl1 libegl1 libgl1-mesa-dri libglx-mesa0
       - name: Start the AppImage directly
+        env:
+          VORTIA_EXPECT_ENGINE: "1"
         run: bash packaging/linux/smoke_test_appimage.sh "dist/${{ needs.version.outputs.appimage }}" --fuse
 
   macos-dmg:

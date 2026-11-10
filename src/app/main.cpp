@@ -2,6 +2,7 @@
 #include "vortia/ui/ThemeManager.hpp"
 #include "vortia/ui/OpenFoamRuntime.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
+#include "vortia/solver/openfoam/EngineSelfTest.hpp"
 #include "vortia/core/HostEnvironment.hpp"
 
 #include <QApplication>
@@ -18,6 +19,7 @@
 #include <QCoreApplication>
 #include <QMessageBox>
 #include <QOffscreenSurface>
+#include <QTemporaryDir>
 #include <QTimer>
 
 #include <vector>
@@ -104,6 +106,20 @@ int main(int argc, char* argv[]) {
             if(!result || !result->succeeded()){qCritical()<<"Packaged engine tool failed:"<<name;return 3;}
             qInfo()<<"Verified integrated tool:"<<QString::fromStdString(exe->string());
         }
+        // The tools answering -help is not enough: run a small real case,
+        // serial and on two MPI processes, with the packaged engine.
+        QTemporaryDir work;
+        if (!work.isValid()) { qCritical() << "Cannot create a temporary directory"; return 3; }
+        const auto selfTest = vortia::openfoam::runEngineSelfTest(
+            *installed, runner, std::filesystem::path(work.path().toStdString()));
+        if (!selfTest) {
+            qCritical().noquote() << "Integrated engine self-test failed:"
+                                  << QString::fromStdString(selfTest.error().describe());
+            return 3;
+        }
+        for (const auto& line : selfTest->steps)
+            qInfo().noquote() << "Engine self-test," << QString::fromStdString(line);
+        qInfo() << "Integrated OpenFOAM engine verified with a real serial and parallel run";
         return 0;
     }
     // Deterministic, headless verification for CI. This catches missing .qm

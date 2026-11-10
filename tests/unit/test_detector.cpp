@@ -183,6 +183,37 @@ TEST_F(DetectorTest, NativeInstalledEnvironmentSmoke) {
     }
 }
 
+TEST_F(DetectorTest, PackagedRuntimeScriptExtendsTheEngineEnvironment) {
+    const auto root = fakeRoot("OpenFOAM-v2412", "export WM_PROJECT_VERSION=v2412");
+    std::ofstream(root / "etc" / "vortia-runtime.sh")
+        << "export OPAL_PREFIX=\"$WM_PROJECT-$WM_PROJECT_VERSION-mpi\"\n";
+    const auto installation = Detector::probe(root);
+    ASSERT_TRUE(installation.hasValue());
+    PosixProcessRunner runner;
+    const auto env = Detector::captureEnvironment(*installation, runner);
+    ASSERT_TRUE(env.hasValue()) << env.error().describe();
+    std::string prefix;
+    for (const auto& [name, value] : *env)
+        if (name == "OPAL_PREFIX") prefix = value;
+    // Sourced after the engine's own bashrc, so it can build on its variables.
+    EXPECT_EQ(prefix, "OpenFOAM-v2412-mpi");
+}
+
+TEST_F(DetectorTest, EnvironmentWithoutPackagedRuntimeScriptIsUnchanged) {
+    const auto root = fakeRoot("OpenFOAM-v2412", "export WM_PROJECT_VERSION=v2412");
+    const auto installation = Detector::probe(root);
+    ASSERT_TRUE(installation.hasValue());
+    PosixProcessRunner runner;
+    const auto env = Detector::captureEnvironment(*installation, runner);
+    ASSERT_TRUE(env.hasValue());
+    bool sawVersion = false;
+    for (const auto& [name, value] : *env) {
+        EXPECT_NE(name, "OPAL_PREFIX");
+        if (name == "WM_PROJECT_VERSION") sawVersion = value == "v2412";
+    }
+    EXPECT_TRUE(sawVersion);
+}
+
 TEST_F(DetectorTest, ProbesEsiInstallation) {
     const auto root = fakeRoot("OpenFOAM-v2606", "export WM_PROJECT_VERSION=v2606");
     auto installation = Detector::probe(root);

@@ -164,6 +164,31 @@ if ((modern)); then
   fi
 fi
 
+if compgen -G "$app/usr/lib/openfoam-engine/OpenFOAM-*/etc/bashrc" >/dev/null; then
+  note "Integrated OpenFOAM engine: real serial and 2-process MPI run"
+  echo "AppImage states minimum glibc: $(cat "$app/usr/share/vortia/GLIBC_REQUIRED" 2>/dev/null || echo unknown)"
+  # No OpenFOAM, MPI, ssh or compiler exists on this machine. Open MPI
+  # refuses to run as root (containers) unless told otherwise.
+  engine_env=()
+  if [[ "$(id -u)" -eq 0 ]]; then
+    engine_env=(OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1)
+  fi
+  for absent in blockMesh simpleFoam mpirun; do
+    command -v "$absent" >/dev/null 2>&1 && echo "note: host already provides $absent"
+  done
+  rc=0
+  "${clean_env[@]}" "${engine_env[@]}" timeout --kill-after=10 600 \
+    "$app/AppRun" --verify-engine >"$log" 2>&1 || rc=$?
+  sed 's/^/  | /' "$log" | tail -n 40 | cut -c1-300
+  if [[ "$rc" -eq 0 ]] && grep -q 'verified with a real serial and parallel run' "$log"; then
+    echo "OK: integrated engine ran a case serially and in parallel"
+  else
+    bad "--verify-engine rc=$rc"
+  fi
+elif [[ -n "${VORTIA_EXPECT_ENGINE:-}" ]]; then
+  bad "this AppImage has no integrated OpenFOAM engine"
+fi
+
 if [[ "$mode" == "--fuse" ]]; then
   note "Direct run of the image file (FUSE mount, as a double click)"
   "${clean_env[@]}" "$image" --verify-spanish || bad "direct --verify-spanish rc=$?"
