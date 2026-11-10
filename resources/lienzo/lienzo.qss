@@ -1,0 +1,139 @@
+/* Lienzo · Papel — Qt style sheet template.
+   {{group.token}} placeholders are filled from tokens.json for the active
+   colour scheme. Panels are white cards floating on the canvas colour;
+   controls are rounded, primary actions are pills in the accent colour. */
+QWidget {font-size:{{font.base}}px;}
+QMainWindow,QDialog {background:{{color.canvas}};}
+QMainWindow::separator {background:{{color.canvas}};width:{{space.sm}}px;height:{{space.sm}}px;}
+
+/* Top bar: the only bar above the content. */
+QToolBar {background:{{color.canvas}};border:0;spacing:{{space.xs}}px;padding:0;}
+QToolBar#vortia-main-toolbar {padding:0;}
+QToolBar::separator {background:{{color.border}};width:1px;margin:6px 8px;}
+QWidget#vortia-top-bar,QWidget#vortia-document-header {background:{{color.canvas}};}
+QTabBar#vortia-project-tabs {background:transparent;border:0;}
+QTabBar#vortia-project-tabs::tab {background:transparent;color:{{color.inkMuted}};border:1px solid transparent;border-radius:{{radius.pill}}px;min-width:96px;padding:5px 14px;margin:8px 2px;}
+QTabBar#vortia-project-tabs::tab:selected {background:{{color.surface}};color:{{color.ink}};border-color:{{color.border}};}
+QTabBar#vortia-project-tabs::tab:hover:!selected {background:{{color.hover}};}
+QToolButton#lienzo-window-button,QToolButton#lienzo-app-menu {background:{{color.hover}};border:0;border-radius:13px;min-width:26px;max-width:26px;min-height:26px;max-height:26px;padding:0;margin:0 3px;}
+QToolButton#lienzo-window-button:hover,QToolButton#lienzo-app-menu:hover {background:{{color.pressed}};}
+QToolButton#lienzo-window-button[role="close"]:hover {background:{{color.danger}};}
+QToolButton#lienzo-app-menu::menu-indicator {image:none;}
+
+/* Ribbon: a card under the top bar. */
+QTabWidget#vortia-ribbon {background:{{color.canvas}};}
+QTabWidget#vortia-ribbon::pane {border:0;background:{{color.canvas}};}
+QTabWidget::pane {border:0;background:{{color.surface}};}
+QTabBar {qproperty-drawBase:0;}
+QTabBar::tab {background:transparent;color:{{color.inkMuted}};border:0;border-radius:{{radius.control}}px;padding:6px 12px;margin:2px;}
+QTabBar::tab:selected {background:{{color.accentSoft}};color:{{color.accentInk}};}
+QTabBar::tab:hover:!selected {background:{{color.hover}};}
+QToolButton#vortia-ribbon-button {padding:5px 8px;}
+QLabel#vortia-ribbon-group {color:{{color.inkMuted}};font-size:{{font.small}}px;}
+QFrame#vortia-ribbon-separator {background:{{color.border}};max-width:1px;}
+
+/* Navigation card. */
+QToolBar#vortia-workflow-toolbar {background:{{color.canvas}};border:0;padding:0 0 {{space.sm}}px {{space.sm}}px;}
+QWidget#vortia-workflow-navigation {background:{{color.surface}};border:1px solid {{color.border}};border-radius:{{radius.panel}}px;}
+QWidget#vortia-workflow-navigation QToolButton {text-align:left;padding:8px 10px;border-radius:{{radius.control}}px;color:{{color.inkMuted}};}
+QWidget#vortia-workflow-navigation QToolButton:hover {background:{{color.hover}};color:{{color.ink}};border-color:transparent;}
+QWidget#vortia-workflow-navigation QToolButton:checked {background:{{color.accentSoft}};color:{{color.accentInk}};border-color:transparent;}
+
+/* Tool buttons: quiet until hovered; one selected look everywhere. */
+QToolButton {background:transparent;border:1px solid transparent;border-radius:{{radius.control}}px;padding:5px 7px;color:{{color.ink}};}
+QToolButton:hover {background:{{color.hover}};}
+QToolButton:pressed {background:{{color.pressed}};}
+QToolButton:checked {background:{{color.accentSoft}};color:{{color.accentInk}};}
+QToolButton:disabled {color:{{color.inkDisabled}};}
+QToolButton::menu-indicator {image:url(:/vortia/icons/chevron-down.svg);width:9px;height:9px;}
+QToolButton::menu-button {border:0;background:transparent;width:16px;}
+
+/* Content cards. */
+QWidget#vortia-central-card {background:{{color.surface}};border:1px solid {{color.border}};border-radius:{{radius.panel}}px;}
+QTabWidget#vortia-editor-tabs::pane {border:0;background:transparent;}
+QTabWidget#vortia-editor-tabs QDialog,QWidget#vortia-mesh-workspace,QWidget#vortia-physics-workspace {background:transparent;}
+QDockWidget {color:{{color.inkMuted}};font-weight:500;}
+QDockWidget > QWidget {background:{{color.surface}};border:1px solid {{color.border}};border-radius:{{radius.panel}}px;}
+QDockWidget::title {background:transparent;text-align:left;padding:8px 10px;}
+QDockWidget::close-button {image:url(:/vortia/icons/close.svg);border:0;background:transparent;width:17px;height:17px;}
+QDockWidget::float-button {image:url(:/vortia/icons/undock.svg);border:0;background:transparent;width:17px;height:17px;}
+QDockWidget::close-button:hover,QDockWidget::float-button:hover {background:{{color.hover}};border-radius:{{radius.small}}px;}
+
+/* Inputs. */
+QLineEdit,QSpinBox,QDoubleSpinBox,QComboBox {background:{{color.surfaceSunken}};color:{{color.ink}};border:1px solid {{color.border}};border-radius:{{radius.control}}px;min-height:{{size.control}}px;padding:0 8px 0 10px;selection-background-color:{{color.accent}};selection-color:{{color.onAccent}};}
+QLineEdit:hover,QSpinBox:hover,QDoubleSpinBox:hover,QComboBox:hover {border-color:{{color.borderStrong}};}
+QLineEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus,QComboBox:focus {border-color:{{color.accent}};background:{{color.surface}};}
+QComboBox {padding-right:30px;combobox-popup:0;}
+QComboBox::drop-down {subcontrol-origin:padding;subcontrol-position:center right;width:26px;border:0;}
+QComboBox::down-arrow {image:url(:/vortia/icons/chevron-down.svg);width:12px;height:12px;}
+QComboBox QAbstractItemView {background:{{color.surface}};color:{{color.ink}};border:1px solid {{color.border}};border-radius:{{radius.control}}px;padding:4px;outline:0;selection-background-color:{{color.accentSoft}};selection-color:{{color.accentInk}};}
+QComboBox QAbstractItemView::item {min-height:28px;padding:4px 10px;border-radius:{{radius.small}}px;}
+QComboBox:disabled,QAbstractSpinBox:disabled,QLineEdit:disabled {color:{{color.inkDisabled}};background:{{color.canvas}};}
+QSpinBox,QDoubleSpinBox {padding-right:26px;}
+QSpinBox::up-button,QDoubleSpinBox::up-button {subcontrol-origin:border;subcontrol-position:top right;width:22px;height:14px;border:0;background:transparent;margin-top:1px;margin-right:2px;}
+QSpinBox::down-button,QDoubleSpinBox::down-button {subcontrol-origin:border;subcontrol-position:bottom right;width:22px;height:14px;border:0;background:transparent;margin-bottom:1px;margin-right:2px;}
+QSpinBox::up-button:hover,QDoubleSpinBox::up-button:hover,QSpinBox::down-button:hover,QDoubleSpinBox::down-button:hover {background:{{color.hover}};border-radius:{{radius.small}}px;}
+QSpinBox::up-arrow,QDoubleSpinBox::up-arrow {image:url(:/vortia/icons/chevron-up.svg);width:9px;height:9px;}
+QSpinBox::down-arrow,QDoubleSpinBox::down-arrow {image:url(:/vortia/icons/chevron-down.svg);width:9px;height:9px;}
+
+/* Buttons: neutral pill by default, accent pill for the default action. */
+QPushButton {background:{{color.surface}};color:{{color.ink}};border:1px solid {{color.border}};border-radius:{{radius.pill}}px;padding:0 14px;min-height:{{size.control}}px;}
+QPushButton:hover {background:{{color.hover}};border-color:{{color.borderStrong}};}
+QPushButton:pressed {background:{{color.pressed}};}
+QPushButton:checked {background:{{color.accentSoft}};color:{{color.accentInk}};border-color:transparent;}
+QPushButton:default,QPushButton[lienzoRole="primary"] {background:{{color.accent}};color:{{color.onAccent}};border-color:{{color.accent}};font-weight:500;}
+QPushButton:default:hover,QPushButton[lienzoRole="primary"]:hover {background:{{color.accentHover}};border-color:{{color.accentHover}};}
+QPushButton[lienzoRole="danger"] {color:{{color.danger}};}
+QPushButton:disabled {color:{{color.inkDisabled}};background:{{color.canvas}};border-color:{{color.border}};}
+QWidget#flow-navigation-sidebar QPushButton,QWidget#preferences-navigation-sidebar QPushButton {text-align:left;background:transparent;border:1px solid transparent;border-radius:{{radius.control}}px;padding:8px 10px;color:{{color.inkMuted}};}
+QWidget#flow-navigation-sidebar QPushButton:hover,QWidget#preferences-navigation-sidebar QPushButton:hover {background:{{color.hover}};color:{{color.ink}};}
+QWidget#flow-navigation-sidebar QPushButton:checked,QWidget#preferences-navigation-sidebar QPushButton:checked {background:{{color.accentSoft}};color:{{color.accentInk}};}
+
+/* Lists, tables, trees. */
+QTreeWidget {background:{{color.surface}};border:0;padding:6px 4px;outline:0;}
+QTreeWidget::item {min-height:28px;padding:2px 8px;border-radius:{{radius.small}}px;}
+QTreeWidget::item:hover {background:{{color.hover}};}
+QTreeWidget::item:selected {background:{{color.accentSoft}};color:{{color.accentInk}};}
+QGroupBox {border:1px solid {{color.border}};border-radius:{{radius.panel}}px;margin-top:12px;padding:{{space.md}}px;background:{{color.surface}};}
+QGroupBox::title {subcontrol-origin:margin;left:12px;padding:0 5px;color:{{color.inkMuted}};}
+QTableWidget {background:{{color.surface}};alternate-background-color:{{color.surfaceSunken}};color:{{color.ink}};border:1px solid {{color.border}};border-radius:{{radius.control}}px;gridline-color:{{color.border}};selection-background-color:{{color.accentSoft}};selection-color:{{color.accentInk}};}
+QHeaderView::section {background:{{color.surfaceSunken}};color:{{color.inkMuted}};padding:6px 9px;border:0;border-bottom:1px solid {{color.border}};}
+QTableCornerButton::section {background:{{color.surfaceSunken}};border:0;}
+QListWidget {background:{{color.surface}};color:{{color.ink}};border:1px solid {{color.border}};border-radius:{{radius.control}}px;padding:4px;outline:0;}
+QListWidget::item {padding:6px 9px;border-radius:{{radius.small}}px;}
+QListWidget::item:hover {background:{{color.hover}};}
+QListWidget::item:selected {background:{{color.accentSoft}};color:{{color.accentInk}};}
+QPlainTextEdit {background:{{color.surface}};border:0;border-radius:{{radius.control}}px;color:{{color.ink}};font-family:Menlo,"DejaVu Sans Mono",monospace;font-size:{{font.mono}}px;padding:8px;}
+
+/* Notices. */
+QLabel#vortia-update-notice,QLabel#vortia-nozzle-validation-notice,QLabel#vortia-flow-assessment {background:{{color.accentSoft}};color:{{color.ink}};border:0;border-radius:{{radius.control}}px;padding:8px 12px;}
+QLabel#vortia-nozzle-validation-notice {background:{{color.surfaceSunken}};border:1px solid {{color.warning}};}
+
+/* Chrome. */
+QScrollBar:vertical {background:transparent;width:10px;margin:2px;}
+QScrollBar:horizontal {background:transparent;height:10px;margin:2px;}
+QScrollBar::handle:vertical {background:{{color.borderStrong}};border-radius:3px;min-height:28px;}
+QScrollBar::handle:horizontal {background:{{color.borderStrong}};border-radius:3px;min-width:28px;}
+QScrollBar::handle:hover {background:{{color.inkMuted}};}
+QScrollBar::add-line,QScrollBar::sub-line {border:0;background:none;width:0;height:0;}
+QScrollBar::add-page,QScrollBar::sub-page {background:none;}
+QMenuBar {background:{{color.canvas}};color:{{color.ink}};}
+QMenuBar::item {padding:5px 10px;border-radius:{{radius.small}}px;background:transparent;}
+QMenuBar::item:selected {background:{{color.hover}};}
+QMenu {background:{{color.surface}};color:{{color.ink}};border:1px solid {{color.border}};border-radius:{{radius.control}}px;padding:5px;}
+QMenu::item {padding:6px 28px 6px 24px;border-radius:{{radius.small}}px;}
+QMenu::item:selected {background:{{color.accentSoft}};color:{{color.accentInk}};}
+QMenu::item:disabled {color:{{color.inkDisabled}};}
+QMenu::separator {height:1px;background:{{color.border}};margin:5px 8px;}
+QMenu::right-arrow {image:url(:/vortia/icons/chevron-right.svg);width:12px;height:12px;}
+QTabBar::close-button {image:url(:/vortia/icons/close.svg);width:11px;height:11px;padding:3px;border-radius:8px;}
+QTabBar::close-button:hover {background:{{color.pressed}};}
+QStatusBar {background:{{color.canvas}};border:0;color:{{color.inkMuted}};}
+QStatusBar QLabel {padding:3px 8px;}
+QSplitter::handle {background:{{color.canvas}};}
+QToolTip {background:{{color.ink}};color:{{color.surface}};border:0;border-radius:{{radius.small}}px;padding:5px 8px;}
+QSlider::groove:horizontal {height:4px;background:{{color.border}};border-radius:2px;}
+QSlider::handle:horizontal {width:14px;margin:-5px 0;background:{{color.accent}};border:0;border-radius:7px;}
+QCheckBox,QRadioButton {spacing:8px;color:{{color.ink}};}
+QProgressBar {background:{{color.surfaceSunken}};border:0;border-radius:4px;min-height:8px;max-height:8px;text-align:center;color:transparent;}
+QProgressBar::chunk {background:{{color.accent}};border-radius:4px;}

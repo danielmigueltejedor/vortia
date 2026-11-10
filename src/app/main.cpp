@@ -257,8 +257,8 @@ int main(int argc, char* argv[]) {
     if(!nativeBundleIcon)app.setWindowIcon(vortiaIcon);
 
     QSettings settings(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
-    const QString theme = settings.value(QStringLiteral("theme"), QStringLiteral("dark")).toString();
-    vortia::ThemeManager::apply(app, vortia::ThemeManager::fromName(theme));
+    const QString theme = settings.value(QStringLiteral("theme"), QStringLiteral("light")).toString();
+    vortia::ThemeManager::apply(app, vortia::ThemeManager::resolve(theme));
 
     // Explicit preference takes precedence over the system locale. English
     // uses the source strings; Spanish comes from a compiled, bundled .qm.
@@ -286,6 +286,18 @@ int main(int argc, char* argv[]) {
     vortia::MainWindow window;
     if(!nativeBundleIcon)window.setWindowIcon(vortiaIcon);
     window.show();
+
+    // Design review aid: `--screenshot <file.png>` saves the main window as
+    // drawn by Qt (the 3D viewport may be blank) and exits.
+    if (argc > 2 && QString::fromUtf8(argv[1]) == QStringLiteral("--screenshot")) {
+        const QString target = QString::fromUtf8(argv[2]);
+        QTimer::singleShot(2500, &app, [&app, &window, target] {
+            const bool saved = window.grab().save(target, "PNG");
+            if (!saved)
+                qCritical() << "Could not save the screenshot to" << target;
+            app.exit(saved ? 0 : 8);
+        });
+    }
 
     // Release smoke test: the real start-up path (OpenGL context, main window,
     // VTK viewport) on a clean machine, then a clean exit instead of a wait.

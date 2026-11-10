@@ -366,6 +366,7 @@ void MainWindow::buildMenusAndToolbar() {
     workflow->setAllowedAreas(Qt::LeftToolBarArea);
     addToolBar(Qt::LeftToolBarArea, workflow);
     auto* navigator = new QWidget(workflow); navigator->setObjectName("vortia-workflow-navigation");
+    navigator->setAttribute(Qt::WA_StyledBackground, true);
     navigator->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
     auto* navLayout = new QVBoxLayout(navigator); navLayout->setContentsMargins(8,12,8,10);
     navLayout->setSpacing(5);
@@ -781,8 +782,11 @@ void MainWindow::buildDocks() {
     setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowTabbedDocks
                    | QMainWindow::AllowNestedDocks);
     auto* central = new QWidget(this);
+    // Lienzo: the work area is a card floating on the canvas.
+    central->setObjectName(QStringLiteral("vortia-central-card"));
+    central->setAttribute(Qt::WA_StyledBackground, true);
     auto* centralLayout = new QVBoxLayout(central);
-    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->setContentsMargins(1, 1, 1, 1);
     centralLayout->setSpacing(0);
     projectTabs_ = new QTabBar(central);
     projectTabs_->setObjectName(QStringLiteral("vortia-project-tabs"));
@@ -990,7 +994,7 @@ void MainWindow::loadSettings() {
 void MainWindow::saveSettings() {
     settings_->setValue(QStringLiteral("theme"),
                        ThemeManager::toName(ThemeManager::fromName(
-                           settings_->value(QStringLiteral("theme"), QStringLiteral("dark")).toString())));
+                           settings_->value(QStringLiteral("theme"), QStringLiteral("light")).toString())));
     if(preferences_.rememberLayout) {
         settings_->setValue(QStringLiteral("window/geometry"), saveGeometry());
         settings_->setValue(QStringLiteral("window/state"), saveState());
@@ -1000,8 +1004,8 @@ void MainWindow::saveSettings() {
 
 void MainWindow::updateViewport() {
     viewport_->showBoxDomain(useExistingCase_ || !flowConfig_.isEmpty() ? nullptr : &setup_.domain);
-    viewport_->setDarkTheme(ThemeManager::fromName(
-        settings_->value(QStringLiteral("theme"), QStringLiteral("dark")).toString()) ==
+    viewport_->setDarkTheme(ThemeManager::resolve(
+        settings_->value(QStringLiteral("theme"), QStringLiteral("light")).toString()) ==
         ThemeManager::Theme::Dark);
 }
 
@@ -2038,7 +2042,7 @@ void MainWindow::onPreferences() {
 }
 
 void MainWindow::applyPreferences() {
-    ThemeManager::apply(*qApp,ThemeManager::fromName(preferences_.theme));
+    ThemeManager::apply(*qApp,ThemeManager::resolve(preferences_.theme));
     const bool compact=preferences_.density=="compact";
     qApp->setStyleSheet(qApp->styleSheet()+QString("\nQWidget { font-size:%1px; }").arg(13*preferences_.interfaceScale/100));
     if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setFixedHeight((compact?44:50)*preferences_.interfaceScale/100);
@@ -2060,7 +2064,7 @@ void MainWindow::applyPreferences() {
 }
 
 void MainWindow::onToggleTheme() {
-    const QString current = settings_->value(QStringLiteral("theme"), QStringLiteral("dark")).toString();
+    const QString current = settings_->value(QStringLiteral("theme"), QStringLiteral("light")).toString();
     const QString next = current == QStringLiteral("dark") ? QStringLiteral("light")
                                                            : QStringLiteral("dark");
     settings_->setValue(QStringLiteral("theme"), next);
