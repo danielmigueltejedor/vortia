@@ -113,10 +113,12 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
         const bool dark=palette().color(QPalette::Window).lightness()<128;
-        const QColor background=dark?QColor("#141a22"):QColor("#edf0f4");
-        const QColor grid=dark?QColor("#29323f"):QColor("#d8dfe6");
+        // Lienzo: drawing surface from the tokens (color.viewport), a quiet
+        // grid, and the single accent colour of the theme.
+        const QColor background=dark?QColor("#141a22"):QColor("#ffffff");
+        const QColor grid=dark?QColor("#232c38"):QColor("#e7ebf0");
         const QColor ink=palette().color(QPalette::Text);
-        const QColor accent=dark?QColor("#43abb8"):QColor("#177886");
+        const QColor accent=palette().color(QPalette::Highlight);
         p.fillRect(rect(),background);
         if (!sketch_) return;
         ensureCamera();
@@ -520,7 +522,15 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
         control->setDecimals(6);
         control->setSuffix(QStringLiteral(" mm"));
         control->setSingleStep(1.0);
+        // The Fusion size hint reserves room for the widest value of the
+        // range, which squeezed the labels out of the panel on Linux.
+        control->setMinimumWidth(130);
+        control->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
+    // Keep the labels beside the fields on every platform style.
+    form->setRowWrapPolicy(QFormLayout::DontWrapRows);
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+    form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     form->addRow(tr("X coordinate"), x_);
     form->addRow(tr("Y coordinate"), y_);
     tools->addLayout(form);
@@ -715,13 +725,17 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     });
     connect(loadButton, &QPushButton::clicked, this, [this]() { load(); });
     connect(saveButton, &QPushButton::clicked, this, [this]() { save(); });
-    connect(clear, &QPushButton::clicked, this, [this]() {
+    clearAction_ = new QAction(uiIcon(QStringLiteral(":/vortia/icons/delete.svg")), tr("Clear sketch"), this);
+    clearAction_->setObjectName(QStringLiteral("vortia-sketch-clear-action"));
+    connect(clearAction_, &QAction::triggered, this, [this]() {
+        if (readOnly_) return;
         sketch_.clear();
         selectedSegment_ = -1;
         selectedPoint_ = -1;
         emit sketchChanged();
         refresh();
     });
+    connect(clear, &QPushButton::clicked, clearAction_, &QAction::trigger);
     connect(done, &QPushButton::clicked, this,
             [this]() { emit closeRequested(); });
     connect(table_, &QTableWidget::cellClicked, this, [this](int row, int) { setSelectedPoint(row); });
@@ -973,7 +987,9 @@ void SketchEditorDialog::setToolPanelVisible(bool visible) {
 }
 
 void SketchEditorDialog::setEmbedded(bool embedded) {
-    for(const auto* name:{"vortia-sketch-intro","vortia-sketch-load","vortia-sketch-save","vortia-sketch-dismiss","vortia-sketch-export","vortia-sketch-export-wedge"})
+    // Embedded in the main window, editing commands live in its tool row.
+    for(const auto* name:{"vortia-sketch-intro","vortia-sketch-load","vortia-sketch-save","vortia-sketch-dismiss","vortia-sketch-export","vortia-sketch-export-wedge",
+                          "vortia-sketch-clear","vortia-sketch-undo","vortia-sketch-redo","vortia-sketch-copy","vortia-sketch-paste","vortia-sketch-delete"})
         if(auto* widget=findChild<QWidget*>(name))widget->setVisible(!embedded);
 }
 

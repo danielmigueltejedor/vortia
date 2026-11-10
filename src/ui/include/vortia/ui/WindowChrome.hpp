@@ -2,7 +2,10 @@
 
 #include <QList>
 #include <QObject>
+#include <QPoint>
 #include <QString>
+
+#include <optional>
 
 class QBoxLayout;
 class QMainWindow;
@@ -68,6 +71,7 @@ private:
     QList<QWidget*> dragAreas_;
     QList<QWidget*> resizeHandles_;
     QList<QToolButton*> maximizeButtons_;
+    std::optional<QPoint> dragOrigin_; ///< Press position of a possible window drag.
 };
 
 } // namespace vortia::lienzo

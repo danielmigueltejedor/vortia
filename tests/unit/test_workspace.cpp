@@ -1004,8 +1004,14 @@ TEST(Workspace, ContextualStagesHaveNoNumbersOrRedundantLaunchers) {
     MainWindow window;auto* stages=window.findChild<QButtonGroup*>("vortia-workflow-stages");ASSERT_NE(stages,nullptr);
     auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);
     for(auto* button:stages->buttons())EXPECT_EQ(button->text(),button->property("stageTitle").toString());
-    EXPECT_TRUE(ribbon->widget(1)->findChildren<QToolButton*>("vortia-ribbon-button").isEmpty());
-    EXPECT_TRUE(ribbon->widget(3)->findChildren<QToolButton*>("vortia-ribbon-button").isEmpty());
+    // Since 0.4.0 every stage has its own tool row: Geometry edits the sketch,
+    // Physics jumps between its two sections.
+    QStringList geometryTools;
+    for(auto* button:ribbon->widget(1)->findChildren<QToolButton*>("vortia-ribbon-button"))geometryTools<<button->defaultAction()->objectName();
+    for(const char* name:{"vortia-sketch-undo-action","vortia-sketch-redo-action","vortia-sketch-copy-action","vortia-sketch-paste-action",
+                          "vortia-sketch-delete-action","vortia-geometry-sketch-files","vortia-sketch-clear-action"})
+        EXPECT_TRUE(geometryTools.contains(name))<<name;
+    EXPECT_EQ(ribbon->widget(3)->findChildren<QToolButton*>("vortia-ribbon-button").size(),2);
     const auto meshTools=ribbon->widget(2)->findChildren<QToolButton*>("vortia-ribbon-button");
     ASSERT_EQ(meshTools.size(),1);EXPECT_EQ(meshTools.front()->defaultAction()->objectName(),"vortia-generate-flow-mesh");
     stages->button(2)->click();EXPECT_NE(window.findChild<QDoubleSpinBox*>("workspace-mesh-sizeMm"),nullptr);
@@ -1014,8 +1020,33 @@ TEST(Workspace, ContextualStagesHaveNoNumbersOrRedundantLaunchers) {
     auto* physics=WorkspaceTestAccess::physics(window);ASSERT_NE(physics,nullptr);
     EXPECT_EQ(QApplication::activeModalWidget(),nullptr);
     auto* sections=physics->findChild<QTabBar*>("flow-physics-sections");ASSERT_NE(sections,nullptr);EXPECT_EQ(sections->count(),2);
-    EXPECT_TRUE(ribbon->isHidden()||window.findChild<QToolBar*>("vortia-main-toolbar")->isHidden());
+    EXPECT_FALSE(ribbon->isHidden());
+    EXPECT_FALSE(window.findChild<QToolBar*>("vortia-main-toolbar")->isHidden());
     settings.remove("ui/showStageNumbers");
+}
+
+// Reported for 0.3.0: Geometry and Physics had no tool row, so switching to
+// them made the navigation and the work area jump up, and back down again.
+TEST(Workspace, ToolRowKeepsOneHeightSoNothingMovesBetweenStages) {
+    MainWindow window;window.resize(1280,800);window.show();QApplication::processEvents();
+    auto* stages=window.findChild<QButtonGroup*>("vortia-workflow-stages");ASSERT_NE(stages,nullptr);
+    auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);
+    auto* toolbar=window.findChild<QToolBar*>("vortia-main-toolbar");ASSERT_NE(toolbar,nullptr);
+    auto* navigation=window.findChild<QWidget*>("vortia-workflow-navigation");ASSERT_NE(navigation,nullptr);
+    int toolbarHeight=-1,navigationTop=-1;
+    for(int stage=0;stage<stages->buttons().size();++stage) {
+        stages->button(stage)->click();QApplication::processEvents();
+        EXPECT_TRUE(ribbon->isVisible())<<"stage "<<stage;
+        EXPECT_FALSE(ribbon->widget(stage)->findChildren<QToolButton*>("vortia-ribbon-button").isEmpty())<<"stage "<<stage;
+        const int top=navigation->mapTo(&window,QPoint(0,0)).y();
+        if(stage==0){toolbarHeight=toolbar->height();navigationTop=top;}
+        EXPECT_EQ(toolbar->height(),toolbarHeight)<<"stage "<<stage;
+        EXPECT_EQ(top,navigationTop)<<"stage "<<stage;
+    }
+    // The embedded editor no longer duplicates what the tool row offers.
+    for(const char* name:{"vortia-sketch-clear","vortia-sketch-undo","vortia-sketch-delete"}) {
+        auto* duplicate=window.findChild<QWidget*>(name);ASSERT_NE(duplicate,nullptr)<<name;EXPECT_TRUE(duplicate->isHidden())<<name;
+    }
 }
 
 TEST(WorkspaceFlow, EmbeddedPhysicsAndCalculationPreserveOtherSectionsAndProjects) {

@@ -1,9 +1,9 @@
 # Limitaciones conocidas
 
-Actualizado: 2026-11-10 (0.3.0). Resumen por áreas en
+Actualizado: 2026-11-10 (0.4.0). Resumen por áreas en
 [`CAPABILITY_MATRIX.md`](CAPABILITY_MATRIX.md).
 
-## Instaladores 0.3.0
+## Instaladores
 
 - **macOS:** solo Apple Silicon (arm64), macOS 14 o posterior. Firma ad-hoc,
   sin notarización de Apple: la primera vez Gatekeeper avisa y hay que abrir
@@ -17,12 +17,15 @@ Actualizado: 2026-11-10 (0.3.0). Resumen por áreas en
   (`fusermount`), presente en los escritorios habituales; sin FUSE se puede
   ejecutar con `--appimage-extract-and-run`. El backend gráfico probado es
   X11/XWayland; el plugin Wayland nativo se incluye como reserva sin probar.
+  Desde 0.4.0 la ventana no usa la barra de título del sistema: los controles
+  van en la barra de la aplicación (probado con X11; `VORTIA_NATIVE_TITLEBAR=1`
+  recupera la barra del sistema). Ver [`LIENZO.md`](LIENZO.md).
 - **Motor integrado:** OpenFOAM v2606 en macOS y v2412 en Linux, con MPI y
   mallador (Python + Gmsh). No hace falta instalar OpenFOAM. `vortia
   --verify-engine` ejecuta un caso real en serie y con 2 procesos.
 - **Flujo compresible experimental (toberas):** su solver se compila en el
   equipo la primera vez. En macOS requiere las Xcode Command Line Tools. En la
-  AppImage de Linux **no está disponible** en 0.3.0: exige OpenFOAM v2606 y un
+  AppImage de Linux **no está disponible**: exige OpenFOAM v2606 y un
   compilador, y el motor integrado es v2412 sin cabeceras de desarrollo.
 - OpenFOAM no admite espacios en su ruta; Vortia lo resuelve con un enlace
   sin espacios en la caché del usuario cuando hace falta.

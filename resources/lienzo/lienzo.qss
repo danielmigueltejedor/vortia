@@ -30,7 +30,8 @@ QTabBar::tab:selected {background:{{color.accentSoft}};color:{{color.accentInk}}
 QTabBar::tab:hover:!selected {background:{{color.hover}};}
 QToolButton#vortia-ribbon-button {padding:5px 8px;}
 QLabel#vortia-ribbon-group {color:{{color.inkMuted}};font-size:{{font.small}}px;}
-QFrame#vortia-ribbon-separator {background:{{color.border}};max-width:1px;}
+QFrame#vortia-ribbon-separator {background:{{color.border}};border:0;min-width:1px;max-width:1px;margin:9px 6px;}
+QTabWidget#vortia-ribbon QScrollArea,QTabWidget#vortia-ribbon QScrollArea > QWidget,QTabWidget#vortia-ribbon QScrollArea > QWidget > QWidget {background:transparent;}
 
 /* Navigation card. */
 QToolBar#vortia-workflow-toolbar {background:{{color.canvas}};border:0;padding:0 0 {{space.sm}}px {{space.sm}}px;}

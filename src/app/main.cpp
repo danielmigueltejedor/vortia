@@ -18,6 +18,7 @@
 #include <QTranslator>
 #include <QDebug>
 #include <QCoreApplication>
+#include <QAbstractButton>
 #include <QMessageBox>
 #include <QOffscreenSurface>
 #include <QProcess>
@@ -211,7 +212,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("Vortia"));
 #ifndef VORTIA_VERSION
-#define VORTIA_VERSION "0.3.0"
+#define VORTIA_VERSION "0.4.0"
 #endif
     app.setApplicationVersion(QStringLiteral(VORTIA_VERSION));
     app.setOrganizationName(QStringLiteral("Vortia"));
@@ -291,6 +292,15 @@ int main(int argc, char* argv[]) {
     // drawn by Qt (the 3D viewport may be blank) and exits.
     if (argc > 2 && QString::fromUtf8(argv[1]) == QStringLiteral("--screenshot")) {
         const QString target = QString::fromUtf8(argv[2]);
+        // VORTIA_SCREENSHOT_STAGE=0..5 selects the workflow stage to capture.
+        if (qEnvironmentVariableIsSet("VORTIA_SCREENSHOT_STAGE")) {
+            QTimer::singleShot(1200, &app, [&window] {
+                const QString name = QStringLiteral("vortia-workflow-stage-")
+                    + QString::number(qEnvironmentVariableIntValue("VORTIA_SCREENSHOT_STAGE"));
+                if (auto* stage = window.findChild<QAbstractButton*>(name))
+                    stage->click();
+            });
+        }
         QTimer::singleShot(2500, &app, [&app, &window, target] {
             const bool saved = window.grab().save(target, "PNG");
             if (!saved)

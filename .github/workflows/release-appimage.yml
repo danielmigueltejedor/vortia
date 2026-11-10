@@ -2,6 +2,11 @@ name: Release packages
 
 # Builds the Linux AppImage and the macOS DMG, starts both on clean machines
 # and only then attaches them to a GitHub Release.
+#
+# Release procedure: create a DRAFT release vX.Y.Z on main, run this workflow
+# with tag=vX.Y.Z, check the attached files, then publish the draft. There is
+# deliberately no "release: published" trigger: it rebuilt and replaced the
+# files that had just been verified.
 
 on:
   push:
@@ -27,14 +32,12 @@ on:
         description: "Existing release tag (draft or published) to attach the packages to, e.g. v0.3.0. Leave empty to only upload workflow artifacts."
         required: false
         default: ""
-  release:
-    types: [published]
 
 permissions:
   contents: read
 
 concurrency:
-  group: packages-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  group: packages-${{ inputs.tag || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -50,7 +53,7 @@ jobs:
       - name: Resolve version
         id: ver
         env:
-          TAG: ${{ github.event.release.tag_name || inputs.tag || '' }}
+          TAG: ${{ inputs.tag || '' }}
         run: |
           project="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*$/\1/p' CMakeLists.txt | head -n1)"
           test -n "$project"
@@ -309,12 +312,14 @@ jobs:
         run: |
           echo 'Acquire::Retries "8"; Acquire::http::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-vortia-retries
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb xauth libgl1 libegl1 libgl1-mesa-dri libglx-mesa0
+          sudo apt-get install -y --no-install-recommends xvfb xauth libgl1 libegl1 libgl1-mesa-dri libglx-mesa0 openbox xdotool x11-utils
       - name: Start the AppImage directly
         env:
           VORTIA_EXPECT_ENGINE: "1"
           VORTIA_SCREENSHOT_DIR: ${{ github.workspace }}/screenshots
         run: bash packaging/linux/smoke_test_appimage.sh "dist/${{ needs.version.outputs.appimage }}" --fuse
+      - name: Move, resize, maximize and close through the integrated top bar
+        run: bash packaging/linux/window_chrome_test.sh "dist/${{ needs.version.outputs.appimage }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

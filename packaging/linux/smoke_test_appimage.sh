@@ -179,6 +179,10 @@ if [[ -n "${VORTIA_SCREENSHOT_DIR:-}" ]] && ((modern)); then
       "${xvfb[@]}" "$app/AppRun" --screenshot "$shot" >/dev/null 2>&1 || bad "--screenshot ($theme) rc=$?"
     [[ -s "$shot" ]] && echo "saved $(basename "$shot") ($(stat -c %s "$shot") bytes)" || bad "no screenshot for $theme"
   done
+  # The Project stage too: its tool row must sit exactly where Geometry's does.
+  shot="$VORTIA_SCREENSHOT_DIR/vortia-$(. /etc/os-release && echo "$ID-$VERSION_ID")-light-project.png"
+  "${clean_env[@]}" VORTIA_THEME=light VORTIA_SCREENSHOT_STAGE=0 timeout --kill-after=10 60 \
+    "${xvfb[@]}" "$app/AppRun" --screenshot "$shot" >/dev/null 2>&1 || bad "--screenshot (project stage) rc=$?"
 fi
 
 if [[ -d "$app/usr/Resources/gmsh" ]]; then

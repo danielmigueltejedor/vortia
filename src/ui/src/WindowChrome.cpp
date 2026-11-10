@@ -1,5 +1,6 @@
 #include "vortia/ui/WindowChrome.hpp"
 
+#include <QApplication>
 #include <QBoxLayout>
 #include <QDir>
 #include <QEvent>
@@ -303,28 +304,52 @@ bool WindowChrome::eventFilter(QObject* watched, QEvent* event) {
         return false;
     }
 
-    if (dragAreas_.contains(widget)
-        && (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonDblClick)) {
+    if (!dragAreas_.contains(widget))
+        return false;
+    switch (event->type()) {
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonDblClick: {
         auto* mouse = static_cast<QMouseEvent*>(event);
         if (mouse->button() != Qt::LeftButton)
             return false;
-        // Only the empty part of the bar moves the window: a tab or a button
-        // under the pointer keeps its own behaviour.
+        // Only the empty part of the bar belongs to the window: a tab or a
+        // button under the pointer keeps its own behaviour.
         if (auto* tabs = qobject_cast<QTabBar*>(widget); tabs && tabs->tabAt(mouse->position().toPoint()) >= 0)
             return false;
         if (QWidget* child = widget->childAt(mouse->position().toPoint());
-            child && !dragAreas_.contains(child) && child->objectName() != QStringLiteral("lienzo-drag-space"))
+            child && !dragAreas_.contains(child))
             return false;
         if (event->type() == QEvent::MouseButtonDblClick) {
+            dragOrigin_.reset();
             window_->isMaximized() ? window_->showNormal() : window_->showMaximized();
-            return true;
+        } else {
+            // The move starts once the pointer actually travels. Starting it
+            // on the press hands the pointer to the window manager and the
+            // second click of a double click never arrives.
+            dragOrigin_ = mouse->globalPosition().toPoint();
         }
-        if (QWindow* handle = window_->windowHandle()) {
-            handle->startSystemMove();
-            return true;
-        }
+        return true;
     }
-    return false;
+    case QEvent::MouseMove: {
+        auto* mouse = static_cast<QMouseEvent*>(event);
+        if (!dragOrigin_ || !(mouse->buttons() & Qt::LeftButton))
+            return false;
+        if ((mouse->globalPosition().toPoint() - *dragOrigin_).manhattanLength() < QApplication::startDragDistance())
+            return true;
+        dragOrigin_.reset();
+        if (QWindow* handle = window_->windowHandle())
+            handle->startSystemMove();
+        return true;
+    }
+    case QEvent::MouseButtonRelease:
+        if (dragOrigin_) {
+            dragOrigin_.reset();
+            return true;
+        }
+        return false;
+    default:
+        return false;
+    }
 }
 
 } // namespace vortia::lienzo
