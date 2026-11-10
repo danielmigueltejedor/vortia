@@ -99,6 +99,54 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  native-verification:
+    # Numerical verification with the very engine that ships in the AppImage:
+    # Poiseuille and the Ghia cavity are solved and compared with their
+    # references. A skipped benchmark is a failure here.
+    needs: linux-openfoam-engine
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-openfoam-engine
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ libgtest-dev nlohmann-json3-dev libhdf5-dev
+          mkdir engine && tar -C engine -xf openfoam-engine.tar && rm openfoam-engine.tar
+      - name: Build (no UI)
+        run: |
+          cmake -S . -B build -G Ninja -DVORTIA_BUILD_UI=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Solve and compare with the packaged engine
+        shell: bash
+        run: |
+          set -o pipefail
+          root="$(echo "$PWD"/engine/OpenFOAM-v*)"
+          set +u
+          source "$root/etc/bashrc"
+          source "$root/etc/vortia-runtime.sh"
+          set -u
+          command -v simpleFoam blockMesh mpirun
+          export VORTIA_NATIVE_OF_ROOT="$root"
+          ctest --test-dir build --output-on-failure \
+            -R 'benchmark_|EngineSelfTest|NativeInstalledEnvironmentSmoke' | tee native-verification.log
+          if grep -E 'Skipped|Not Run' native-verification.log; then
+            echo "A native verification test did not run" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-verification
+          path: |
+            native-verification.log
+            build/benchmark-native/**/log.*
+            build/benchmark-native/**/postProcessing/**
+            build/benchmark-native/**/*.csv
+          retention-days: 30
+
   linux-appimage:
     needs: [version, linux-openfoam-engine]
     runs-on: ubuntu-24.04
@@ -393,7 +441,7 @@ jobs:
 
   attach-to-release:
     # Nothing reaches a release unless every start-up test above passed.
-    needs: [version, linux-clean-distros, linux-direct-run, macos-clean-machines]
+    needs: [version, native-verification, linux-clean-distros, linux-direct-run, macos-clean-machines]
     if: needs.version.outputs.tag != ''
     runs-on: ubuntu-24.04
     permissions:
