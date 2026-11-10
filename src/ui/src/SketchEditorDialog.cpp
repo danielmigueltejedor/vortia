@@ -112,11 +112,9 @@ protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
-        const bool dark=palette().color(QPalette::Window).lightness()<128;
-        // Lienzo: drawing surface from the tokens (color.viewport), a quiet
-        // grid, and the single accent colour of the theme.
-        const QColor background=dark?QColor("#141a22"):QColor("#ffffff");
-        const QColor grid=dark?QColor("#232c38"):QColor("#e7ebf0");
+        // Drawing surface, quiet grid and accent all come from the theme palette.
+        const QColor background=palette().color(QPalette::Base);
+        const QColor grid=palette().color(QPalette::Midlight);
         const QColor ink=palette().color(QPalette::Text);
         const QColor accent=palette().color(QPalette::Highlight);
         p.fillRect(rect(),background);

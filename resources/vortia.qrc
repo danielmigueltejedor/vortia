@@ -7,9 +7,10 @@
   <qresource prefix="/vortia">
     <file alias="app-icon.png">icons/vortia.png</file>
   </qresource>
-  <qresource prefix="/lienzo">
-    <file alias="tokens.json">lienzo/tokens.json</file>
-    <file alias="lienzo.qss">lienzo/lienzo.qss</file>
+  <qresource prefix="/ndl">
+    <file alias="nodalia-qt.json">ndl/nodalia-qt.json</file>
+    <file alias="nodalia.qss">ndl/nodalia.qss</file>
+    <file alias="vortia.qss">ndl/vortia.qss</file>
   </qresource>
   <qresource prefix="/vortia/openfoam">
     <file alias="solver/vortiaCentralFoam.C">../examples/nozzle-video-2026/solver/vortiaCentralFoam.C</file>

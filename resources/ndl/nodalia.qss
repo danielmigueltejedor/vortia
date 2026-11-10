@@ -1,0 +1,121 @@
+/* Nodalia Design Language for Qt Widgets: style-sheet template.
+   Placeholders in double braces (group.name) are filled from nodalia-qt.json for the active mode and density.
+   Use it with the Fusion style and the QPalette described in docs/integration/qt-widgets.md.
+   Only standard widget classes are styled here; an app adds its own sheet for its object names.
+   Arrow images are not set: NDL ships no icons, so the app points ::down-arrow and friends at its own. */
+
+QWidget {font-size:{{font.body}}px;}
+QMainWindow,QDialog {background:{{color.surfaceWindow}};color:{{color.textPrimary}};}
+QMainWindow::separator {background:{{color.borderSubtle}};width:{{border.thin}}px;height:{{border.thin}}px;}
+QLabel {color:{{color.textPrimary}};}
+QLabel:disabled {color:{{color.textDisabled}};}
+
+/* Buttons: a filled control; the default action takes the accent. */
+QPushButton {background:{{color.controlBg}};color:{{color.textPrimary}};border:{{component.buttonBorderWidth}}px solid {{color.borderDefault}};border-radius:{{component.buttonRadius}}px;min-height:{{density.controlHeight}}px;padding:0 {{density.controlPaddingX}}px;font-weight:{{weight.medium}};}
+QPushButton:hover {background:{{color.controlBgHover}};}
+QPushButton:pressed {background:{{color.controlBgPressed}};}
+QPushButton:checked {background:{{color.accentSubtle}};color:{{color.accentText}};border-color:{{color.accentText}};}
+QPushButton:focus {border:{{border.thick}}px solid {{color.borderFocus}};}
+QPushButton:default,QPushButton[ndlVariant="primary"] {background:{{color.accentDefault}};color:{{color.textOnAccent}};border-color:{{color.accentDefault}};}
+QPushButton:default:hover,QPushButton[ndlVariant="primary"]:hover {background:{{color.accentHover}};border-color:{{color.accentHover}};}
+QPushButton:default:pressed,QPushButton[ndlVariant="primary"]:pressed {background:{{color.accentPressed}};border-color:{{color.accentPressed}};}
+QPushButton[ndlVariant="subtle"] {background:transparent;border-color:transparent;}
+QPushButton[ndlVariant="subtle"]:hover {background:{{color.controlBgHover}};}
+QPushButton[ndlVariant="danger"] {background:{{color.statusDangerFg}};color:{{color.textOnAccent}};border-color:{{color.statusDangerFg}};}
+QPushButton:disabled {background:{{color.controlBgDisabled}};color:{{color.textDisabled}};border-color:{{color.borderSubtle}};}
+
+/* Tool buttons: quiet until hovered. */
+QToolButton {background:transparent;color:{{color.textPrimary}};border:{{border.thin}}px solid transparent;border-radius:{{radius.md}}px;padding:{{space.xs}}px {{space.sm}}px;}
+QToolButton:hover {background:{{color.controlBgHover}};}
+QToolButton:pressed {background:{{color.controlBgPressed}};}
+QToolButton:checked {background:{{color.accentSubtle}};color:{{color.accentText}};border-color:{{color.accentText}};}
+QToolButton:focus {border-color:{{color.borderFocus}};}
+QToolButton:disabled {color:{{color.textDisabled}};}
+
+/* Fields. */
+QLineEdit,QSpinBox,QDoubleSpinBox,QComboBox,QDateEdit,QTimeEdit {background:{{color.controlFieldBg}};color:{{color.textPrimary}};border:{{component.fieldBorderWidth}}px solid {{color.borderStrong}};border-radius:{{component.fieldRadius}}px;min-height:{{density.controlHeight}}px;padding:0 {{density.controlPaddingX}}px;selection-background-color:{{color.accentDefault}};selection-color:{{color.textOnAccent}};}
+QLineEdit:hover,QSpinBox:hover,QDoubleSpinBox:hover,QComboBox:hover {border-color:{{color.textPrimary}};}
+QLineEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus,QComboBox:focus {border:{{border.thick}}px solid {{color.borderFocus}};}
+QLineEdit:disabled,QAbstractSpinBox:disabled,QComboBox:disabled {background:{{color.controlBgDisabled}};color:{{color.textDisabled}};border-color:{{color.borderSubtle}};}
+/* The line edit inside a spin box or an editable combo box is part of that field, not a field of its own. */
+QAbstractSpinBox QLineEdit,QComboBox QLineEdit {background:transparent;border:0;min-height:0;padding:0;}
+QComboBox {combobox-popup:0;}
+QComboBox::drop-down {subcontrol-origin:padding;subcontrol-position:center right;width:{{size.targetMin}}px;border:0;}
+QComboBox QAbstractItemView {background:{{color.surfaceOverlay}};color:{{color.textPrimary}};border:{{border.thin}}px solid {{color.borderDefault}};border-radius:{{radius.md}}px;padding:{{space.xs}}px;outline:0;selection-background-color:{{color.selectionBg}};selection-color:{{color.textPrimary}};}
+QComboBox QAbstractItemView::item {min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;border-radius:{{radius.sm}}px;}
+QAbstractSpinBox::up-button,QAbstractSpinBox::down-button {width:{{size.iconLarge}}px;border:0;background:transparent;}
+QAbstractSpinBox::up-button {subcontrol-origin:border;subcontrol-position:top right;}
+QAbstractSpinBox::down-button {subcontrol-origin:border;subcontrol-position:bottom right;}
+QAbstractSpinBox::up-button:hover,QAbstractSpinBox::down-button:hover {background:{{color.controlBgHover}};}
+QPlainTextEdit,QTextEdit {background:{{color.controlFieldBg}};color:{{color.textPrimary}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{radius.md}}px;selection-background-color:{{color.accentDefault}};selection-color:{{color.textOnAccent}};}
+
+/* Check boxes and radio buttons. The box is always visible; the app adds its own check mark image
+   to ::indicator:checked so that colour is not the only sign of the state. */
+QCheckBox,QRadioButton {color:{{color.textPrimary}};spacing:{{space.sm}}px;}
+QCheckBox:disabled,QRadioButton:disabled {color:{{color.textDisabled}};}
+QCheckBox::indicator,QRadioButton::indicator {width:{{size.iconMedium}}px;height:{{size.iconMedium}}px;background:{{color.controlFieldBg}};border:{{border.thin}}px solid {{color.borderStrong}};}
+QCheckBox::indicator {border-radius:{{radius.sm}}px;}
+QRadioButton::indicator {border-radius:{{space.sm}}px;}
+QCheckBox::indicator:hover,QRadioButton::indicator:hover {border-color:{{color.textPrimary}};}
+QCheckBox::indicator:checked {background:{{color.accentDefault}};border-color:{{color.accentDefault}};}
+QRadioButton::indicator:checked {background:{{color.textOnAccent}};border:{{space.xs}}px solid {{color.accentDefault}};}
+QCheckBox::indicator:disabled,QRadioButton::indicator:disabled {background:{{color.controlBgDisabled}};border-color:{{color.borderSubtle}};}
+
+/* Tabs: underlined, never boxed. */
+QTabWidget::pane {border:0;border-top:{{border.thin}}px solid {{color.borderSubtle}};background:{{color.surfacePanel}};}
+QTabBar {qproperty-drawBase:0;background:transparent;}
+QTabBar::tab {background:transparent;color:{{color.textSecondary}};border:0;border-bottom:{{border.thick}}px solid transparent;min-height:{{density.controlHeight}}px;padding:0 {{density.controlPaddingX}}px;font-weight:{{weight.medium}};}
+QTabBar::tab:hover {color:{{color.textPrimary}};}
+QTabBar::tab:selected {color:{{color.accentText}};border-bottom-color:{{color.accentDefault}};}
+QTabBar::tab:disabled {color:{{color.textDisabled}};}
+
+/* Lists, trees and tables: flush rows; selection is a tint, not a block of accent. */
+QListView,QTreeView,QTableView {background:{{color.surfacePanel}};alternate-background-color:{{color.surfaceSunken}};color:{{color.textPrimary}};border:{{border.thin}}px solid {{color.borderSubtle}};outline:0;gridline-color:{{color.borderSubtle}};selection-background-color:{{color.selectionBg}};selection-color:{{color.textPrimary}};}
+QListView::item,QTreeView::item {min-height:{{density.rowHeight}}px;padding:0 {{space.sm}}px;}
+QListView::item:hover,QTreeView::item:hover {background:{{color.controlBg}};}
+QListView::item:selected,QTreeView::item:selected {background:{{color.selectionBg}};color:{{color.textPrimary}};}
+QListView::item:selected:!active,QTreeView::item:selected:!active {background:{{color.selectionBgInactive}};}
+QHeaderView::section {background:{{color.surfacePanel}};color:{{color.textSecondary}};border:0;border-bottom:{{border.thin}}px solid {{color.borderDefault}};min-height:{{density.rowHeight}}px;padding:0 {{density.panelPadding}}px;font-weight:{{weight.medium}};}
+QTableCornerButton::section {background:{{color.surfacePanel}};border:0;border-bottom:{{border.thin}}px solid {{color.borderDefault}};}
+
+/* Groups and panels. */
+QGroupBox {background:transparent;border:0;border-top:{{border.thin}}px solid {{color.borderSubtle}};margin-top:{{space.lg}}px;padding:{{density.panelPadding}}px 0 0 0;font-weight:{{weight.medium}};}
+QGroupBox::title {subcontrol-origin:margin;subcontrol-position:top left;padding:0 {{space.xs}}px 0 0;color:{{color.textSecondary}};}
+QDockWidget {color:{{color.textSecondary}};font-weight:{{weight.medium}};}
+QDockWidget::title {background:{{color.surfacePanel}};text-align:left;padding:{{space.sm}}px {{density.panelPadding}}px;border-bottom:{{border.thin}}px solid {{color.borderSubtle}};}
+QSplitter::handle {background:{{color.borderSubtle}};}
+QSplitter::handle:horizontal {width:{{border.thin}}px;}
+QSplitter::handle:vertical {height:{{border.thin}}px;}
+
+/* Bars. */
+QToolBar {background:{{color.surfacePanel}};border:0;border-bottom:{{border.thin}}px solid {{color.borderSubtle}};spacing:{{space.xs}}px;padding:{{space.xs}}px;}
+QToolBar::separator {background:{{color.borderSubtle}};width:{{border.thin}}px;margin:{{space.xs}}px;}
+QMenuBar {background:{{color.surfacePanel}};color:{{color.textPrimary}};}
+QMenuBar::item {background:transparent;padding:{{space.xs}}px {{space.sm}}px;border-radius:{{radius.sm}}px;}
+QMenuBar::item:selected {background:{{color.controlBgHover}};}
+QStatusBar {background:{{color.surfacePanel}};color:{{color.textSecondary}};border-top:{{border.thin}}px solid {{color.borderSubtle}};font-size:{{font.small}}px;}
+QStatusBar::item {border:0;}
+
+/* Menus and tooltips. */
+QMenu {background:{{color.surfaceOverlay}};color:{{color.textPrimary}};border:{{border.thin}}px solid {{color.borderDefault}};border-radius:{{radius.lg}}px;padding:{{space.xs}}px;}
+QMenu::item {padding:{{space.xs}}px {{space.xl}}px;border-radius:{{radius.sm}}px;}
+QMenu::item:selected {background:{{color.controlBgHover}};}
+QMenu::item:disabled {color:{{color.textDisabled}};}
+QMenu::separator {height:{{border.thin}}px;background:{{color.borderSubtle}};margin:{{space.xs}}px 0;}
+QToolTip {background:{{color.surfaceInverse}};color:{{color.textInverse}};border:0;border-radius:{{radius.sm}}px;padding:{{space.xs}}px {{space.sm}}px;font-size:{{font.small}}px;}
+
+/* Scroll bars, sliders and progress. */
+QScrollBar {background:transparent;border:0;}
+QScrollBar:vertical {width:{{size.scrollbar}}px;margin:0;}
+QScrollBar:horizontal {height:{{size.scrollbar}}px;margin:0;}
+QScrollBar::handle {background:{{color.controlTrack}};border-radius:{{radius.sm}}px;margin:{{space.xxs}}px;}
+QScrollBar::handle:vertical {min-height:{{size.targetMin}}px;}
+QScrollBar::handle:horizontal {min-width:{{size.targetMin}}px;}
+QScrollBar::handle:hover {background:{{color.borderStrong}};}
+QScrollBar::add-line,QScrollBar::sub-line {width:0;height:0;border:0;background:none;}
+QScrollBar::add-page,QScrollBar::sub-page {background:none;}
+QSlider::groove:horizontal {height:{{component.sliderTrackHeight}}px;background:{{color.controlTrack}};border-radius:{{space.xxs}}px;}
+QSlider::sub-page:horizontal {background:{{color.accentDefault}};border-radius:{{space.xxs}}px;}
+QSlider::handle:horizontal {width:{{component.sliderThumb}}px;margin:-6px 0;background:{{color.accentDefault}};border:{{border.thick}}px solid {{color.surfacePanel}};border-radius:{{space.sm}}px;}
+QProgressBar {background:{{color.controlBg}};border:0;border-radius:{{space.xxs}}px;min-height:{{component.progressHeight}}px;max-height:{{component.progressHeight}}px;color:transparent;}
+QProgressBar::chunk {background:{{color.accentDefault}};border-radius:{{space.xxs}}px;}

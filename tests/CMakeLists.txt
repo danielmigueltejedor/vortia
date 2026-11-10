@@ -88,13 +88,6 @@ set_tests_properties(benchmark_turbulent_plate_openfoam PROPERTIES
     SKIP_RETURN_CODE 2
     TIMEOUT 2400)
 
-# The exported CSS variables must match the design tokens.
-find_package(Python3 COMPONENTS Interpreter)
-if(Python3_FOUND)
-    add_test(NAME lienzo_css_up_to_date
-        COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/lienzo_export.py" --check)
-endif()
-
 add_test(NAME benchmark_write_turbulent_plate_smoke
     COMMAND $<TARGET_FILE:benchmark_write_case> turbulent-plate
             "${CMAKE_BINARY_DIR}/benchmark-smoke/turbulent-plate")
@@ -147,7 +140,7 @@ endif()
 if(TARGET vortia)
     add_test(NAME vortia_spanish_catalog
              COMMAND $<TARGET_FILE:vortia> --verify-spanish)
-    add_executable(test_workspace unit/test_workspace.cpp unit/test_engineering.cpp unit/test_run_diagnostics.cpp unit/test_lienzo.cpp
+    add_executable(test_workspace unit/test_workspace.cpp unit/test_engineering.cpp unit/test_run_diagnostics.cpp unit/test_ndl.cpp
         "${PROJECT_SOURCE_DIR}/resources/vortia.qrc")
     set_target_properties(test_workspace PROPERTIES AUTORCC ON)
     target_link_libraries(test_workspace PRIVATE vortia::ui GTest::gtest vortia_warnings)

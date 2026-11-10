@@ -13,7 +13,7 @@
 #include <QToolButton>
 #include <QWindow>
 
-namespace vortia::lienzo {
+namespace vortia::ndl {
 
 namespace {
 
@@ -24,7 +24,7 @@ constexpr int kResizeMargin = 6;
 class GlyphButton final : public QToolButton {
 public:
     GlyphButton(WindowButton kind, QWidget* parent) : QToolButton(parent), kind_(kind) {
-        setObjectName(QStringLiteral("lienzo-window-button"));
+        setObjectName(QStringLiteral("ndl-window-button"));
         setFocusPolicy(Qt::NoFocus);
         setCursor(Qt::ArrowCursor);
         setProperty("role", kind == WindowButton::Close ? QStringLiteral("close")
@@ -230,7 +230,7 @@ WindowChrome::WindowChrome(QMainWindow* window, QWidget* header, QBoxLayout* hea
                                Qt::BottomEdge | Qt::LeftEdge, Qt::BottomEdge | Qt::RightEdge};
     for (const Qt::Edges edge : edges) {
         auto* handle = new QWidget(window_);
-        handle->setObjectName(QStringLiteral("lienzo-resize-handle"));
+        handle->setObjectName(QStringLiteral("ndl-resize-handle"));
         handle->setProperty("edges", static_cast<int>(edge.toInt()));
         const bool horizontal = edge == Qt::Edges(Qt::LeftEdge) || edge == Qt::Edges(Qt::RightEdge);
         const bool vertical = edge == Qt::Edges(Qt::TopEdge) || edge == Qt::Edges(Qt::BottomEdge);
@@ -352,4 +352,4 @@ bool WindowChrome::eventFilter(QObject* watched, QEvent* event) {
     }
 }
 
-} // namespace vortia::lienzo
+} // namespace vortia::ndl

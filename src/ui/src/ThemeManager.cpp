@@ -1,17 +1,22 @@
 #include "vortia/ui/ThemeManager.hpp"
 
+#include <QAbstractSpinBox>
 #include <QApplication>
+#include <QEvent>
+#include <QLineEdit>
 #include <QColor>
+#include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QPalette>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QStyleFactory>
 
 namespace vortia {
 
-namespace lienzo {
+namespace ndl {
 
 namespace {
 
@@ -23,20 +28,24 @@ QByteArray readResource(const QString& path) {
 } // namespace
 
 QJsonObject bundledTokens() {
-    return QJsonDocument::fromJson(readResource(QStringLiteral(":/lienzo/tokens.json"))).object();
+    return QJsonDocument::fromJson(readResource(QStringLiteral(":/ndl/nodalia-qt.json"))).object();
 }
 
 QString bundledStyleSheetTemplate() {
-    return QString::fromUtf8(readResource(QStringLiteral(":/lienzo/lienzo.qss")));
+    return QString::fromUtf8(readResource(QStringLiteral(":/ndl/nodalia.qss")) + '\n'
+                             + readResource(QStringLiteral(":/ndl/vortia.qss")));
 }
 
-QString tokenValue(const QJsonObject& tokens, const QString& scheme, const QString& reference) {
+QString tokenValue(const QJsonObject& tokens, const QString& scheme, const QString& reference,
+                   const QString& density) {
     const QStringList parts = reference.split(QLatin1Char('.'));
     if (parts.size() != 2)
         return {};
     QJsonObject group = tokens.value(parts[0]).toObject();
     if (parts[0] == QStringLiteral("color"))
         group = group.value(scheme).toObject();
+    else if (parts[0] == QStringLiteral("density"))
+        group = group.value(density).toObject();
     const QJsonValue value = group.value(parts[1]);
     if (value.isString())
         return value.toString();
@@ -46,7 +55,8 @@ QString tokenValue(const QJsonObject& tokens, const QString& scheme, const QStri
 }
 
 QString renderStyleSheet(const QJsonObject& tokens, const QString& scheme,
-                         const QString& styleTemplate, QStringList* missing) {
+                         const QString& styleTemplate, QStringList* missing,
+                         const QString& density) {
     static const QRegularExpression placeholder(QStringLiteral(R"(\{\{([A-Za-z]+\.[A-Za-z]+)\}\})"));
     QString rendered;
     rendered.reserve(styleTemplate.size());
@@ -55,7 +65,7 @@ QString renderStyleSheet(const QJsonObject& tokens, const QString& scheme,
     while (matches.hasNext()) {
         const auto match = matches.next();
         rendered += styleTemplate.mid(position, match.capturedStart() - position);
-        const QString value = tokenValue(tokens, scheme, match.captured(1));
+        const QString value = tokenValue(tokens, scheme, match.captured(1), density);
         if (value.isEmpty()) {
             rendered += match.captured(0);
             if (missing && !missing->contains(match.captured(1)))
@@ -69,36 +79,117 @@ QString renderStyleSheet(const QJsonObject& tokens, const QString& scheme,
     return rendered;
 }
 
-} // namespace lienzo
+QString activeDensity(const QString& fallback) {
+    const auto known = [](const QString& name) {
+        return name == QStringLiteral("compact") || name == QStringLiteral("regular")
+               || name == QStringLiteral("comfortable");
+    };
+    const QString requested = qEnvironmentVariable("VORTIA_DENSITY");
+    if (known(requested))
+        return requested;
+    return known(fallback) ? fallback : QStringLiteral("regular");
+}
 
-void ThemeManager::apply(QApplication& app, Theme theme) {
+} // namespace ndl
+
+namespace {
+
+QByteArray readResource(const QString& path) {
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+}
+
+// Qt style sheets do not pad the text of a spin box: its inner line edit
+// ignores both the spin box's padding and its own. Text margins do work, so
+// every spin box gets the field padding when it is polished.
+class SpinBoxTextPadding final : public QObject {
+public:
+    using QObject::QObject;
+    int padding = 0;
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (event->type() == QEvent::Polish) {
+            if (auto* spin = qobject_cast<QAbstractSpinBox*>(watched))
+                if (auto* edit = spin->findChild<QLineEdit*>())
+                    edit->setTextMargins(padding, 0, 0, 0);
+        }
+        return false;
+    }
+};
+
+// A style sheet draws `image: url(...)` as it is: a black icon stays black on
+// a dark surface. Every icon the sheet names is therefore copied to the cache
+// directory in the ink of the active scheme, and the rule points at the copy.
+QString tintStyleSheetIcons(QString sheet, const QString& scheme, const QColor& ink, const QColor& onAccent) {
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+                              + QStringLiteral("/ndl-icons/") + scheme;
+    if (!QDir().mkpath(directory))
+        return sheet;
+    static const QRegularExpression reference(QStringLiteral(R"(url\((:/vortia/icons/([a-z-]+)\.svg)(\?on-accent)?\))"));
+    QString result;
+    qsizetype position = 0;
+    auto matches = reference.globalMatch(sheet);
+    while (matches.hasNext()) {
+        const auto match = matches.next();
+        result += sheet.mid(position, match.capturedStart() - position);
+        position = match.capturedEnd();
+        const bool accent = !match.captured(3).isEmpty();
+        QByteArray svg = readResource(match.captured(1));
+        svg.replace("#000", (accent ? onAccent : ink).name().toUtf8());
+        const QString target = directory + QLatin1Char('/') + match.captured(2)
+                               + (accent ? QStringLiteral("-on-accent.svg") : QStringLiteral(".svg"));
+        QFile file(target);
+        if (svg.isEmpty() || !file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(svg) != svg.size()) {
+            result += QStringLiteral("url(") + match.captured(1) + QLatin1Char(')');
+            continue;
+        }
+        file.close();
+        result += QStringLiteral("url(") + target + QLatin1Char(')');
+    }
+    return result + sheet.mid(position);
+}
+
+} // namespace
+
+void ThemeManager::apply(QApplication& app, Theme theme, const QString& density) {
     app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     const QString scheme = toName(theme);
-    const QJsonObject tokens = lienzo::bundledTokens();
+    const QJsonObject tokens = ndl::bundledTokens();
     const auto color = [&](const char* name) {
-        return QColor(lienzo::tokenValue(tokens, scheme, QStringLiteral("color.") + QLatin1String(name)));
+        return QColor(ndl::tokenValue(tokens, scheme, QStringLiteral("color.") + QLatin1String(name)));
     };
 
     QPalette p;
-    p.setColor(QPalette::Window, color("canvas"));
-    p.setColor(QPalette::Base, color("surface"));
+    p.setColor(QPalette::Window, color("surfaceWindow"));
+    p.setColor(QPalette::Base, color("surfacePanel"));
     p.setColor(QPalette::AlternateBase, color("surfaceSunken"));
-    p.setColor(QPalette::Button, color("surface"));
+    p.setColor(QPalette::Button, color("controlBg"));
     for (auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText}) {
-        p.setColor(role, color("ink"));
-        p.setColor(QPalette::Disabled, role, color("inkDisabled"));
+        p.setColor(role, color("textPrimary"));
+        p.setColor(QPalette::Disabled, role, color("textDisabled"));
     }
-    p.setColor(QPalette::ToolTipBase, color("ink"));
-    p.setColor(QPalette::ToolTipText, color("surface"));
-    p.setColor(QPalette::PlaceholderText, color("inkMuted"));
-    p.setColor(QPalette::Mid, color("border"));
-    p.setColor(QPalette::Midlight, color("hover"));
-    p.setColor(QPalette::Highlight, color("accent"));
-    p.setColor(QPalette::HighlightedText, color("onAccent"));
-    p.setColor(QPalette::Link, color("accent"));
-    p.setColor(QPalette::BrightText, color("danger"));
+    p.setColor(QPalette::ToolTipBase, color("surfaceInverse"));
+    p.setColor(QPalette::ToolTipText, color("textInverse"));
+    p.setColor(QPalette::PlaceholderText, color("textTertiary"));
+    p.setColor(QPalette::Light, color("surfaceRaised"));
+    p.setColor(QPalette::Midlight, color("borderSubtle"));
+    p.setColor(QPalette::Mid, color("borderDefault"));
+    p.setColor(QPalette::Dark, color("borderStrong"));
+    p.setColor(QPalette::Highlight, color("accentDefault"));
+    p.setColor(QPalette::HighlightedText, color("textOnAccent"));
+    p.setColor(QPalette::Link, color("textLink"));
+    p.setColor(QPalette::BrightText, color("statusDangerFg"));
     app.setPalette(p);
-    app.setStyleSheet(lienzo::renderStyleSheet(tokens, scheme, lienzo::bundledStyleSheetTemplate()));
+
+    static SpinBoxTextPadding* spinPadding = nullptr;
+    if (!spinPadding) {
+        spinPadding = new SpinBoxTextPadding(&app);
+        app.installEventFilter(spinPadding);
+    }
+    spinPadding->padding = ndl::tokenValue(tokens, scheme, QStringLiteral("space.sm")).toInt();
+    QString sheet = ndl::renderStyleSheet(tokens, scheme, ndl::bundledStyleSheetTemplate(), nullptr,
+                                          ndl::activeDensity(density));
+    sheet = tintStyleSheetIcons(sheet, scheme, color("textPrimary"), color("textOnAccent"));
+    app.setStyleSheet(sheet);
 }
 
 ThemeManager::Theme ThemeManager::fromName(const QString& name) {

@@ -4,6 +4,38 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-10
+
+Rediseño visual. No cambia el motor ni los resultados de cálculo.
+
+### Cambiado
+- **Nueva interfaz con el Nodalia Design Language (NDL)**, el lenguaje de
+  diseño común de las aplicaciones de Nodalia, en lugar del estilo propio
+  anterior. Acento cian, neutros fríos, controles rectos de 6 px de radio en
+  vez de píldoras, pestañas subrayadas, barra lateral hundida y selección como
+  tinte suave. Claro y oscuro. Ver `docs/DESIGN.md`.
+- **Los 55 iconos de herramientas se han redibujado** con una sola norma de
+  rejilla, grosor y terminaciones. Ver `docs/UI_ICONS.md`.
+- Los campos de valor ya no ocupan todo el ancho del panel.
+
+### Corregido
+- Las casillas sin marcar no mostraban su recuadro.
+- El texto de los campos numéricos quedaba pegado al borde izquierdo.
+- En modo oscuro, las flechas de desplegables y campos numéricos se dibujaban
+  en negro y no se veían.
+- El panel de herramientas del croquis mostraba un fondo distinto al del panel
+  que lo contiene.
+- La barra lateral quedaba unos píxeles más baja y más corta que los paneles
+  de su derecha; ahora empieza y termina a su misma altura.
+- El visor 3D usaba un fondo fijo ajeno al tema; ahora toma la superficie
+  hundida y el color de texto del tema.
+
+### Para desarrollo
+- La densidad «Compacta» de Preferencias ahora usa la densidad compacta de NDL
+  (controles de 24 px). `VORTIA_DENSITY=compact|regular|comfortable` la
+  cambia para una ejecución. Los tokens y la hoja base de `resources/ndl/` se generan en
+  `nodalia-design` y se copian sin editar.
+
 ## [0.4.1] — 2026-11-10
 
 ### Corregido

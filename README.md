@@ -11,7 +11,7 @@
   <p><strong>A free desktop application for CFD simulation with OpenFOAM, from geometry to 3D post-processing.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-0.4.1-3D9BFF" alt="Version 0.4.1">
+    <img src="https://img.shields.io/badge/version-0.5.0-3D9BFF" alt="Version 0.5.0">
     <img src="https://img.shields.io/badge/status-experimental-orange" alt="Experimental">
     <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Linux%20x86__64-5E81AC" alt="macOS arm64 and Linux x86_64">
     <img src="https://img.shields.io/badge/Qt-6-41CD52?logo=qt&logoColor=white" alt="Qt 6">
@@ -52,7 +52,7 @@ with the evidence behind it in [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MAT
 
 ## What it does
 
-| Area | Vortia 0.4.1 | Evidence |
+| Area | Vortia 0.5.0 | Evidence |
 |---|---|---|
 | Geometry | Rectangular domains, 2D sketches with dimensions, lines and arcs, axisymmetric wedges, STL import for viewing | Software tests |
 | Meshing | Structured `blockMesh` with grading; Gmsh 2D and axisymmetric meshes from sketches; ASCII Fluent `.msh` import | Native runs |
@@ -187,7 +187,7 @@ turbulent fields.
 
 ## Project status
 
-Version **0.4.1**, experimental. What works, with which evidence, and what
+Version **0.5.0**, experimental. What works, with which evidence, and what
 does not:
 
 - [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) — capabilities by area
@@ -200,6 +200,7 @@ does not:
 
 The project documentation is written in Spanish.
 
+- Interface design (Nodalia Design Language): [`docs/DESIGN.md`](docs/DESIGN.md)
 - Architecture and ADRs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Technical research and licences: [`docs/architecture/research.md`](docs/architecture/research.md)
 - Validation: [`docs/VALIDATION.md`](docs/VALIDATION.md)

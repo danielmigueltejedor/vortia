@@ -1,5 +1,8 @@
 // Navigation is controlled exclusively by Qt; VTK is only the renderer.
 #include "vortia/visualization/VtkViewport.hpp"
+
+#include <QApplication>
+#include <QPalette>
 #include "vortia/visualization/AxisymmetricDisplay.hpp"
 #include <vtkArrowSource.h>
 #include <vtkGlyph3DMapper.h>
@@ -846,18 +849,14 @@ void VtkViewport::setViewIsometric() {
 
 void VtkViewport::setDarkTheme(bool dark) {
     darkTheme_=dark;
-    const double ink=dark?.88:.17;
-    scalarBar_->GetTitleTextProperty()->SetColor(ink,ink,ink);
-    scalarBar_->GetLabelTextProperty()->SetColor(ink,ink,ink);
-    if (dark) {
-        renderer_->SetBackground(0.0784, 0.1020, 0.1333);
-        legendRenderer_->SetBackground(0.0784, 0.1020, 0.1333);
-        cornerRenderer_->SetBackground(0.0784, 0.1020, 0.1333);
-    } else {
-        renderer_->SetBackground(0.93, 0.94, 0.96);
-        legendRenderer_->SetBackground(0.93, 0.94, 0.96);
-        cornerRenderer_->SetBackground(0.93, 0.94, 0.96);
-    }
+    // The viewport takes the sunken surface and the text colour of the theme
+    // palette, so it belongs to the same design as the panels around it.
+    const QPalette colors=QApplication::palette();
+    const QColor ink=colors.color(QPalette::Text),back=colors.color(QPalette::AlternateBase);
+    scalarBar_->GetTitleTextProperty()->SetColor(ink.redF(),ink.greenF(),ink.blueF());
+    scalarBar_->GetLabelTextProperty()->SetColor(ink.redF(),ink.greenF(),ink.blueF());
+    for (auto* renderer : {renderer_.Get(), legendRenderer_.Get(), cornerRenderer_.Get()})
+        renderer->SetBackground(back.redF(), back.greenF(), back.blueF());
     if (auto* window = renderWindow())
         window->Render();
 }

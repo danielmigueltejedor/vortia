@@ -8,13 +8,13 @@
 #include <QRegularExpression>
 
 using namespace vortia;
-using namespace vortia::lienzo;
+using namespace vortia::ndl;
 
 namespace {
 const WindowButton Min = WindowButton::Minimize, Max = WindowButton::Maximize, Close = WindowButton::Close;
 }
 
-TEST(LienzoWindowButtons, GnomeDefaultsAndCommonLayouts) {
+TEST(NdlWindowButtons, GnomeDefaultsAndCommonLayouts) {
     EXPECT_EQ(parseGnomeButtonLayout("appmenu:minimize,maximize,close"), (WindowButtonLayout{{}, {Min, Max, Close}}));
     // Stock GNOME: only a close button, on the right.
     EXPECT_EQ(parseGnomeButtonLayout("'appmenu:close'\n"), (WindowButtonLayout{{}, {Close}}));
@@ -24,43 +24,64 @@ TEST(LienzoWindowButtons, GnomeDefaultsAndCommonLayouts) {
     EXPECT_EQ(parseGnomeButtonLayout("icon,menu:spacer,Minimize , CLOSE"), (WindowButtonLayout{{}, {Min, Close}}));
 }
 
-TEST(LienzoWindowButtons, AWindowAlwaysKeepsAWayToCloseIt) {
+TEST(NdlWindowButtons, AWindowAlwaysKeepsAWayToCloseIt) {
     for (const char* useless : {"", ":", "appmenu:", "icon,menu:spacer", "''", "garbage"})
         EXPECT_EQ(parseGnomeButtonLayout(useless), defaultButtonLayout()) << useless;
     EXPECT_EQ(parseKdeButtonLayout("MS", "H"), defaultButtonLayout());
     EXPECT_EQ(defaultButtonLayout(), (WindowButtonLayout{{}, {Min, Max, Close}}));
 }
 
-TEST(LienzoWindowButtons, AButtonListedTwiceAppearsOnce) {
+TEST(NdlWindowButtons, AButtonListedTwiceAppearsOnce) {
     EXPECT_EQ(parseGnomeButtonLayout("close,close:close,minimize"), (WindowButtonLayout{{Close}, {Min}}));
     EXPECT_EQ(parseKdeButtonLayout("XX", "IAX"), (WindowButtonLayout{{Close}, {Min, Max}}));
 }
 
-TEST(LienzoWindowButtons, KdeLetters) {
+TEST(NdlWindowButtons, KdeLetters) {
     EXPECT_EQ(parseKdeButtonLayout("MS", "HIAX"), (WindowButtonLayout{{}, {Min, Max, Close}}));
     EXPECT_EQ(parseKdeButtonLayout("XIA", ""), (WindowButtonLayout{{Close, Min, Max}, {}}));
 }
 
-TEST(LienzoWindowButtons, EnvironmentOverrideWins) {
+TEST(NdlWindowButtons, EnvironmentOverrideWins) {
     qputenv("VORTIA_WINDOW_BUTTONS", "close:minimize");
     EXPECT_EQ(systemButtonLayout(), (WindowButtonLayout{{Close}, {Min}}));
     qunsetenv("VORTIA_WINDOW_BUTTONS");
 }
 
-TEST(LienzoTokens, BundledTokensDefineBothSchemesWithTheSameColours) {
+TEST(NdlTokens, BundledTokensDefineEveryModeWithTheSameColours) {
     const QJsonObject tokens = bundledTokens();
     ASSERT_FALSE(tokens.isEmpty());
-    const QJsonObject light = tokens["color"].toObject()["light"].toObject();
-    const QJsonObject dark = tokens["color"].toObject()["dark"].toObject();
+    const QJsonObject colours = tokens["color"].toObject();
+    const QJsonObject light = colours["light"].toObject();
     ASSERT_FALSE(light.isEmpty());
-    EXPECT_EQ(light.keys(), dark.keys());
-    for (const QString& scheme : {QStringLiteral("light"), QStringLiteral("dark")})
-        for (const QString& name : light.keys())
-            EXPECT_TRUE(QColor(tokenValue(tokens, scheme, "color." + name)).isValid())
+    for (const QString& scheme : {QStringLiteral("light"), QStringLiteral("dark"), QStringLiteral("light-hc"),
+                                  QStringLiteral("dark-hc")}) {
+        EXPECT_EQ(colours[scheme].toObject().keys(), light.keys()) << scheme.toStdString();
+        for (const QString& name : light.keys()) {
+            const QString value = tokenValue(tokens, scheme, "color." + name);
+            // Opaque colours are #RRGGBB; translucent ones are rgba(), which QColor does not parse.
+            EXPECT_TRUE(QColor(value).isValid() || value.startsWith("rgba("))
                 << scheme.toStdString() << " " << name.toStdString();
+        }
+    }
 }
 
-TEST(LienzoTokens, LookupHandlesNumbersAndUnknownReferences) {
+TEST(NdlTokens, DensityMetricsFollowTheChosenDensity) {
+    const QJsonObject tokens = bundledTokens();
+    EXPECT_EQ(tokenValue(tokens, "light", "density.controlHeight"), "32");
+    EXPECT_EQ(tokenValue(tokens, "light", "density.controlHeight", "compact"), "24");
+    EXPECT_EQ(tokenValue(tokens, "dark", "density.controlHeight", "comfortable"), "40");
+    EXPECT_TRUE(tokenValue(tokens, "light", "density.controlHeight", "huge").isEmpty());
+    qputenv("VORTIA_DENSITY", "compact");
+    EXPECT_EQ(activeDensity(), "compact");
+    qputenv("VORTIA_DENSITY", "huge");
+    EXPECT_EQ(activeDensity(), "regular");
+    EXPECT_EQ(activeDensity("comfortable"), "comfortable");
+    qunsetenv("VORTIA_DENSITY");
+    EXPECT_EQ(activeDensity("compact"), "compact");
+    EXPECT_EQ(activeDensity("huge"), "regular");
+}
+
+TEST(NdlTokens, LookupHandlesNumbersAndUnknownReferences) {
     const QJsonObject tokens = QJsonDocument::fromJson(
         R"({"color":{"light":{"ink":"#111111"},"dark":{"ink":"#EEEEEE"}},"radius":{"panel":12}})").object();
     EXPECT_EQ(tokenValue(tokens, "light", "color.ink"), "#111111");
@@ -71,7 +92,7 @@ TEST(LienzoTokens, LookupHandlesNumbersAndUnknownReferences) {
     EXPECT_TRUE(tokenValue(tokens, "sepia", "color.ink").isEmpty());
 }
 
-TEST(LienzoStyleSheet, RendersPlaceholdersAndReportsMissingOnes) {
+TEST(NdlStyleSheet, RendersPlaceholdersAndReportsMissingOnes) {
     const QJsonObject tokens = QJsonDocument::fromJson(
         R"({"color":{"light":{"ink":"#111111"}},"radius":{"panel":12}})").object();
     QStringList missing;
@@ -82,20 +103,25 @@ TEST(LienzoStyleSheet, RendersPlaceholdersAndReportsMissingOnes) {
     EXPECT_EQ(missing, QStringList{"color.nope"});
 }
 
-// Every placeholder of the shipped template must resolve in both schemes:
-// an unresolved one would silently drop a whole style rule.
-TEST(LienzoStyleSheet, BundledTemplateResolvesCompletelyInBothSchemes) {
+// Every placeholder of the shipped template must resolve in every mode and
+// density: an unresolved one would silently drop a whole style rule.
+TEST(NdlStyleSheet, BundledTemplateResolvesCompletely) {
     const QString styleTemplate = bundledStyleSheetTemplate();
     ASSERT_GT(styleTemplate.size(), 1000);
-    for (const QString& scheme : {QStringLiteral("light"), QStringLiteral("dark")}) {
-        QStringList missing;
-        const QString css = renderStyleSheet(bundledTokens(), scheme, styleTemplate, &missing);
-        EXPECT_TRUE(missing.isEmpty()) << missing.join(", ").toStdString();
-        EXPECT_FALSE(css.contains("{{"));
+    EXPECT_TRUE(styleTemplate.contains("vortia-workflow-navigation"));
+    for (const QString& scheme : {QStringLiteral("light"), QStringLiteral("dark"), QStringLiteral("light-hc"),
+                                  QStringLiteral("dark-hc")}) {
+        for (const QString& density : {QStringLiteral("compact"), QStringLiteral("regular"),
+                                       QStringLiteral("comfortable")}) {
+            QStringList missing;
+            const QString css = renderStyleSheet(bundledTokens(), scheme, styleTemplate, &missing, density);
+            EXPECT_TRUE(missing.isEmpty()) << missing.join(", ").toStdString();
+            EXPECT_FALSE(css.contains("{{"));
+        }
     }
 }
 
-TEST(LienzoTheme, EnvironmentOverridesTheSavedThemeForOneRun) {
+TEST(NdlTheme, EnvironmentOverridesTheSavedThemeForOneRun) {
     qunsetenv("VORTIA_THEME");
     EXPECT_EQ(ThemeManager::resolve("dark"), ThemeManager::Theme::Dark);
     EXPECT_EQ(ThemeManager::resolve("light"), ThemeManager::Theme::Light);
