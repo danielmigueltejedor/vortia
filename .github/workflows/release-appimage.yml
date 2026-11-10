@@ -307,6 +307,7 @@ jobs:
           path: dist
       - name: X server and Mesa
         run: |
+          echo 'Acquire::Retries "8"; Acquire::http::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-vortia-retries
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb xauth libgl1 libegl1 libgl1-mesa-dri libglx-mesa0
       - name: Start the AppImage directly
