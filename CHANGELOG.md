@@ -4,6 +4,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-11-10
+
+Solo cambia el instalador de macOS; la aplicación es la de 0.4.0.
+
+### Corregido
+- **DMG de macOS**: al abrirse la ventana más ancha quedaba una franja blanca,
+  los nombres de los iconos no se leían sobre el fondo oscuro y había que
+  redimensionar la ventana para verlo todo. El fondo se ha redibujado en el
+  mismo estilo, más grande y nítido en Retina, con una placa clara tras cada
+  nombre y una flecha entre los iconos; la ventana es más alta y sin barra
+  lateral.
+
 ## [0.4.0] — 2026-11-10
 
 Interfaz rediseñada y coherente.
