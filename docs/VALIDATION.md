@@ -10,24 +10,38 @@ Distinguimos tres niveles (no intercambiables):
 
 | # | Caso | Nivel | Estado | Evidencia |
 |---|---|---|---|---|
-| 1 | Poiseuille (perfil analítico) | Verificación | 🟡 Infraestructura + tests analíticos; ejecución OF pendiente | `benchmarks/poiseuille-laminar-2d/`, `vortia::verification`, `test_verification` |
-| 2 | Cavidad tapa móvil Re=100 (Ghia et al. 1982) | Verificación | 🟡 Tablas citadas + case factory; comparación CFD pendiente | `benchmarks/lid-driven-cavity-ghia-re100/`, Ghia 1982 Tables I–II |
-| 3 | Canal con escalón | Verificación | ⬜ Pendiente | — |
-| 4 | Perfil aerodinámico | Verificación/Validación | ⬜ Pendiente | — |
-| 5 | Sensibilidad a la malla | Verificación | ⬜ Pendiente | — |
-| 6 | Tobera práctica 2026 (rhoSimpleFoam, wedge, SST) | Verificación | 🟡 Ejecutado, pendiente comparación | examples/nozzle-practice-2026 |
+| 1 | Poiseuille (perfil analítico y fuerza de pared) | Verificación | 🧪 Nativa, cumple | `benchmarks/poiseuille-laminar-2d/`, registro 2026-11-10 |
+| 2 | Cavidad tapa móvil Re=100 (Ghia et al. 1982) | Verificación | 🧪 Nativa, cumple | `benchmarks/lid-driven-cavity-ghia-re100/`, registro 2026-11-10 |
+| 3 | Placa plana turbulenta, k-ω SST (ley de Prandtl–Schlichting) | Plausibilidad frente a correlación | 🧪 Nativa, dentro de la banda fijada (sesgo −10 %) | `benchmarks/turbulent-flat-plate-sst/`, registro 2026-11-10 |
+| 4 | Placa plana laminar (Blasius) | Verificación | 🟡 Caso y referencia; sin ejecución nativa | `benchmarks/blasius-flat-plate/` |
+| 5 | Canal con escalón | Verificación | ⬜ Pendiente | — |
+| 6 | Perfil aerodinámico | Verificación/Validación | ⬜ Pendiente | — |
+| 7 | Sensibilidad a la malla (GCI de tres mallas) | Verificación | 🟡 Herramienta lista; ningún estudio registrado | `benchmarks/common/gci.py` |
+| 8 | Tobera práctica 2026 (rhoSimpleFoam, wedge, SST) | Verificación | 🟡 Ejecutado, pendiente comparación | examples/nozzle-practice-2026 |
 
 ## Procedimiento por caso
 Definición física → hipótesis → parámetros (con unidades) → geometría → malla → modelo → esquemas → solución de referencia → métricas de error (L2/L∞) → límites de validez. Todo bajo `benchmarks/<caso>/` con `README.md` reproducible.
 
 ## Registro
-Plan técnico 0.2.0: [`docs/VORTIA_0.2.0.md`](VORTIA_0.2.0.md).
+Plan técnico 0.2.0: [`docs/VORTIA_0.2.0.md`](VORTIA_0.2.0.md). Las ejecuciones nativas
+las hace el job `native-verification` del workflow `Release packages`, con el
+mismo motor que va en la AppImage; un caso omitido cuenta como fallo.
+
+Lo que estos registros **no** demuestran: independencia de malla (no hay ningún
+GCI registrado), validez fuera de los casos listados, ni validación frente a
+experimentos. En la primera ejecución nativa Poiseuille no cumplió (relL2 =
+3,1 %) porque se comparó una solución sin converger; se corrigió el presupuesto
+de iteraciones y el criterio de convergencia, no la tolerancia.
 
 | Fecha | Caso | Qué se midió | Resultado | Notas |
 |---|---|---|---|---|
 | 2026-11-05 | Poiseuille / Ghia | Software: identidades analíticas + tablas de referencia + `CaseWriter` acepta casos | PASS (CTest `test_verification`) | **No** es verificación CFD frente a solver |
 | 2026-11-05 | Poiseuille / Ghia | Harness write→run→sample→compare | Scripts + CTest (`SKIP` sin OpenFOAM) | Ejecutar `benchmarks/*/scripts/run_openfoam.sh` con OF en PATH para obtener PASS/FAIL real |
-| — | — | Ejecuciones OpenFOAM + errores L2/L∞ registrados aquí | *(pendiente de corrida nativa documentada)* | Prohibido rellenar con datos sintéticos |
+| 2026-11-10 | Poiseuille, malla 60×40 | Perfil u(y) en x = L/2 frente al analítico, 81 puntos | relL2 = 7,53e-4, relL∞ = 6,33e-4 (límites 2 % y 3 %). **Cumple** | OpenFOAM ESI v2412 (el motor de la AppImage), `simpleFoam`. Residuos finales Ux = 5,8e-10, p = 7,0e-7. [Ejecución CI](https://github.com/danielmigueltejedor/vortia/actions/runs/42755218855) |
+| 2026-11-10 | Poiseuille, malla 60×40 | Fuerza viscosa sobre las dos paredes frente al balance exacto Δp·H·W | 9,9999999e-6 frente a 1e-5 m⁴/s²: error relativo 1e-8 (límite 2 %). **Cumple** | Función `forces` de OpenFOAM leída con `parseForces`. Misma ejecución |
+| 2026-11-10 | Cavidad Re = 100, malla 48×48 | u en la línea central vertical frente a Ghia et al. (1982), tabla I, 17 puntos | relL2 = 3,47e-3, relL∞ = 3,89e-3 (límites 5 %). **Cumple** | Convergió en 465 iteraciones. La componente v (tabla II) se muestrea pero aún no se compara. Misma ejecución |
+| 2026-11-10 | Placa plana turbulenta Re_L = 1e7, malla 200×60, k-ω SST con funciones de pared | Coeficiente de fricción medio frente a Prandtl–Schlichting | C_D = 0,002698 frente a 0,003004: −10,2 % (banda fijada a priori: 15 %). **Dentro de la banda, con sesgo a la baja** | Convergió en 375 iteraciones. y+ en la placa: 25–36 (media 27), en el extremo bajo del rango de funciones de pared. Una sola malla: sin estudio de independencia. Misma ejecución |
+| 2026-11-10 | Motor integrado | Autoprueba: malla, `checkMesh`, `simpleFoam` en serie, `decomposePar`, 2 procesos MPI, reconstrucción, `foamToVTK` | **Pasa** en Ubuntu 20.04/22.04/24.04, Debian 12/13, Fedora, Arch, openSUSE Tumbleweed, Rocky 9 (contenedores limpios), Ubuntu 22.04/24.04 (VM con FUSE) y macOS 15/26 (runners limpios) | Prueba de funcionamiento del motor, no de exactitud |
 
 *(Solo resultados reales; prohibido registrar campos inventados como validación.)*
 

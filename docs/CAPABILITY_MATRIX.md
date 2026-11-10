@@ -49,6 +49,8 @@ Leyenda de evidencia:
 ## Cómo leer los resultados nativos
 
 Los números registrados están en [`VALIDATION.md`](VALIDATION.md), con la
-ejecución de CI de la que salen. Un caso que termina no es un caso verificado:
+ejecución de CI de la que salen. Resumen de 0.3.0: Poiseuille 0,075 % (L2) y
+fuerza de pared exacta a 1e-8; cavidad de Ghia 0,35 %; placa plana turbulenta
+−10,2 % frente a la correlación, dentro de la banda del 15 % fijada antes. Un caso que termina no es un caso verificado:
 solo cuentan los que se comparan con su referencia y cumplen la tolerancia
 fijada antes de ejecutar.

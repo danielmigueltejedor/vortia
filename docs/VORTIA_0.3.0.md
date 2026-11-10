@@ -57,3 +57,20 @@ Quantitative tolerances remain **per benchmark**, justified before runs.
 - Expanding RANS catalogues before laminar/verified paths have native evidence.
 - Cosmetic refactors without V&V or workflow benefit.
 - Marking results “validated” because a job exited zero.
+
+---
+
+## 5. Resultado de 0.3.0 (2026-11-10)
+
+| Criterio (§3) | Estado |
+|---|---|
+| 1. Builds reproducibles en las plataformas soportadas | Hecho: AppImage y DMG se construyen y se prueban en CI en máquinas limpias |
+| 2. Tests existentes pasan; lo nuevo está cubierto | Hecho: 254 tests en `ctest` |
+| 3. ≥ 1 benchmark con resultados nativos y comparación | Hecho: Poiseuille, Ghia y placa turbulenta (`docs/VALIDATION.md`) |
+| 4. GCI aplicado a un estudio registrado | **No hecho** |
+| 5. Conservación demostrada en un par de flujos real | Parcial: balance de cantidad de movimiento de Poiseuille (fuerza de pared = Δp·H·W a 1e-8); el balance de caudal entrada/salida no se ha registrado |
+| 6. Limitaciones y etiquetas experimentales honestas | Hecho: `docs/CAPABILITY_MATRIX.md`, `docs/KNOWN_LIMITATIONS.md` |
+
+Hitos: C (flujo de trabajo) parcial — motor y mallador integrados, k-ω SST en
+la interfaz; D (posproceso) parcial — fuerzas y coeficientes como biblioteca,
+sin panel; E (rendimiento) sin cambios; F (release) hecho salvo notarización.

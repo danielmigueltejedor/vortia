@@ -29,3 +29,19 @@ separated flows, pressure gradients, transition or heat transfer.
 
 Requires an ESI OpenFOAM (`simpleFoam`). The script also prints y+ on the plate
 so the wall-function range can be judged; y+ is reported, not gated.
+
+## Recorded result (2026-11-10)
+
+OpenFOAM ESI v2412, `simpleFoam`, converged in 375 iterations
+([CI run](https://github.com/danielmigueltejedor/vortia/actions/runs/42755218855)):
+
+| Quantity | Value |
+|---|---|
+| C_D computed | 0.002698 |
+| C_D Prandtl–Schlichting | 0.003004 |
+| Difference | −10.2 % (inside the 15 % band set beforehand) |
+| y+ on the plate | 25–36, mean 27 |
+
+The result is biased low and y+ sits at the lower end of the wall-function
+range. A finer study (several meshes, a low-Reynolds mesh) is needed before
+drawing anything stronger than "the generated case runs and is in range".

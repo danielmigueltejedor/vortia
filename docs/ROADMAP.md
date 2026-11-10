@@ -2,7 +2,7 @@
 
 Leyenda: ✅ completado · 🟡 en curso · ⬜ pendiente · 🧪 validado con backend real
 
-**Versión publicada:** 0.2.0 (fundamentos V&V + GCI/conservación). Continuación: `docs/VORTIA_0.3.0.md`.
+**Versión publicada:** 0.3.0 (instaladores autónomos con OpenFOAM integrado, verificación nativa, k-ω SST, fuerzas). Estado por áreas: `docs/CAPABILITY_MATRIX.md`.
 
 ## Fase 0 — Investigación y fundamentos
 - ✅ Investigación de dependencias, versiones y licencias
@@ -28,7 +28,7 @@ Leyenda: ✅ completado · 🟡 en curso · ⬜ pendiente · 🧪 validado con b
 - ✅ Escritor de caso laminar incompresible (`icoFoam` ESI / `foamRun` Foundation)
 - ✅ Ejecución supervisada (logs, cancelación, residuales)
 - ⬜ Importación de resultados y visualización p/U (pendiente conversión foamToVTK)
-- ⬜ Validación: cavidad con tapa móvil vs Ghia et al. (Re=100) — requiere backend real
+- 🧪 Verificación: cavidad con tapa móvil vs Ghia et al. (Re=100), relL2 0,35 % (0.3.0)
 
 **Criterio de salida:** flujo completo GUI → caso → solver → visor, verificado contra benchmark. Solo se marcará 🧪 con OpenFOAM real. 🟡
 
@@ -37,7 +37,7 @@ Leyenda: ✅ completado · 🟡 en curso · ⬜ pendiente · 🧪 validado con b
 - ⬜ Parseo de `checkMesh`
 
 ## Fase 4 — Modelos físicos
-- ⬜ Transitorio avanzado, RANS, compresible, energía
+- 🟡 RANS k-ω SST estacionario con funciones de pared (0.3.0); transitorio avanzado, compresible general y energía pendientes
 
 ## Fase 5 — Posproceso avanzado
 - ⬜ Streamlines, isosuperficies, cortes, sondas, animaciones, fuerzas y coeficientes
@@ -49,4 +49,4 @@ Leyenda: ✅ completado · 🟡 en curso · ⬜ pendiente · 🧪 validado con b
 - ⬜ MPI, remoto/HPC, automatización Python, plugins
 
 ## Fase 8 — Lanzamiento
-- ⬜ Empaquetado multiplataforma, documentación, auditoría
+- 🟡 Empaquetado macOS arm64 y Linux x86_64 con motor integrado (0.3.0); notarización Apple, Intel/Windows y auditoría pendientes
