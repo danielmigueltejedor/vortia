@@ -5,6 +5,13 @@ aplicaciones de Nodalia. La variante actual es **Papel**: paneles blancos que
 flotan sobre un lienzo gris claro, controles redondeados y un único color de
 acento. Tiene esquema claro (el de referencia) y oscuro.
 
+![Vortia en Linux, esquema claro](images/lienzo-linux-light.png)
+
+![Vortia en Linux, esquema oscuro](images/lienzo-linux-dark.png)
+
+Capturas del CI (Ubuntu 24.04, AppImage): una sola barra superior con menú,
+pestañas y controles de ventana.
+
 ## Qué se exporta
 
 | Archivo | Para qué |
