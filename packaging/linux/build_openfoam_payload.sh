@@ -128,7 +128,9 @@ bash "$(dirname "$0")/../common/build_mesher_runtime.sh" "$out/mesher"
 
 # Self-check from a different location than the package's, with a clean
 # environment and without the system Open MPI on the path.
-relocated="$(mktemp -d)/engine with space"
+# (OpenFOAM itself does not support blanks in its path; Vortia works around
+# that with a blank-free symlink, see bundledOpenFoamRoot().)
+relocated="$(mktemp -d)/relocated-engine"
 mkdir -p "$relocated"
 cp -a "$engine" "$sysroot" "$relocated/"
 env -i HOME=/root PATH=/usr/bin:/bin bash --noprofile --norc -c '
