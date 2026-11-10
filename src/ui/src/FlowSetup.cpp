@@ -1,3 +1,4 @@
+#include "vortia/ui/MesherRuntime.hpp"
 #include "vortia/ui/UiIcon.hpp"
 #include "vortia/ui/FlowSetup.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
@@ -433,15 +434,14 @@ QString generateFlowCase(QWidget* parent,const QString& sketchPath,const QJsonOb
     for(const auto& name:QStringList{"vortiaCentralFoam.C","ConservativeUpdate.H","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}){
         QFile f(QString(":/vortia/openfoam/solver/")+name);if(!f.open(QIODevice::ReadOnly)||!write("solver/"+name,f.readAll()))return {};
     }
-    QString python;
-    for(const auto& candidate:QStringList{"/opt/homebrew/bin/python3","/usr/local/bin/python3",QStandardPaths::findExecutable("python3")})
-        if(QFileInfo(candidate).isExecutable()){python=candidate;break;}
-    const QString runtime=qEnvironmentVariable("VORTIA_GMSH_RUNTIME",QCoreApplication::applicationDirPath()+"/../Resources/gmsh");
+    const QString python=mesherPython();
+    const QString runtime=mesherGmshRuntime();
     if(python.isEmpty()||!QFileInfo::exists(runtime+"/gmsh.py")){
         QMessageBox::warning(parent,flowTr("Mesher unavailable"),flowTr("This installation is missing Python 3 or the bundled Gmsh runtime."));return {};
     }
     QProcess process;QProcessEnvironment env=QProcessEnvironment::systemEnvironment();
     for(const auto& [key,value]:environment)env.insert(QString::fromStdString(key),QString::fromStdString(value));
+    applyMesherEnvironment(env);
     process.setProcessEnvironment(env);process.setProcessChannelMode(QProcess::MergedChannels);
     QProgressDialog progress(flowTr("Generating the mesh from the sketch…"),flowTr("Cancel"),0,0,parent);progress.setWindowModality(Qt::WindowModal);progress.setMinimumDuration(0);
     QEventLoop loop;bool finished=false;QObject::connect(&process,qOverload<int,QProcess::ExitStatus>(&QProcess::finished),&loop,[&](){finished=true;loop.quit();});

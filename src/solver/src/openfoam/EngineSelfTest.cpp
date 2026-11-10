@@ -11,7 +11,21 @@ namespace vortia::openfoam {
 
 namespace {
 
-constexpr int kIterations = 5;
+/// Result directories of a case: numeric names other than the initial "0".
+std::vector<std::filesystem::path> resultDirectories(const std::filesystem::path& base) {
+    std::vector<std::filesystem::path> found;
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(base, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        if (!it->is_directory(ec) || name == "0" || name.empty())
+            continue;
+        if (name.find_first_not_of("0123456789.") != std::string::npos)
+            continue;
+        if (std::filesystem::is_regular_file(it->path() / "U", ec))
+            found.push_back(it->path());
+    }
+    return found;
+}
 
 std::string tail(const std::string& text, std::size_t maxBytes = 2000) {
     return text.size() <= maxBytes ? text : text.substr(text.size() - maxBytes);
@@ -34,9 +48,8 @@ runEngineSelfTest(const Installation& installation, IProcessRunner& runner,
         return environment.error();
     const Capabilities capabilities = capabilitiesFor(installation);
 
-    CaseSetup setup = verification::makeGhiaCavityCase({16, 16, 1});
-    setup.time.endTime = setup.time.startTime + kIterations * setup.time.deltaT;
-    setup.time.writeInterval = kIterations;
+    // Small enough to converge in seconds on any machine.
+    const CaseSetup setup = verification::makeGhiaCavityCase({16, 16, 1});
     const std::filesystem::path caseDir = workDir / "cavity";
     if (const auto written = CaseWriter::write(caseDir, setup, capabilities, {}); !written)
         return written.error();
@@ -66,21 +79,19 @@ runEngineSelfTest(const Installation& installation, IProcessRunner& runner,
 
     const std::string solver = capabilities.laminarSteadySolver;
     const std::vector<std::string> solverArgs = capabilities.laminarSteadyArgs;
-    const auto resultExists = [&](const std::filesystem::path& base) {
-        std::error_code fileError;
-        return std::filesystem::is_regular_file(base / std::to_string(kIterations) / "U", fileError);
-    };
-
     if (auto done = step("mesh", "blockMesh", {}); !done)
         return done.error();
     if (auto done = step("mesh check", "checkMesh", {}); !done)
         return done.error();
     if (auto done = step("serial solve", solver, solverArgs); !done)
         return done.error();
-    if (!resultExists(caseDir))
+    const auto serialResults = resultDirectories(caseDir);
+    if (serialResults.empty())
         return Error::make(ErrorCode::ProcessFailed, "serial solve wrote no velocity field",
                            caseDir.string());
-    std::filesystem::remove_all(caseDir / std::to_string(kIterations), ec);
+    // The parallel run must produce its own result, not find the serial one.
+    for (const auto& directory : serialResults)
+        std::filesystem::remove_all(directory, ec);
 
     {
         std::ofstream dict(caseDir / "system" / "decomposeParDict", std::ios::trunc);
@@ -100,7 +111,7 @@ runEngineSelfTest(const Installation& installation, IProcessRunner& runner,
         return done.error();
     if (auto done = step("reconstruct", "reconstructPar", {"-latestTime"}); !done)
         return done.error();
-    if (!resultExists(caseDir))
+    if (resultDirectories(caseDir).empty())
         return Error::make(ErrorCode::ProcessFailed, "parallel solve wrote no velocity field",
                            caseDir.string());
     if (auto done = step("export for the viewer", "foamToVTK", {"-latestTime"}); !done)

@@ -209,8 +209,14 @@ if [[ -n "${VORTIA_OPENFOAM_PAYLOAD:-}" ]]; then
     echo "No OpenFOAM-*/etc/bashrc in payload $payload" >&2
     exit 1
   }
-  mkdir -p "$appdir/usr/lib/openfoam-engine"
+  mkdir -p "$appdir/usr/lib/openfoam-engine" "$appdir/usr/Resources"
   cp -a "$payload/." "$appdir/usr/lib/openfoam-engine/"
+  # Vortia looks for the mesher at <executable>/../Resources/{python,gmsh}.
+  if [[ -d "$appdir/usr/lib/openfoam-engine/mesher" ]]; then
+    mv "$appdir/usr/lib/openfoam-engine/mesher/python" "$appdir/usr/lib/openfoam-engine/mesher/gmsh" \
+      "$appdir/usr/Resources/"
+    rmdir "$appdir/usr/lib/openfoam-engine/mesher"
+  fi
   engine_glibc="$(cat "$payload/GLIBC_REQUIRED")"
   echo "Bundled OpenFOAM engine from $payload (needs glibc $engine_glibc)"
 else

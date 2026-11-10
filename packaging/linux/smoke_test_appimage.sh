@@ -164,6 +164,14 @@ if ((modern)); then
   fi
 fi
 
+if [[ -d "$app/usr/Resources/gmsh" ]]; then
+  note "Packaged mesher (Python + Gmsh)"
+  command -v python3 >/dev/null 2>&1 && echo "note: host already provides python3"
+  "${clean_env[@]}" "$app/AppRun" --verify-mesher || bad "--verify-mesher rc=$?"
+elif [[ -n "${VORTIA_EXPECT_ENGINE:-}" ]]; then
+  bad "this AppImage has no packaged mesher"
+fi
+
 if compgen -G "$app/usr/lib/openfoam-engine/OpenFOAM-*/etc/bashrc" >/dev/null; then
   note "Integrated OpenFOAM engine: real serial and 2-process MPI run"
   echo "AppImage states minimum glibc: $(cat "$app/usr/share/vortia/GLIBC_REQUIRED" 2>/dev/null || echo unknown)"

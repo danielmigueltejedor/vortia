@@ -133,6 +133,10 @@ std::string CaseWriter::fvSchemes(const CaseSetup& setup) {
         << "divSchemes\n{\n"
         << "    default         none;\n"
         << "    div(phi,U)      " << setup.numerics.divPhiU << ";\n"
+        // Explicit part of the viscous stress. simpleFoam and foamRun look
+        // it up even for laminar flow; with "default none" a missing entry
+        // is a fatal error on the first iteration.
+        << "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n"
         << "}\n\n"
         << "laplacianSchemes\n{\n"
         << "    default         " << setup.numerics.laplacian << ";\n"

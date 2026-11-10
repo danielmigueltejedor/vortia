@@ -23,7 +23,7 @@ grep -q '^Identifier=dev.vortia.app$' <<<"$identity" \
   || bad "bundle identifier is not dev.vortia.app (in-app updates would be rejected)"
 
 echo "== Linked libraries stay inside the bundle =="
-outside="$(find "$app/Contents" -type f \( -name '*.dylib' -o -perm +111 \) -print0 |
+outside="$(find "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/PlugIns" -type f \( -name '*.dylib' -o -perm +111 \) -print0 |
   xargs -0 -n1 otool -L 2>/dev/null | awk '/^\t/{print $1}' |
   grep -vE '^(/usr/lib/|/System/|@rpath/)' | sort -u)"
 if [[ -n "$outside" ]]; then echo "$outside" | head -n 20; bad "references outside the bundle"; else echo "ok"; fi
@@ -41,6 +41,13 @@ foreign="$(sed -nE 's/^dyld\[[0-9]+\]: <[^>]*> (\/.*)$/\1/p' "$log" |
   awk -v app="$app/" 'index($0, app) != 1 && $0 !~ "^(/usr/lib/|/System/|/Library/Apple/)"' | sort -u)"
 if [[ -n "$foreign" ]]; then echo "$foreign" | head -n 20; bad "libraries loaded from outside the bundle"; fi
 rm -f "$log"
+
+if [[ -d "$app/Contents/Resources/gmsh" ]]; then
+  echo "== Packaged mesher (Python + Gmsh) =="
+  env -i HOME="$HOME" PATH=/usr/bin:/bin "$exe" --verify-mesher || bad "--verify-mesher rc=$?"
+elif [[ -n "${VORTIA_EXPECT_ENGINE:-}" ]]; then
+  bad "this app has no packaged mesher"
+fi
 
 if compgen -G "$app/Contents/Resources/OpenFOAM-*/*.dmg" >/dev/null; then
   echo "== Integrated OpenFOAM engine: real serial and 2-process MPI run =="

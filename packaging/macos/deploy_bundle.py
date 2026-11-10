@@ -184,7 +184,12 @@ class Bundle:
 
     def check_closed(self) -> None:
         """No bundled binary may still point outside the bundle or the system."""
+        resources = self.app / "Contents" / "Resources"
         for binary in self.binaries():
+            # Self-contained runtimes under Resources (packaged Python, Gmsh)
+            # use their own relative install names; --verify-mesher covers them.
+            if resources in binary.parents:
+                continue
             for reference in dependencies(binary):
                 if not reference.startswith(SYSTEM_PREFIXES + ("@rpath/",)):
                     raise SystemExit(f"error: {binary} still references {reference}")

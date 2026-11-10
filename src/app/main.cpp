@@ -1,6 +1,7 @@
 #include "vortia/ui/MainWindow.hpp"
 #include "vortia/ui/ThemeManager.hpp"
 #include "vortia/ui/OpenFoamRuntime.hpp"
+#include "vortia/ui/MesherRuntime.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
 #include "vortia/solver/openfoam/EngineSelfTest.hpp"
 #include "vortia/core/HostEnvironment.hpp"
@@ -19,6 +20,7 @@
 #include <QCoreApplication>
 #include <QMessageBox>
 #include <QOffscreenSurface>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <QTimer>
 
@@ -122,6 +124,46 @@ int main(int argc, char* argv[]) {
         qInfo() << "Integrated OpenFOAM engine verified with a real serial and parallel run";
         return 0;
     }
+    // Packaged mesher: the bundled Python must load the bundled Gmsh and
+    // produce a real mesh, with nothing installed on the machine.
+    if (argc > 1 && QString::fromUtf8(argv[1]) == QStringLiteral("--verify-mesher")) {
+        QCoreApplication checkApp(argc, argv);
+        const QString python = vortia::mesherPython();
+        const QString runtime = vortia::mesherGmshRuntime();
+        if (python.isEmpty() || !QFileInfo::exists(runtime + QStringLiteral("/gmsh.py"))) {
+            qCritical() << "No Python 3 or no Gmsh runtime for the mesher:" << python << runtime;
+            return 7;
+        }
+        const QString script = QStringLiteral(
+            "import sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "import gmsh\n"
+            "gmsh.initialize()\n"
+            "gmsh.option.setNumber('General.Terminal', 0)\n"
+            "gmsh.model.occ.addRectangle(0, 0, 0, 1, 1)\n"
+            "gmsh.model.occ.synchronize()\n"
+            "gmsh.model.mesh.generate(2)\n"
+            "nodes = len(gmsh.model.mesh.getNodes()[0])\n"
+            "version = gmsh.option.getString('General.Version')\n"
+            "gmsh.finalize()\n"
+            "print('gmsh', version, 'python', sys.version.split()[0], 'nodes', nodes)\n"
+            "sys.exit(0 if nodes > 4 else 1)\n");
+        QProcess mesher;
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        vortia::applyMesherEnvironment(environment);
+        mesher.setProcessEnvironment(environment);
+        mesher.setProcessChannelMode(QProcess::MergedChannels);
+        mesher.start(python, {QStringLiteral("-c"), script, runtime});
+        const bool finished = mesher.waitForStarted(10'000) && mesher.waitForFinished(120'000);
+        const QString output = QString::fromLocal8Bit(mesher.readAll()).trimmed();
+        if (!finished || mesher.exitStatus() != QProcess::NormalExit || mesher.exitCode() != 0) {
+            qCritical().noquote() << "Packaged mesher failed:" << python << output;
+            return 7;
+        }
+        qInfo().noquote() << "Vortia mesher verified:" << output << "using" << python;
+        return 0;
+    }
+
     // Deterministic, headless verification for CI. This catches missing .qm
     // compilation AND incorrect resource paths instead of silently falling
     // back to English on shipped builds.

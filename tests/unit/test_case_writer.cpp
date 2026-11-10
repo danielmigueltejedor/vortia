@@ -78,6 +78,18 @@ TEST_F(CaseWriterTest, SteadyControlDictUsesIterations) {
     EXPECT_NE(cd.find("deltaT          1;"), std::string::npos);
 }
 
+// Found by the packaged-engine self-test on real OpenFOAM v2606: without this
+// entry simpleFoam aborts on its first iteration ("default none").
+TEST_F(CaseWriterTest, FvSchemesDeclaresTheViscousStressDivergence) {
+    for (const auto scheme : {TimeScheme::SteadyState, TimeScheme::Euler}) {
+        auto s = cavitySetup();
+        s.numerics.ddt = scheme;
+        const std::string schemes = CaseWriter::fvSchemes(s);
+        EXPECT_NE(schemes.find("div((nuEff*dev2(T(grad(U))))) Gauss linear;"), std::string::npos);
+        EXPECT_NE(schemes.find("div(phi,U)"), std::string::npos);
+    }
+}
+
 TEST_F(CaseWriterTest, FieldUHasCavityBoundaryConditions) {
     const std::string u = CaseWriter::fieldU(cavitySetup());
     EXPECT_NE(u.find("class       volVectorField;"), std::string::npos);

@@ -10,6 +10,7 @@
 #   sysroot/usr/...          Open MPI (launcher, plugins, help files) and every
 #                            third-party library the engine links to
 #   licenses/                copyright files of everything copied
+#   mesher/                  relocatable CPython and Gmsh (build_mesher_runtime.sh)
 set -euo pipefail
 
 out="$(mkdir -p "$1" && cd "$1" && pwd)"
@@ -95,6 +96,12 @@ unset _vortia_sysroot
 RUNTIME
 
 # objdump exits non-zero for the few ELF files without a dynamic symbol table.
+# Mesher runtime (relocatable CPython + Gmsh), built here for the same
+# old-distribution compatibility.
+apt-get install -y --no-install-recommends unzip patchelf libglu1-mesa libxft2 libxcursor1 \
+  libxinerama1 libxrender1 libxfixes3 libfontconfig1 libgomp1
+bash "$(dirname "$0")/../common/build_mesher_runtime.sh" "$out/mesher"
+
 needed_glibc="$(find "$out" -type f -print0 | xargs -0 file | awk -F: '/ELF/{print $1}' |
   { xargs -n 64 objdump -T 2>/dev/null || true; } |
   grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 1 | cut -d_ -f2)"

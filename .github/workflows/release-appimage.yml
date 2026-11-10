@@ -82,7 +82,7 @@ jobs:
         id: cache
         with:
           path: openfoam-engine.tar
-          key: openfoam-engine-${{ hashFiles('packaging/linux/build_openfoam_payload.sh') }}
+          key: openfoam-engine-${{ hashFiles('packaging/linux/build_openfoam_payload.sh', 'packaging/common/build_mesher_runtime.sh') }}
       - name: Assemble relocatable OpenFOAM in Ubuntu 20.04
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -111,8 +111,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No system -dev packages: an include path under /usr would bring the
-      # runner's glibc headers into a build that must target an old glibc.
+      # No system -dev packages, and the conda sysroot pinned to glibc 2.28
+      # (unpinned, the solver picks the newest one, 2.39): the executable
+      # must not need a newer C library than the oldest supported distribution.
 
       - name: Setup micromamba (Qt6 + VTK)
         # Pin to the commit currently tagged as v2 (Sonar githubactions:S7637).
@@ -125,6 +126,7 @@ jobs:
             cmake
             ninja
             cxx-compiler
+            sysroot_linux-64=2.28
             pkg-config
             qt6-main
             vtk
@@ -323,6 +325,13 @@ jobs:
           /usr/bin/python3 packaging/macos/bundle_openfoam.py "$image" "$PWD/build/Vortia.app"
           cat build/Vortia.app/Contents/Resources/OpenFOAM-v2606/MINIMUM_MACOS
           rm -rf engine
+
+      - name: Integrate the mesher (Python + Gmsh)
+        run: |
+          env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+            bash packaging/common/build_mesher_runtime.sh "$PWD/mesher"
+          cp -a mesher/python mesher/gmsh build/Vortia.app/Contents/Resources/
+          rm -rf mesher
 
       - name: Bundle Qt/VTK and sign ad-hoc
         run: |
