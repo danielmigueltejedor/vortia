@@ -8,10 +8,16 @@ set -eu
 
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y --no-install-recommends \
+  # The Ubuntu archive regularly drops connections from CI runners.
+  echo 'Acquire::Retries "8"; Acquire::http::Timeout "30";' > /etc/apt/apt.conf.d/80-vortia-retries
+  attempt=1
+  until apt-get update && apt-get install -y --no-install-recommends \
     xvfb xauth libgl1 libegl1 libgl1-mesa-dri libglx-mesa0 \
-    fontconfig fonts-dejavu-core file binutils ca-certificates
+    fontconfig fonts-dejavu-core file binutils ca-certificates; do
+    [ "$attempt" -ge 5 ] && exit 1
+    attempt=$((attempt + 1))
+    sleep 20
+  done
 elif command -v dnf >/dev/null 2>&1; then
   dnf install -y \
     xorg-x11-server-Xvfb xorg-x11-xauth mesa-libGL mesa-libEGL mesa-dri-drivers \
