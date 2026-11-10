@@ -61,7 +61,7 @@ func draw(_ c: CGContext) {
 
     // Finder draws icon names in black over a picture: give them a light plate.
     for (x, width) in [(CGFloat(160), CGFloat(86)), (CGFloat(500), CGFloat(128))] {
-        let plate = CGRect(x: x - width / 2, y: 256, width: width, height: 22)
+        let plate = CGRect(x: x - width / 2, y: 262, width: width, height: 22)
         c.addPath(CGPath(roundedRect: plate, cornerWidth: 11, cornerHeight: 11, transform: nil))
         c.setFillColor(rgb(0xEAF2FF, 0.86)); c.fillPath()
     }
