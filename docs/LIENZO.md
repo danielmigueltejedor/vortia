@@ -81,13 +81,22 @@ Variables para pruebas o preferencias personales:
 | `VORTIA_FORCE_CSD=1` | Barra integrada también fuera de Linux (revisión de diseño) |
 | `VORTIA_THEME=light\|dark` | Esquema para esta ejecución, sin cambiar la preferencia |
 
+## Qué está probado
+
+El CI ejecuta la AppImage con un gestor de ventanas real (openbox sobre Xvfb,
+`packaging/linux/window_chrome_test.sh`) en Ubuntu 22.04 y 24.04 y comprueba
+que la ventana no tiene marco del sistema, que se mueve al arrastrar la barra,
+que se redimensiona desde un borde, que el doble clic maximiza y restaura, y
+que el botón de cerrar cierra. Un test de la interfaz comprueba además que la
+fila de herramientas mide lo mismo en todas las etapas y que la navegación no
+cambia de posición.
+
 ## Límites conocidos
 
+- Probado con X11 (openbox). En GNOME y KDE sobre Wayland se usan las mismas
+  llamadas de Qt, pero no hay prueba automática; la lectura de la disposición
+  de botones de GNOME/KDE solo está probada a nivel de analizador.
 - La ventana sin marco en Linux no tiene esquinas redondeadas ni sombra propia;
   dependen del compositor.
-- Mover, redimensionar y maximizar usan las funciones del gestor de ventanas
-  (`startSystemMove` / `startSystemResize`): sin gestor de ventanas no actúan.
-- El visor 3D y el lienzo de croquis pintan su propio fondo; aún no leen
-  `color.viewport`.
-- Esta entrega unifica el tema y la barra superior. No reordena herramientas
-  ni paneles.
+- El visor 3D pinta su propio fondo; aún no lee `color.viewport`.
+- `VORTIA_NATIVE_TITLEBAR=1` devuelve la barra de título del sistema.

@@ -45,7 +45,7 @@ with the evidence behind it in [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MAT
 
 ## What it does
 
-| Area | Vortia 0.3.0 | Evidence |
+| Area | Vortia 0.4.0 | Evidence |
 |---|---|---|
 | Geometry | Rectangular domains, 2D sketches with dimensions, lines and arcs, axisymmetric wedges, STL import for viewing | Software tests |
 | Meshing | Structured `blockMesh` with grading; Gmsh 2D and axisymmetric meshes from sketches; ASCII Fluent `.msh` import | Native runs |
@@ -180,7 +180,7 @@ turbulent fields.
 
 ## Project status
 
-Version **0.3.0**, experimental. What works, with which evidence, and what
+Version **0.4.0**, experimental. What works, with which evidence, and what
 does not:
 
 - [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) — capabilities by area
