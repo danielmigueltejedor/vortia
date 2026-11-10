@@ -17,18 +17,144 @@ if [ ! -f "$APPDIR/usr/plugins/platforms/libqxcb.so" ]; then
   exit 127
 fi
 
+# Record the user's own values. Vortia restores them for the programs it
+# starts (OpenFOAM, python3, gmsh) so they never load our bundled libraries.
+# See src/core/include/vortia/core/HostEnvironment.hpp.
+export VORTIA_LAUNCHER_ENV=1
+for name in LD_LIBRARY_PATH QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORM; do
+  if eval "[ -n \"\${$name+set}\" ]"; then
+    eval "export VORTIA_HOST_$name=\"\${$name}\""
+  else
+    unset "VORTIA_HOST_$name"
+  fi
+done
+
 # Do not allow host Qt plugins to supersede our packaged Qt version.
 export QT_PLUGIN_PATH="$APPDIR/usr/plugins"
 export QT_QPA_PLATFORM_PLUGIN_PATH="$APPDIR/usr/plugins/platforms"
 
-# The Linux AppImage currently bundles xcb, not the Wayland QPA plugin.
-# xcb works on both X11 and GNOME/KDE Wayland sessions via XWayland.
-# Respect an explicit user override for troubleshooting.
-: "${QT_QPA_PLATFORM:=xcb}"
+# xcb is the tested backend; it also serves Wayland sessions through
+# XWayland. Only a Wayland session without any X display uses the bundled
+# native Wayland plugin. An explicit user choice is always respected.
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+  if [ -z "${DISPLAY:-}" ] && [ -n "${WAYLAND_DISPLAY:-}" ] \
+     && [ -f "$APPDIR/usr/plugins/platforms/libqwayland-generic.so" ]; then
+    QT_QPA_PLATFORM=wayland
+  else
+    QT_QPA_PLATFORM=xcb
+  fi
+fi
 export QT_QPA_PLATFORM
 
-# Load bundled Qt/VTK dependencies before host libraries. Keep any user
-# overrides after the packaged paths, for unrelated host-side dependencies.
-export LD_LIBRARY_PATH="$APPDIR/usr/lib:$APPDIR/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# The bundled fontconfig, xkbcommon and libX11 were built for another prefix;
+# point them at this machine's fonts, keyboard layouts and compose tables.
+if [ -z "${FONTCONFIG_FILE:-}" ] && [ -z "${FONTCONFIG_PATH:-}" ]; then
+  if [ -r /etc/fonts/fonts.conf ]; then
+    # FONTCONFIG_PATH alone is not enough: the compiled-in default file is an
+    # absolute path into the build prefix.
+    export FONTCONFIG_FILE=/etc/fonts/fonts.conf
+    export FONTCONFIG_PATH=/etc/fonts
+  else
+    export FONTCONFIG_FILE="$APPDIR/usr/share/vortia/fonts.conf"
+  fi
+fi
+if [ -z "${XKB_CONFIG_ROOT:-}" ] && [ -d /usr/share/X11/xkb ]; then
+  export XKB_CONFIG_ROOT=/usr/share/X11/xkb
+fi
+if [ -z "${XLOCALEDIR:-}" ] && [ -d /usr/share/X11/locale ]; then
+  export XLOCALEDIR=/usr/share/X11/locale
+fi
 
-exec "$APPDIR/usr/bin/vortia" "$@"
+# Newest GLIBCXX_3.4.N symbol version a libstdc++ provides (prints N).
+glibcxx_level() {
+  grep -a -o 'GLIBCXX_3\.4\.[0-9][0-9]*' "$1" 2>/dev/null \
+    | sort -t. -k3,3n | tail -n 1 | cut -d. -f3
+}
+
+# Path of a 64-bit host library by soname, or failure when the host has none.
+host_library() {
+  for ldconfig in /sbin/ldconfig /usr/sbin/ldconfig ldconfig; do
+    found="$("$ldconfig" -p 2>/dev/null | grep -F "$1 (libc6,x86-64" \
+      | sed -n 's|.* => \(.*\)$|\1|p' | head -n 1)" || true
+    if [ -n "${found:-}" ] && [ -r "$found" ]; then
+      echo "$found"
+      return 0
+    fi
+  done
+  for dir in /usr/lib/x86_64-linux-gnu /lib/x86_64-linux-gnu /usr/lib64 /lib64 /usr/lib; do
+    if [ -r "$dir/$1" ]; then
+      echo "$dir/$1"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# The host's graphics drivers are loaded into this process and may need a
+# newer C++ runtime than the one we ship, while older distributions need
+# ours. Use the bundled libstdc++/libgcc_s unless the host's is newer.
+gcc_runtime="$APPDIR/usr/optional/gcc-runtime"
+library_path="$APPDIR/usr/lib"
+if [ -r "$gcc_runtime/libstdc++.so.6" ]; then
+  bundled_level="$(glibcxx_level "$gcc_runtime/libstdc++.so.6")"
+  host_level=""
+  if host_lib="$(host_library libstdc++.so.6)"; then
+    host_level="$(glibcxx_level "$host_lib")"
+  fi
+  if [ -z "$host_level" ] || [ "${bundled_level:-0}" -ge "$host_level" ]; then
+    library_path="$library_path:$gcc_runtime"
+  fi
+fi
+
+# VTK links the GLVND entry point libOpenGL.so.0, which stock Ubuntu and
+# Debian desktops do not install (package libopengl0). Ours is used only
+# then; it dispatches to the host's own libGLdispatch and drivers.
+if [ -r "$APPDIR/usr/optional/glvnd/libOpenGL.so.0" ] \
+   && ! host_library libOpenGL.so.0 >/dev/null; then
+  library_path="$library_path:$APPDIR/usr/optional/glvnd"
+fi
+
+# Bundled Qt/VTK and their dependencies come before anything in the user's
+# LD_LIBRARY_PATH (an OpenFOAM/ParaView environment often carries its own Qt).
+export LD_LIBRARY_PATH="$library_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# From a terminal, behave like any program. From a desktop launcher nobody
+# sees stderr: keep it in a log and say so if Vortia could not start.
+if [ -t 2 ] || [ -n "${VORTIA_NO_STARTUP_DIALOG:-}" ]; then
+  exec "$APPDIR/usr/bin/vortia" "$@"
+fi
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/vortia"
+log="$state_dir/startup.log"
+if ! mkdir -p "$state_dir" 2>/dev/null || ! : 2>/dev/null >"$log"; then
+  exec "$APPDIR/usr/bin/vortia" "$@"
+fi
+
+status=0
+"$APPDIR/usr/bin/vortia" "$@" 2>"$log" || status=$?
+# 126/127: could not execute or load libraries; >128: killed by a signal.
+if [ "$status" -ge 126 ]; then
+  case "${LANG:-}" in
+    es*) title="Vortia no ha podido abrirse"
+         text="Vortia se ha cerrado con un error (código $status). El registro está en: $log" ;;
+    *)   title="Vortia could not start"
+         text="Vortia exited with an error (code $status). The log is at: $log" ;;
+  esac
+  # Use the host's own tools with the host's own libraries.
+  if [ -n "${VORTIA_HOST_LD_LIBRARY_PATH+set}" ]; then
+    LD_LIBRARY_PATH="$VORTIA_HOST_LD_LIBRARY_PATH"
+  else
+    unset LD_LIBRARY_PATH
+  fi
+  unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORM
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --error --title="$title" --text="$text" 2>/dev/null || true
+  elif command -v kdialog >/dev/null 2>&1; then
+    kdialog --title "$title" --error "$text" 2>/dev/null || true
+  elif command -v notify-send >/dev/null 2>&1; then
+    notify-send "$title" "$text" 2>/dev/null || true
+  elif command -v xmessage >/dev/null 2>&1; then
+    xmessage "$title. $text" 2>/dev/null || true
+  fi
+fi
+exit "$status"

@@ -6,7 +6,10 @@ no required external installation at runtime. Run before signing the enclosing V
 """
 import argparse
 from pathlib import Path
+import re
 import shutil
+import subprocess
+import tempfile
 
 
 def accept_path(path):
@@ -18,6 +21,27 @@ def accept_path(path):
         if not resolved.is_relative_to(cwd):
             raise ValueError(f"Refusing relative path outside the working directory: {path}")
     return resolved
+
+
+def inspect_image(image):
+    """Mount the image read-only and return (volume id, newest minimum macOS of its tools)."""
+    with tempfile.TemporaryDirectory() as mount:
+        subprocess.run(["/usr/bin/hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", mount,
+                        str(image)], check=True, capture_output=True)
+        try:
+            volume_id = (Path(mount) / ".vol_id").read_text().strip()
+            if not re.fullmatch(r"[0-9A-Fa-f-]{36}", volume_id):
+                raise ValueError("The OpenFOAM image has no valid .vol_id")
+            newest = (0,)
+            for tool in sorted(Path(mount).glob("platforms/*/bin/*"))[:40]:
+                shown = subprocess.run(["/usr/bin/vtool", "-show-build", str(tool)],
+                                       capture_output=True, text=True).stdout
+                match = re.search(r"minos (\d+(?:\.\d+)*)", shown)
+                if match:
+                    newest = max(newest, tuple(int(part) for part in match.group(1).split(".")))
+            return volume_id, ".".join(str(part) for part in newest[:2])
+        finally:
+            subprocess.run(["/usr/bin/hdiutil", "detach", mount], check=False, capture_output=True)
 
 
 def bundle_engine(source, app):
@@ -32,9 +56,17 @@ def bundle_engine(source, app):
         raise ValueError("Engine destination already exists; refusing to replace it implicitly")
     destination.mkdir(parents=True)
     shutil.copyfile(source, destination / source.name)
+    # The helper only accepts the exact image it was packaged with.
+    volume_id, minimum_macos = inspect_image(source)
     helper = destination / "volume"
-    shutil.copyfile(Path(__file__).with_name("openfoam-volume"), helper)
+    template = Path(__file__).with_name("openfoam-volume").read_text()
+    stamped, replaced = re.subn(r'^volume_id="[^"]*"$', f'volume_id="{volume_id}"', template,
+                                count=1, flags=re.MULTILINE)
+    if replaced != 1:
+        raise ValueError("openfoam-volume has no volume_id line to stamp")
+    helper.write_text(stamped)
     helper.chmod(0o755)
+    (destination / "MINIMUM_MACOS").write_text(minimum_macos + "\n")
     if (source.parent / "LICENSE").is_file():
         shutil.copyfile(source.parent / "LICENSE", destination / "LICENSE")
     (destination / "VORTIA-PACKAGING.txt").write_text(

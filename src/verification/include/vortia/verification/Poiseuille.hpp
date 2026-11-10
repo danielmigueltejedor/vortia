@@ -65,7 +65,9 @@ struct PoiseuilleChannel {
     // Steady SIMPLE is appropriate for fully developed channel verification.
     s.solver = SolverApp::SimpleFoam;
     s.numerics.ddt = TimeScheme::SteadyState;
-    s.time = {0.0, 500.0, 1.0, 50, false, 1.0};
+    // Iteration budget: the run stops earlier, at residualControl. 500 was not
+    // enough to converge the 60x40 benchmark mesh (first native run, 0.3.0).
+    s.time = {0.0, 5000.0, 1.0, 5000, false, 1.0};
     return s;
 }
 

@@ -769,6 +769,11 @@ Caso fallido conservado: %2
     <message><source>Number of CFD cells in this direction. Increasing it affects solver cost.</source><translation>Número de celdas CFD en esta dirección. Aumentarlo incrementa el coste del cálculo.</translation></message>
     <message><source>Transient laminar (icoFoam)</source><translation>Laminar transitorio (icoFoam)</translation></message>
     <message><source>Steady laminar (simpleFoam)</source><translation>Laminar estacionario (simpleFoam)</translation></message>
+    <message><source>Steady turbulent, k-omega SST (simpleFoam)</source><translation>Turbulento estacionario, k-omega SST (simpleFoam)</translation></message>
+    <message><source>Turbulence intensity</source><translation>Intensidad de turbulencia</translation></message>
+    <message><source>Turbulent length scale (m)</source><translation>Escala de longitud turbulenta (m)</translation></message>
+    <message><source>Turbulence intensity at inlets and in the initial field. Used by the k-omega SST model only.</source><translation>Intensidad de turbulencia en las entradas y en el campo inicial. Solo la usa el modelo k-omega SST.</translation></message>
+    <message><source>Turbulent length scale in metres. Used by the k-omega SST model only.</source><translation>Escala de longitud turbulenta en metros. Solo la usa el modelo k-omega SST.</translation></message>
     <message><source>Solver</source><translation>Solucionador</translation></message>
     <message><source>Write interval (steps)</source><translation>Intervalo de escritura (pasos)</translation></message>
     <message><source>Run a simulation to see results here.</source><translation>Ejecuta una simulación para ver los resultados.</translation></message>

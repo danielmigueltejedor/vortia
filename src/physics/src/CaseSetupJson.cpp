@@ -146,6 +146,10 @@ std::string caseSetupToJson(const CaseSetup& s) {
                      {"toleranceP", s.numerics.toleranceP},
                      {"toleranceU", s.numerics.toleranceU}};
     j["solver"] = nameOf(s.solver);
+    j["turbulence"] = {{"model", s.turbulence.model == TurbulenceModel::KOmegaSST ? "kOmegaSST" : "laminar"},
+                       {"intensity", s.turbulence.intensity},
+                       {"lengthScale", s.turbulence.lengthScale},
+                       {"referenceSpeed", s.turbulence.referenceSpeed}};
     return j.dump(2);
 }
 
@@ -242,6 +246,21 @@ Expected<CaseSetup> caseSetupFromJson(const std::string& text) {
         auto solver = solverAppFrom(j.value("solver", std::string{"icoFoam"}));
         if (!solver) return solver.error();
         s.solver = solver.value();
+
+        // Absent in projects saved before 0.3.0: laminar.
+        if (j.contains("turbulence")) {
+            const auto& jt = j["turbulence"];
+            const std::string model = jt.value("model", std::string{"laminar"});
+            if (model == "kOmegaSST")
+                s.turbulence.model = TurbulenceModel::KOmegaSST;
+            else if (model == "laminar")
+                s.turbulence.model = TurbulenceModel::Laminar;
+            else
+                return Error::make(ErrorCode::InvalidData, "unknown turbulence model", model);
+            s.turbulence.intensity = jt.value("intensity", 0.01);
+            s.turbulence.lengthScale = jt.value("lengthScale", 0.01);
+            s.turbulence.referenceSpeed = jt.value("referenceSpeed", 0.0);
+        }
     } catch (const json::exception& e) {
         return Error::make(ErrorCode::InvalidData,
                            std::string("malformed case setup JSON: ") + e.what());

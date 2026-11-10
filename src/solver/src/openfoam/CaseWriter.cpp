@@ -3,6 +3,8 @@
 #include "vortia/core/Logger.hpp"
 #include "vortia/mesh/BlockMeshDict.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -80,6 +82,67 @@ std::string ddtSchemeName(TimeScheme scheme) {
 // Dictionary generators
 // ---------------------------------------------------------------------------
 
+namespace {
+
+/// Iteration budget of a steady case: setup.time.endTime when it is a whole
+/// number of iterations, else the historical default of 1000.
+long steadyIterations(const CaseSetup& setup) {
+    const double requested = setup.time.endTime;
+    return (std::isfinite(requested) && requested >= 1.0 && requested <= 1e7)
+               ? std::lround(requested) : 1000L;
+}
+
+long steadyWriteInterval(const CaseSetup& setup) {
+    const long iterations = steadyIterations(setup);
+    const long interval = setup.time.writeInterval >= 1 ? setup.time.writeInterval : 200L;
+    return std::min(interval, iterations);
+}
+
+bool isRans(const CaseSetup& setup) {
+    return setup.turbulence.model == TurbulenceModel::KOmegaSST;
+}
+
+bool isWallPatch(const CaseSetup& setup, const std::string& name) {
+    for (const auto& patch : setup.mesh.patches)
+        if (patch.name == name)
+            return patch.kind == PatchKind::Wall;
+    return false;
+}
+
+/// Shared layout of the k / omega / nut boundary fields.
+std::string turbulenceField(const CaseSetup& setup, const char* object, const char* dimensions,
+                            double internalValue, const char* wallType, bool inletFixed) {
+    std::ostringstream out;
+    out << foamFile("volScalarField", object, "0");
+    out << "dimensions      " << dimensions << ";\n\n"
+        << "internalField   uniform " << fmt(internalValue) << ";\n\n"
+        << "boundaryField\n{\n";
+    for (const auto& bc : setup.boundaries) {
+        out << "    " << bc.patchName << "\n    {\n";
+        if (bc.velocity == VelocityBc::Empty) {
+            out << "        type            empty;\n";
+        } else if (bc.velocity == VelocityBc::Symmetry) {
+            out << "        type            symmetry;\n";
+        } else if (isWallPatch(setup, bc.patchName)) {
+            out << "        type            " << wallType << ";\n"
+                << "        value           uniform " << fmt(internalValue) << ";\n";
+        } else if (bc.velocity == VelocityBc::FixedValue && inletFixed) {
+            out << "        type            fixedValue;\n"
+                << "        value           uniform " << fmt(internalValue) << ";\n";
+        } else if (inletFixed) {
+            out << "        type            zeroGradient;\n";
+        } else {
+            out << "        type            calculated;\n"
+                << "        value           uniform " << fmt(internalValue) << ";\n";
+        }
+        out << "    }\n";
+    }
+    out << "}\n" << kFooter;
+    return out.str();
+}
+
+} // namespace
+
 std::string CaseWriter::controlDict(const CaseSetup& setup, const Capabilities& caps) {
     const bool steady = setup.numerics.ddt == TimeScheme::SteadyState;
     std::ostringstream out;
@@ -93,10 +156,10 @@ std::string CaseWriter::controlDict(const CaseSetup& setup, const Capabilities& 
         out << "startFrom       startTime;\n\n"
             << "startTime       0;\n\n"
             << "stopAt          endTime;\n\n"
-            << "endTime         1000;\n\n"
+            << "endTime         " << steadyIterations(setup) << ";\n\n"
             << "deltaT          1;\n\n"
             << "writeControl    timeStep;\n\n"
-            << "writeInterval   200;\n\n";
+            << "writeInterval   " << steadyWriteInterval(setup) << ";\n\n";
     } else {
         out << "startFrom       startTime;\n\n"
             << "startTime       " << fmt(setup.time.startTime) << ";\n\n"
@@ -133,7 +196,14 @@ std::string CaseWriter::fvSchemes(const CaseSetup& setup) {
         << "divSchemes\n{\n"
         << "    default         none;\n"
         << "    div(phi,U)      " << setup.numerics.divPhiU << ";\n"
-        << "}\n\n"
+        // Explicit part of the viscous stress. simpleFoam and foamRun look
+        // it up even for laminar flow; with "default none" a missing entry
+        // is a fatal error on the first iteration.
+        << "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n";
+    if (isRans(setup))
+        out << "    div(phi,k)      bounded Gauss upwind;\n"
+            << "    div(phi,omega)  bounded Gauss upwind;\n";
+    out << "}\n\n"
         << "laplacianSchemes\n{\n"
         << "    default         " << setup.numerics.laplacian << ";\n"
         << "}\n\n"
@@ -142,8 +212,10 @@ std::string CaseWriter::fvSchemes(const CaseSetup& setup) {
         << "}\n\n"
         << "snGradSchemes\n{\n"
         << "    default         corrected;\n"
-        << "}\n"
-        << kFooter;
+        << "}\n";
+    if (isRans(setup))
+        out << "\nwallDist\n{\n    method          meshWave;\n}\n";
+    out << kFooter;
     return out.str();
 }
 
@@ -167,9 +239,16 @@ std::string CaseWriter::fvSolution(const CaseSetup& setup) {
         << "        solver          smoothSolver;\n"
         << "        smoother        symGaussSeidel;\n"
         << "        tolerance       " << fmt(setup.numerics.toleranceU) << ";\n"
-        << "        relTol          0;\n"
-        << "    }\n"
-        << "}\n\n";
+        << "        relTol          " << (isRans(setup) ? "0.1" : "0") << ";\n"
+        << "    }\n";
+    if (isRans(setup))
+        out << "\n    \"(k|omega)\"\n    {\n"
+            << "        solver          smoothSolver;\n"
+            << "        smoother        symGaussSeidel;\n"
+            << "        tolerance       1e-10;\n"
+            << "        relTol          0.1;\n"
+            << "    }\n";
+    out << "}\n\n";
     if (steady) {
         out << "SIMPLE\n{\n"
             << "    pRefCell        0;\n"
@@ -178,6 +257,7 @@ std::string CaseWriter::fvSolution(const CaseSetup& setup) {
             << "    residualControl\n    {\n"
             << "        p               1e-4;\n"
             << "        U               1e-5;\n"
+            << (isRans(setup) ? "        \"(k|omega)\"     1e-5;\n" : "")
             << "    }\n"
             << "}\n\n"
             << "relaxationFactors\n{\n"
@@ -186,6 +266,7 @@ std::string CaseWriter::fvSolution(const CaseSetup& setup) {
             << "    }\n"
             << "    equations\n    {\n"
             << "        U               0.7;\n"
+            << (isRans(setup) ? "        \"(k|omega)\"     0.7;\n" : "")
             << "    }\n"
             << "}\n";
     } else {
@@ -211,11 +292,45 @@ std::string CaseWriter::transportProperties(const CaseSetup& setup, const Capabi
     return out.str();
 }
 
-std::string CaseWriter::turbulenceProperties() {
+std::string CaseWriter::turbulenceProperties(const CaseSetup& setup, const Capabilities& caps) {
     std::ostringstream out;
-    out << foamFile("dictionary", "turbulenceProperties");
-    out << "simulationType  laminar;\n" << kFooter;
+    out << foamFile("dictionary", caps.turbulenceDict);
+    if (!isRans(setup)) {
+        out << "simulationType  laminar;\n" << kFooter;
+        return out.str();
+    }
+    // ESI and older Foundation releases read "RASModel", Foundation >= 8
+    // reads "model"; unknown keywords are ignored by both.
+    out << "simulationType  RAS;\n\n"
+        << "RAS\n{\n"
+        << "    RASModel        kOmegaSST;\n"
+        << "    model           kOmegaSST;\n"
+        << "    turbulence      on;\n"
+        << "    printCoeffs     on;\n"
+        << "}\n"
+        << kFooter;
     return out.str();
+}
+
+std::string CaseWriter::fieldK(const CaseSetup& setup) {
+    if (!isRans(setup))
+        return {};
+    const double k = turbulentKineticEnergy(setup.turbulenceReferenceSpeed(), setup.turbulence.intensity);
+    return turbulenceField(setup, "k", "[0 2 -2 0 0 0 0]", k, "kqRWallFunction", true);
+}
+
+std::string CaseWriter::fieldOmega(const CaseSetup& setup) {
+    if (!isRans(setup))
+        return {};
+    const double k = turbulentKineticEnergy(setup.turbulenceReferenceSpeed(), setup.turbulence.intensity);
+    const double omega = specificDissipationRate(k, setup.turbulence.lengthScale);
+    return turbulenceField(setup, "omega", "[0 0 -1 0 0 0 0]", omega, "omegaWallFunction", true);
+}
+
+std::string CaseWriter::fieldNut(const CaseSetup& setup) {
+    if (!isRans(setup))
+        return {};
+    return turbulenceField(setup, "nut", "[0 2 -1 0 0 0 0]", 0.0, "nutkWallFunction", false);
 }
 
 std::string CaseWriter::fieldU(const CaseSetup& setup) {
@@ -308,10 +423,19 @@ Expected<std::vector<std::filesystem::path>> CaseWriter::write(
         written.push_back(path);
     }
     if (steady) {
-        const auto path = caseDir / "constant" / "turbulenceProperties";
-        if (auto ok = writeFile(path, turbulenceProperties()); !ok)
+        const auto path = caseDir / "constant" / caps.turbulenceDict;
+        if (auto ok = writeFile(path, turbulenceProperties(setup, caps)); !ok)
             return ok.error();
         written.push_back(path);
+    }
+    if (isRans(setup)) {
+        for (const auto& [rel, contents] : std::vector<std::pair<std::string, std::string>>{
+                 {"0/k", fieldK(setup)}, {"0/omega", fieldOmega(setup)}, {"0/nut", fieldNut(setup)}}) {
+            const auto path = caseDir / rel;
+            if (auto ok = writeFile(path, contents); !ok)
+                return ok.error();
+            written.push_back(path);
+        }
     }
 
     // Marker last: only complete cases count as Vortia-owned.

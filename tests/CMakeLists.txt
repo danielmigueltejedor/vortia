@@ -10,6 +10,7 @@ add_executable(test_core
     unit/test_units.cpp
     unit/test_expected.cpp
     unit/test_version.cpp
+    unit/test_host_environment.cpp
     unit/test_private_temp_dir.cpp
     unit/test_process.cpp
     unit/test_project.cpp)
@@ -79,15 +80,30 @@ set_tests_properties(benchmark_ghia_openfoam PROPERTIES
     SKIP_RETURN_CODE 2
     TIMEOUT 1200)
 
+add_test(NAME benchmark_turbulent_plate_openfoam
+    COMMAND bash "${PROJECT_SOURCE_DIR}/benchmarks/turbulent-flat-plate-sst/scripts/run_openfoam.sh"
+            "${CMAKE_BINARY_DIR}/benchmark-native/turbulent-plate")
+set_tests_properties(benchmark_turbulent_plate_openfoam PROPERTIES
+    ENVIRONMENT "VORTIA_BENCHMARK_WRITE_CASE=$<TARGET_FILE:benchmark_write_case>"
+    SKIP_RETURN_CODE 2
+    TIMEOUT 2400)
+
+add_test(NAME benchmark_write_turbulent_plate_smoke
+    COMMAND $<TARGET_FILE:benchmark_write_case> turbulent-plate
+            "${CMAKE_BINARY_DIR}/benchmark-smoke/turbulent-plate")
+
 add_executable(test_solver
     unit/test_installation.cpp
     unit/test_detector.cpp
+    unit/test_engine_self_test.cpp
+    unit/test_forces.cpp
+    unit/test_turbulence.cpp
     unit/test_case_writer.cpp
     unit/test_log_parser.cpp
     unit/test_convergence_policy.cpp)
 target_sources(test_solver PRIVATE unit/test_mass_balance.cpp)
 target_include_directories(test_solver PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
-target_link_libraries(test_solver PRIVATE vortia::solver GTest::gtest_main vortia_warnings)
+target_link_libraries(test_solver PRIVATE vortia::solver vortia::verification GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_solver)
 
 # Integration: CaseRunner orchestration against a FAKE backend (shell-script

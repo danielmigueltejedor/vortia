@@ -1,11 +1,42 @@
 # Limitaciones conocidas
 
-Actualizado: 2026-10-27. El estado del MVP inicial ha quedado superado por las
-herramientas posteriores; estas son las restricciones relevantes actuales.
+Actualizado: 2026-11-10 (0.3.0). Resumen por áreas en
+[`CAPABILITY_MATRIX.md`](CAPABILITY_MATRIX.md).
+
+## Instaladores 0.3.0
+
+- **macOS:** solo Apple Silicon (arm64), macOS 14 o posterior. Firma ad-hoc,
+  sin notarización de Apple: la primera vez Gatekeeper avisa y hay que abrir
+  con clic derecho → Abrir (o permitirlo en Ajustes → Privacidad y seguridad).
+  Probado en macOS 15, 26 y 27; macOS 14 es el mínimo que declaran los
+  binarios, sin máquina de prueba.
+- **Linux:** AppImage x86_64, glibc 2.31 o posterior (Ubuntu 20.04, Debian 11,
+  Fedora, Arch, openSUSE Tumbleweed, Rocky 9 y posteriores). Tras descargarla
+  hay que darle permiso de ejecución (Propiedades → Permisos, o `chmod +x`):
+  es una propiedad del formato AppImage, el navegador lo quita. Necesita FUSE
+  (`fusermount`), presente en los escritorios habituales; sin FUSE se puede
+  ejecutar con `--appimage-extract-and-run`. El backend gráfico probado es
+  X11/XWayland; el plugin Wayland nativo se incluye como reserva sin probar.
+- **Motor integrado:** OpenFOAM v2606 en macOS y v2412 en Linux, con MPI y
+  mallador (Python + Gmsh). No hace falta instalar OpenFOAM. `vortia
+  --verify-engine` ejecuta un caso real en serie y con 2 procesos.
+- **Flujo compresible experimental (toberas):** su solver se compila en el
+  equipo la primera vez. En macOS requiere las Xcode Command Line Tools. En la
+  AppImage de Linux **no está disponible** en 0.3.0: exige OpenFOAM v2606 y un
+  compilador, y el motor integrado es v2412 sin cabeceras de desarrollo.
+- OpenFOAM no admite espacios en su ruta; Vortia lo resuelve con un enlace
+  sin espacios en la caché del usuario cuando hace falta.
+
+## Restricciones generales
 
 - El flujo compresible dibujado usa un motor experimental basado en OpenFOAM
-  v2606. La aplicación puede detectar y usar el runtime local de este Mac;
-  ejecutar en otras instalaciones depende de su compatibilidad real.
+  v2606 (ver arriba su disponibilidad por plataforma).
+- El modelo k-ω SST se ofrece para casos estacionarios con funciones de pared.
+  Su única comprobación nativa es el arrastre de una placa plana frente a una
+  correlación empírica, con una sola malla: no cubre separación, gradientes de
+  presión, transición ni calor. Con OpenFOAM Foundation no se ha ejecutado.
+- Las fuerzas y coeficientes (C_D, C_L, C_p) están disponibles como biblioteca
+  y herramienta `force_report`; todavía no hay un panel en la interfaz.
 - Hay croquis 2D con cotas, líneas/arcos y regiones de malla, además de cuñas
   axisimétricas y visualización de revolución. Esto no constituye un modelador
   CAD general de sólidos 3D ni importación STEP/IGES completa.

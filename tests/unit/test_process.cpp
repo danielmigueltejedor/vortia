@@ -102,6 +102,35 @@ TEST(Process, EnvironmentOverlay) {
     EXPECT_EQ(result->stdOut, "present");
 }
 
+// OpenFOAM trusts $PWD and aborts when it contains a blank; a stale value
+// (launch directory, or the one captured with the engine environment) must
+// never reach a child started in another directory.
+TEST(Process, ChildSeesItsWorkingDirectoryAsPwd) {
+    const auto dir = vortia::test::makePrivateTempDir("vortia-pwd-");
+    PosixProcessRunner runner;
+    ProcessRequest request;
+    request.executable = "/bin/sh";
+    request.arguments = {"-c", "printf '%s|%s' \"$PWD\" \"${OLDPWD-unset}\""};
+    request.workingDirectory = dir;
+    request.environment = {{"PWD", "/stale/Mis documentos"}, {"OLDPWD", "/stale/old"}};
+    const auto result = runner.run(request);
+    ASSERT_TRUE(result.hasValue());
+    ASSERT_TRUE(result->succeeded());
+    EXPECT_EQ(result->stdOut, std::filesystem::absolute(dir).string() + "|unset");
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Process, PwdIsLeftAloneWithoutAWorkingDirectory) {
+    PosixProcessRunner runner;
+    ProcessRequest request;
+    request.executable = "/bin/sh";
+    request.arguments = {"-c", "printf '%s' \"$VORTIA_TEST_MARK\""};
+    request.environment = {{"VORTIA_TEST_MARK", "kept"}};
+    const auto result = runner.run(request);
+    ASSERT_TRUE(result.hasValue());
+    EXPECT_EQ(result->stdOut, "kept");
+}
+
 TEST(Process, StreamingCallbackSeesOutput) {
     PosixProcessRunner runner;
     ProcessRequest req;

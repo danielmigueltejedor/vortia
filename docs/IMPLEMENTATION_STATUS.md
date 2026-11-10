@@ -1,8 +1,22 @@
 # Estado de implementación
 
-Actualizado: 2026-11-06 (release 0.2.0)
+Actualizado: 2026-11-10 (release 0.3.0)
 
 ## Implementado (con pruebas)
+
+**0.3.0 — Instaladores autónomos y verificación nativa**
+- AppImage y DMG con OpenFOAM, Open MPI, Python y Gmsh integrados; autopruebas
+  `--verify-startup`, `--verify-engine`, `--verify-mesher` ejecutadas en CI en
+  nueve distribuciones limpias, dos VM Ubuntu y dos versiones de macOS.
+- Verificación nativa registrada: Poiseuille (perfil y fuerza de pared),
+  cavidad de Ghia y placa plana turbulenta (`docs/VALIDATION.md`).
+- k-ω SST estacionario con funciones de pared (modelo, validación, JSON,
+  escritor de casos, selector en la interfaz).
+- Fuerzas de pared y coeficientes C_D/C_L/C_p (`vortia/solver/openfoam/Forces.hpp`,
+  herramienta `force_report`); sin panel en la interfaz todavía.
+- Corregidos: esquema ausente en `fvSchemes` para `simpleFoam`, iteraciones
+  del `controlDict` estacionario, `PWD` de los procesos hijo, herencia del
+  entorno de la AppImage.
 
 **0.2.0 — Verificación (unitario / analítico)**
 - `vortia::verification`: métricas de perfil, Poiseuille, Ghia Re=100, Blasius clásico, GCI Roache/Celik, balance de flujo volumétrico.
@@ -32,14 +46,16 @@ Actualizado: 2026-11-06 (release 0.2.0)
 
 ## Pruebas
 
-- 101 tests unitarios/integración (GoogleTest) + 1 test end-to-end de orquestación con backend falso.
+- 254 tests en `ctest` (unitarios, integración y benchmarks), de los que los nativos se ejecutan en CI con el motor empaquetado.
 - Sanitizers (ASan+UBSan) configurados en CI.
 - CI: GitHub Actions (Linux core + sanitizers, macOS con UI).
 
 ## Parcial / pendiente
 
-- Validación numérica real nativa (Poiseuille/Ghia/Blasius + GCI registrado): requiere OpenFOAM en Linux/WSL2/Docker — objetivo 0.3.0.
-- snappyHexMesh, STEP/IGES (OCCT), MPI, remoto/HPC, informes PDF; fuerzas / CL·CD.
+- Blasius nativo y un estudio GCI de tres mallas registrado: pendientes.
+- Flujo compresible experimental en la AppImage de Linux (requiere v2606 y compilador).
+- Panel de fuerzas y coeficientes en la interfaz; comparación de la componente v de Ghia.
+- snappyHexMesh, STEP/IGES (OCCT), remoto/HPC, informes PDF.
 - Editor completo de condiciones de contorno (MVP: plantilla de cavidad con tapa móvil).
 - Internacionalización completa (solo scaffold en/es).
 - Notarización Apple Developer ID (DMG sigue ad-hoc).

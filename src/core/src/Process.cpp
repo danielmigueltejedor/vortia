@@ -1,5 +1,8 @@
 #include "vortia/core/Process.hpp"
 
+#if defined(__linux__)
+#include <dlfcn.h>
+#endif
 #include <cstring>
 
 #ifndef _WIN32
@@ -58,10 +61,27 @@ Expected<ProcessResult> PosixProcessRunner::run(const ProcessRequest& request,
     ::posix_spawn_file_actions_addclose(&actions, stdoutPipe[0]);
     ::posix_spawn_file_actions_addclose(&actions, stderrPipe[0]);
     if (!request.workingDirectory.empty()) {
+#if defined(__linux__)
+        // Declared by glibc 2.29+. Release builds target an older C library
+        // for compatibility, so the symbol is looked up at run time.
+        using AddChdir = int (*)(posix_spawn_file_actions_t*, const char*);
+        const auto addChdir = reinterpret_cast<AddChdir>(
+            ::dlsym(RTLD_DEFAULT, "posix_spawn_file_actions_addchdir_np"));
+        if (addChdir == nullptr) {
+            ::posix_spawn_file_actions_destroy(&actions);
+            for (const int fd : {stdoutPipe[0], stdoutPipe[1], stderrPipe[0], stderrPipe[1]})
+                ::close(fd);
+            return Error::make(ErrorCode::UnsupportedFeature,
+                               "this system's C library is too old to start a process in a "
+                               "working directory (glibc 2.29 or newer is required)");
+        }
+        addChdir(&actions, request.workingDirectory.c_str());
+#else
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
         ::posix_spawn_file_actions_addchdir_np(&actions, request.workingDirectory.c_str());
 #pragma clang diagnostic pop
+#endif
     }
 
     // argv: program name + arguments, NUL-terminated. No shell involved.
@@ -92,6 +112,18 @@ Expected<ProcessResult> PosixProcessRunner::run(const ProcessRequest& request,
     }
     for (const auto& [k, v] : request.environment)
         envStorage.push_back(k + "=" + v);
+    if (!request.workingDirectory.empty()) {
+        // The child starts in workingDirectory, so PWD must say so. A stale
+        // PWD (the directory Vortia was launched from, or the one captured
+        // with the engine environment) misleads programs that trust it:
+        // OpenFOAM aborts when it contains a blank.
+        std::erase_if(envStorage, [](const std::string& entry) {
+            return entry.rfind("PWD=", 0) == 0 || entry.rfind("OLDPWD=", 0) == 0;
+        });
+        std::error_code ec;
+        const auto absolute = std::filesystem::absolute(request.workingDirectory, ec);
+        envStorage.push_back("PWD=" + (ec ? request.workingDirectory : absolute).string());
+    }
     std::vector<char*> envp;
     envp.reserve(envStorage.size() + 1);
     for (auto& s : envStorage)

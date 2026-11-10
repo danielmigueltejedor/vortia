@@ -72,6 +72,8 @@ private:
     QDoubleSpinBox* endTimeEdit_{nullptr};
     QDoubleSpinBox* deltaTEdit_{nullptr};
     QSpinBox* writeIntervalEdit_{nullptr};
+    QDoubleSpinBox* turbulenceIntensityEdit_{nullptr}; ///< per cent
+    QDoubleSpinBox* turbulenceLengthEdit_{nullptr};    ///< metres
 
     QPushButton* applyButton_{nullptr};
 };

@@ -59,6 +59,18 @@ if ! "${solver[@]}" > log.solver 2>&1; then
   tail -n 120 log.solver >&2
   exit 1
 fi
+# A profile from an unconverged run is not evidence of anything. Here the
+# transverse velocity is identically zero, so its normalised residual is
+# round-off noise and the solver's own residualControl on U is never met:
+# convergence is judged on the streamwise velocity and the pressure.
+grep -E '^Time = ' log.solver | tail -n 1
+ux_residual="$(grep 'Solving for Ux,' log.solver | tail -n 1 | sed -E 's/.*Initial residual = ([^,]+),.*/\1/')"
+p_residual="$(grep 'Solving for p,' log.solver | tail -n 1 | sed -E 's/.*Initial residual = ([^,]+),.*/\1/')"
+echo "final initial residuals: Ux=$ux_residual p=$p_residual (required: Ux < 1e-5, p < 1e-4)"
+if ! python3 -c "import sys; sys.exit(0 if float('$ux_residual') < 1e-5 and float('$p_residual') < 1e-4 else 1)"; then
+  echo "FAIL: not converged within the iteration budget" >&2
+  exit 1
+fi
 if command -v postProcess >/dev/null 2>&1; then
   postProcess -func sampleU -latestTime > log.sampleU 2>&1 || true
 fi
@@ -94,3 +106,22 @@ python3 "$root/benchmarks/common/compare_profiles.py" \
   --component 0 \
   --rel-l2-max 0.02 \
   --rel-linf-max 0.03
+
+# Wall force against the exact momentum balance F_x = (p_in - p_out) H W.
+force_tool="$(dirname "$write_tool")/force_report"
+if [[ "$dist" == "esi" && -x "$force_tool" ]]; then
+  if ! "${solver[@]}" -postProcess -func forces -latestTime > log.forces 2>&1; then
+    echo "forces post-processing failed:" >&2
+    tail -n 60 log.forces >&2
+    exit 1
+  fi
+  force_file="$(find "$case_dir/postProcessing/forces" -type f -name 'force*.dat' | sort | tail -n1 || true)"
+  if [[ -z "$force_file" ]]; then
+    echo "No forces file under postProcessing/forces" >&2
+    tail -n 40 log.forces >&2
+    exit 1
+  fi
+  "$force_tool" poiseuille "$force_file" 0.02
+else
+  echo "Wall-force check skipped (needs the ESI forces function object and force_report)."
+fi

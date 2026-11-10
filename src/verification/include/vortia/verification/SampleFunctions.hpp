@@ -37,7 +37,7 @@ namespace vortia::verification {
            "(\n"
            "    centreline\n"
            "    {\n"
-           "        type            lineUniform;\n"
+           "        type            uniform;\n"
            "        axis            y;\n"
            "        start           ("
         << x << " " << y0 << " " << z << ");\n"
@@ -77,7 +77,7 @@ namespace vortia::verification {
            "(\n"
            "    centreline\n"
            "    {\n"
-           "        type            lineUniform;\n"
+           "        type            uniform;\n"
            "        axis            x;\n"
            "        start           ("
         << x0 << " " << y << " " << z << ");\n"
@@ -87,6 +87,16 @@ namespace vortia::verification {
            ");\n\n"
            "// ************************************************************************* //\n";
     return out.str();
+}
+
+/// The uniform line set is called `uniform` in ESI OpenFOAM (the default
+/// written above; verified with v2412) and `lineUniform` in Foundation
+/// releases. Returns the dictionary adapted for Foundation.
+[[nodiscard]] inline std::string sampleDictForFoundation(std::string dict) {
+    const std::string esi = "type            uniform;";
+    for (auto at = dict.find(esi); at != std::string::npos; at = dict.find(esi, at))
+        dict.replace(at, esi.size(), "type            lineUniform;");
+    return dict;
 }
 
 [[nodiscard]] inline std::string poiseuilleSampleDict(const PoiseuilleChannel& c) {
