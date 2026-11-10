@@ -26,7 +26,9 @@ be shared across the suite.
 3. Solver: OpenFOAM adapter, process-based as in C++, case writer and log parser.
 4. Interop and verification (`src/interop`, `src/verification`).
 5. A command-line front end over those crates, to compare results with the C++ app.
-6. The egui application shell.
+6. The egui application shell, built on the shared design language of the Nodalia apps
+   ([nodalia-design](https://github.com/danielmigueltejedor/nodalia-design)) rather than
+   on styles of its own.
 7. The 3D viewer. VTK has no mature Rust equivalent, so this is the largest open risk:
    a wgpu renderer for meshes, contours and profiles is the planned route.
 
