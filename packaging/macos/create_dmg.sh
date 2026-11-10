@@ -76,7 +76,16 @@ EOF
 layout_window || echo "warning: could not arrange the DMG window; continuing without the layout" >&2
 
 sync
-hdiutil detach "$mount" >/dev/null || diskutil eject "$mount" >/dev/null
+# Finder or Spotlight can keep the volume busy for a moment after the layout
+# step; a failed eject must not fail the release.
+detached=0
+for attempt in 1 2 3 4 5 6 7 8; do
+  if hdiutil detach "$mount" >/dev/null 2>&1; then detached=1; break; fi
+  sleep 3
+done
+if ((!detached)); then
+  hdiutil detach -force "$mount" >/dev/null
+fi
 rm -f "$out"
 hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$out" >/dev/null
 echo "Created $out"
