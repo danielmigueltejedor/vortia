@@ -307,6 +307,23 @@ jobs:
           cmake --build build --target vortia_macos_bundle
           test -s build/Vortia.app/Contents/Resources/Vortia.icns
 
+      - name: Integrate the OpenFOAM engine
+        env:
+          # Native Apple Silicon OpenFOAM v2606 from gerlero/openfoam-app v2.2.3.
+          ENGINE_URL: https://github.com/gerlero/openfoam-app/releases/download/v2.2.3/openfoam2606-app-arm64.zip
+          ENGINE_SHA256: 22456639168cff9fab89335224e5dfe2627e7942e93e99bd0540f60d89679e49
+        run: |
+          mkdir engine && cd engine
+          curl -fsSL --proto '=https' --tlsv1.2 "$ENGINE_URL" -o engine.zip
+          echo "$ENGINE_SHA256  engine.zip" | shasum -a 256 -c -
+          ditto -x -k engine.zip . && rm engine.zip
+          image="$(find "$PWD" -name 'OpenFOAM-v2606.dmg' | head -n 1)"
+          test -s "$image"
+          cd ..
+          /usr/bin/python3 packaging/macos/bundle_openfoam.py "$image" "$PWD/build/Vortia.app"
+          cat build/Vortia.app/Contents/Resources/OpenFOAM-v2606/MINIMUM_MACOS
+          rm -rf engine
+
       - name: Bundle Qt/VTK and sign ad-hoc
         run: |
           cocoa="$(find "$CONDA_PREFIX" -name libqcocoa.dylib -not -path '*/pkgs/*' | head -n 1)"
@@ -322,7 +339,7 @@ jobs:
       - name: Start the bundle outside the build environment
         run: |
           micromamba deactivate || true
-          env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+          env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin VORTIA_EXPECT_ENGINE=1 \
             bash packaging/macos/smoke_test_app.sh build/Vortia.app
 
       - name: Create DMG
@@ -363,7 +380,7 @@ jobs:
           install="$(mktemp -d)"
           ditto "$mount/Vortia.app" "$install/Vortia.app"
           hdiutil detach "$mount"
-          bash packaging/macos/smoke_test_app.sh "$install/Vortia.app"
+          VORTIA_EXPECT_ENGINE=1 bash packaging/macos/smoke_test_app.sh "$install/Vortia.app"
 
   attach-to-release:
     # Nothing reaches a release unless every start-up test above passed.

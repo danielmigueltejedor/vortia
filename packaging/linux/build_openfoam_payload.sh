@@ -75,8 +75,9 @@ while ((added)); do
   )
 done
 for package in "openfoam${version}" openmpi-bin libopenmpi3; do
-  [[ -f "/usr/share/doc/$package/copyright" ]] &&
+  if [[ -f "/usr/share/doc/$package/copyright" ]]; then
     cp -L "/usr/share/doc/$package/copyright" "$out/licenses/$package.copyright"
+  fi
 done
 
 cat > "$engine/etc/vortia-runtime.sh" <<'RUNTIME'
@@ -93,8 +94,11 @@ export OMPI_MCA_rmaps_base_oversubscribe=1
 unset _vortia_sysroot
 RUNTIME
 
+# objdump exits non-zero for the few ELF files without a dynamic symbol table.
 needed_glibc="$(find "$out" -type f -print0 | xargs -0 file | awk -F: '/ELF/{print $1}' |
-  xargs -n 64 objdump -T 2>/dev/null | grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 1 | cut -d_ -f2)"
+  { xargs -n 64 objdump -T 2>/dev/null || true; } |
+  grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 1 | cut -d_ -f2)"
+[[ -n "$needed_glibc" ]] || { echo "Could not determine the engine's glibc requirement" >&2; exit 1; }
 echo "Newest glibc symbol version required by the engine: $needed_glibc"
 echo "$needed_glibc" > "$out/GLIBC_REQUIRED"
 cat > "$out/README.txt" <<EOF

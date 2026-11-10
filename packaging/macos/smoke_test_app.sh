@@ -42,6 +42,22 @@ foreign="$(sed -nE 's/^dyld\[[0-9]+\]: <[^>]*> (\/.*)$/\1/p' "$log" |
 if [[ -n "$foreign" ]]; then echo "$foreign" | head -n 20; bad "libraries loaded from outside the bundle"; fi
 rm -f "$log"
 
+if compgen -G "$app/Contents/Resources/OpenFOAM-*/*.dmg" >/dev/null; then
+  echo "== Integrated OpenFOAM engine: real serial and 2-process MPI run =="
+  engine_log="$(mktemp)"
+  "$exe" --verify-engine >"$engine_log" 2>&1
+  rc=$?
+  tail -n 30 "$engine_log" | cut -c1-300 | sed 's/^/  | /'
+  if [[ "$rc" -eq 0 ]] && grep -q 'verified with a real serial and parallel run' "$engine_log"; then
+    echo "OK: integrated engine ran a case serially and in parallel"
+  else
+    bad "--verify-engine rc=$rc"
+  fi
+  rm -f "$engine_log"
+elif [[ -n "${VORTIA_EXPECT_ENGINE:-}" ]]; then
+  bad "this app has no integrated OpenFOAM engine"
+fi
+
 echo
 [[ "$fail" -eq 0 ]] && echo "SMOKE TEST PASSED" || echo "SMOKE TEST FAILED"
 exit "$fail"

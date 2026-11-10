@@ -234,7 +234,7 @@ max_glibc="${VORTIA_MAX_GLIBC:-2.28}"
 needed_glibc="$(
   find "$appdir/usr/bin" "$appdir/usr/lib" "$appdir/usr/plugins" "$appdir/usr/optional" \
     -path "$appdir/usr/lib/openfoam-engine" -prune -o -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) -print0 |
-    xargs -0 -n 64 objdump -T 2>/dev/null |
+    { xargs -0 -n 64 objdump -T 2>/dev/null || true; } |
     grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 1 | cut -d_ -f2
 )"
 echo "Newest glibc symbol version required by the AppImage: ${needed_glibc:-unknown} (limit $max_glibc)"

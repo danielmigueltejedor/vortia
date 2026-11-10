@@ -228,6 +228,11 @@ def main() -> int:
         needed = min_macos(binary)
         if needed and needed > newest:
             newest, culprit = needed, binary
+    # A packaged OpenFOAM engine (bundle_openfoam.py) states its own minimum.
+    for stated in sorted((app / "Contents" / "Resources").glob("OpenFOAM-*/MINIMUM_MACOS")):
+        needed = tuple(int(part) for part in stated.read_text().strip().split("."))
+        if needed > newest:
+            newest, culprit = needed, stated
     minimum = ".".join(str(part) for part in newest[:2])
     print(f"Minimum macOS of the bundle: {minimum} (set by {culprit.relative_to(app)})")
     if args.max_min_macos:
