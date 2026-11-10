@@ -21,9 +21,10 @@ guard let source = CGImageSourceCreateWithURL(input as CFURL, nil),
                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
 else { fatalError("Cannot read the original Vortia icon") }
 let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-// Existing original-logo background: sRGB #012050. No crop, rescale or redraw
-// of the glyph is performed here; only its transparent canvas is filled.
-canvas.setFillColor(red: 1.0 / 255.0, green: 32.0 / 255.0, blue: 80.0 / 255.0, alpha: 1)
+// Icon plate colour of resources/icons/vortia.svg: sRGB #0B1A30. No crop,
+// rescale or redraw of the glyph is performed here; only its transparent
+// canvas is filled.
+canvas.setFillColor(red: 11.0 / 255.0, green: 26.0 / 255.0, blue: 48.0 / 255.0, alpha: 1)
 canvas.fill(bounds)
 canvas.draw(image, in: bounds)
 guard let result = canvas.makeImage(),

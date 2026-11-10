@@ -57,6 +57,8 @@ GPL-3.0-or-later (propuesta tras la revisión de compatibilidad de dependencias;
 
 ## Icono de aplicación
 
+El original vectorial es `resources/icons/vortia.svg`; el PNG se regenera con
+`swift packaging/macos/render_icon_svg.swift resources/icons/vortia.svg resources/icons/vortia.png 512`.
 El icono oficial de Vortia está en `resources/icons/vortia.png` y se incluye en el
 ejecutable con el sistema de recursos de Qt (`:/vortia/app-icon.png`), para que
 la ventana y Dock utilicen el mismo diseño.
