@@ -19,6 +19,7 @@ import os
 import plistlib
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -60,6 +61,11 @@ def rpaths(path: Path) -> list[str]:
 def min_macos(path: Path) -> tuple[int, ...] | None:
     match = re.search(r"minos (\d+(?:\.\d+)*)", run("vtool", "-show-build", str(path)))
     return tuple(int(part) for part in match.group(1).split(".")) if match else None
+
+
+def make_owner_writable(path: Path) -> None:
+    """install_name_tool and codesign rewrite the file; keep its other permission bits."""
+    os.chmod(path, os.stat(path).st_mode | stat.S_IWUSR | stat.S_IXUSR)
 
 
 def framework_root(path: Path) -> Path | None:
@@ -115,7 +121,7 @@ class Bundle:
             if name not in self.bundled:
                 shutil.copy2(real, target)
         if name not in self.bundled:
-            os.chmod(target, 0o755)
+            make_owner_writable(target)
             self.bundled[name] = target
             self.todo.append((target, real))
         return name, target
@@ -162,7 +168,7 @@ class Bundle:
                 target = self.plugins / category / source.name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source.resolve(), target)
-                os.chmod(target, 0o755)
+                make_owner_writable(target)
                 roots.append((target, source.resolve()))
             if names:
                 for name in names:

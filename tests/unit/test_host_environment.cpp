@@ -33,7 +33,7 @@ TEST(HostEnvironment, LeavesEnvironmentAloneWithoutLauncher) {
 TEST(HostEnvironment, RestoresTheValueTheUserHadBeforeTheLauncher) {
     FakeEnvironment env;
     env.values = {{"VORTIA_LAUNCHER_ENV", "1"},
-                  {"LD_LIBRARY_PATH", "/tmp/.mount_Vortia/usr/lib:/opt/openfoam/lib"},
+                  {"LD_LIBRARY_PATH", "/appimage/mount/usr/lib:/opt/openfoam/lib"},
                   {"VORTIA_HOST_LD_LIBRARY_PATH", "/opt/openfoam/lib"}};
     EXPECT_TRUE(vortia::restoreHostVariable(env.access(), "LD_LIBRARY_PATH"));
     EXPECT_EQ(env.values.at("LD_LIBRARY_PATH"), "/opt/openfoam/lib");
@@ -41,7 +41,7 @@ TEST(HostEnvironment, RestoresTheValueTheUserHadBeforeTheLauncher) {
 
 TEST(HostEnvironment, UnsetsVariablesTheUserNeverHad) {
     FakeEnvironment env;
-    env.values = {{"VORTIA_LAUNCHER_ENV", "1"}, {"QT_PLUGIN_PATH", "/tmp/.mount_Vortia/usr/plugins"}};
+    env.values = {{"VORTIA_LAUNCHER_ENV", "1"}, {"QT_PLUGIN_PATH", "/appimage/mount/usr/plugins"}};
     EXPECT_TRUE(vortia::restoreHostVariable(env.access(), "QT_PLUGIN_PATH"));
     EXPECT_EQ(env.values.count("QT_PLUGIN_PATH"), 0U);
 }
@@ -49,7 +49,7 @@ TEST(HostEnvironment, UnsetsVariablesTheUserNeverHad) {
 TEST(HostEnvironment, KeepsAnOriginallyEmptyValueDistinctFromUnset) {
     FakeEnvironment env;
     env.values = {{"VORTIA_LAUNCHER_ENV", "1"},
-                  {"LD_LIBRARY_PATH", "/tmp/.mount_Vortia/usr/lib"},
+                  {"LD_LIBRARY_PATH", "/appimage/mount/usr/lib"},
                   {"VORTIA_HOST_LD_LIBRARY_PATH", ""}};
     EXPECT_TRUE(vortia::restoreHostVariable(env.access(), "LD_LIBRARY_PATH"));
     ASSERT_EQ(env.values.count("LD_LIBRARY_PATH"), 1U);
