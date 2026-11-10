@@ -134,13 +134,15 @@ relocated="$(mktemp -d)/relocated-engine"
 mkdir -p "$relocated"
 cp -a "$engine" "$sysroot" "$relocated/"
 env -i HOME=/root PATH=/usr/bin:/bin bash --noprofile --norc -c '
-  set -e
+  # No "set -e": the engine bashrc legitimately ends with a non-zero status.
   source "$1/etc/bashrc" >/dev/null 2>&1
-  source "$1/etc/vortia-runtime.sh"
+  source "$1/etc/vortia-runtime.sh" || exit 1
+  echo "WM_PROJECT_DIR=$WM_PROJECT_DIR"
+  echo "blockMesh=$(command -v blockMesh) mpirun=$(command -v mpirun)"
   [ "$WM_PROJECT_DIR" = "$1" ] || { echo "WM_PROJECT_DIR=$WM_PROJECT_DIR" >&2; exit 1; }
   case "$(command -v blockMesh)" in "$1"/*) ;; *) echo "blockMesh not from the payload" >&2; exit 1 ;; esac
   case "$(command -v mpirun)" in "$2"/*) ;; *) echo "mpirun not from the payload" >&2; exit 1 ;; esac
-  blockMesh -help >/dev/null
+  blockMesh -help >/dev/null || { echo "blockMesh -help failed" >&2; exit 1; }
   echo "Relocated engine works from: $WM_PROJECT_DIR"
 ' bash "$relocated/OpenFOAM-v${version}" "$relocated/sysroot"
 rm -rf "$(dirname "$relocated")"
