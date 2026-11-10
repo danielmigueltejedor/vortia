@@ -212,7 +212,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("Vortia"));
 #ifndef VORTIA_VERSION
-#define VORTIA_VERSION "0.4.0"
+#define VORTIA_VERSION "0.4.1"
 #endif
     app.setApplicationVersion(QStringLiteral(VORTIA_VERSION));
     app.setOrganizationName(QStringLiteral("Vortia"));

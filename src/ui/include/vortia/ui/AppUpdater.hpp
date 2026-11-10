@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <QObject>
 #include <QString>
 #include <QUrl>
@@ -38,6 +39,15 @@ public:
     /// True when the process can replace itself (AppImage or macOS .app bundle).
     static bool canApplyInPlace();
 
+    /// Called right before the application is replaced and restarted. Return
+    /// false (with a message) to keep the session, e.g. for unsaved work;
+    /// return true after saving whatever must survive the restart.
+    void setRestartGuard(std::function<bool(QString*)> guard);
+
+    /// Message describing why the previous in-place update failed, or empty.
+    /// Reading it clears it, so it is shown once.
+    [[nodiscard]] static QString takeLastUpdateFailure();
+
     void checkForUpdates(bool userInitiated);
     void downloadAndApply(const AppUpdateInfo& info);
     void cancel();
@@ -60,6 +70,7 @@ private:
 
     std::unique_ptr<QNetworkAccessManager> network_;
     QNetworkReply* activeReply_{nullptr};
+    std::function<bool(QString*)> restartGuard_;
     bool checking_{false};
     bool downloading_{false};
 };

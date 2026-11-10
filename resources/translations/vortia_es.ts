@@ -4,6 +4,7 @@
 <context>
     <name>vortia::MainWindow</name>
     <message><source>Main menu</source><translation>Menú principal</translation></message>
+    <message><source>There are unsaved projects. Save or close them, then update again: installing the update restarts Vortia.</source><translation>Hay proyectos sin guardar. Guárdalos o ciérralos y vuelve a actualizar: instalar la actualización reinicia Vortia.</translation></message>
     <message><source>Sketch files</source><translation>Archivos de croquis</translation></message>
     <message><source>Sketch</source><translation>Croquis</translation></message>
     <message><source>Edit</source><translation>Editar</translation></message>
@@ -2071,6 +2072,17 @@ SHA-256 de la muestra: %5</translation>
 </context>
 <context>
     <name>vortia::AppUpdater</name>
+    <message><source>Vortia did not close in time, so nothing was changed.</source><translation>Vortia no se cerró a tiempo, así que no se cambió nada.</translation></message>
+    <message><source>The downloaded disk image could not be opened.</source><translation>No se pudo abrir la imagen de disco descargada.</translation></message>
+    <message><source>The downloaded disk image does not contain Vortia.app.</source><translation>La imagen de disco descargada no contiene Vortia.app.</translation></message>
+    <message><source>The new version could not be copied next to the installed one.</source><translation>No se pudo copiar la versión nueva junto a la instalada.</translation></message>
+    <message><source>macOS did not allow replacing the installed application. Allow Vortia under System Settings → Privacy &amp; Security → App Management, or install the downloaded disk image by hand.</source><translation>macOS no permitió sustituir la aplicación instalada. Permite Vortia en Ajustes del Sistema → Privacidad y seguridad → Gestión de apps, o instala a mano la imagen de disco descargada.</translation></message>
+    <message><source>The update helper stopped unexpectedly.</source><translation>El ayudante de actualización se detuvo de forma inesperada.</translation></message>
+    <message><source>The last update was not installed. %1
+
+Details: %2</source><translation>La última actualización no se instaló. %1
+
+Detalles: %2</translation></message>
     <message><source>Could not reach GitHub Releases: %1</source><translation>No se pudo contactar con GitHub Releases: %1</translation></message>
     <message><source>Unexpected response from GitHub Releases.</source><translation>Respuesta inesperada de GitHub Releases.</translation></message>
     <message><source>Latest release has no version tag.</source><translation>La última versión no tiene etiqueta.</translation></message>

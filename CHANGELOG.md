@@ -4,6 +4,24 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-11-10
+
+### Corregido
+- **La actualización desde la propia aplicación no se instalaba en macOS**:
+  descargaba la versión nueva, se quedaba «cargando» y al reabrir seguía la
+  antigua. El cierre para reiniciar podía quedar cancelado (por ejemplo, con
+  un proyecto sin guardar) y el ayudante esperaba indefinidamente, sin dejar
+  registro. Ahora Vortia avisa antes si hay proyectos sin guardar, se cierra
+  de forma no cancelable, el ayudante deja registro, restaura la versión
+  anterior si algo falla y el motivo se muestra al volver a abrir.
+  **Quien tenga 0.4.0 o anterior debe instalar esta versión a mano una vez.**
+- **DMG de macOS**: al abrirse la ventana más ancha quedaba una franja blanca,
+  los nombres de los iconos no se leían sobre el fondo oscuro y había que
+  redimensionar la ventana para verlo todo. El fondo se ha redibujado en el
+  mismo estilo, más grande y nítido en Retina, con una placa clara tras cada
+  nombre y una flecha entre los iconos; la ventana es más alta y sin barra
+  lateral.
+
 ## [0.4.0] — 2026-11-10
 
 Interfaz rediseñada y coherente.

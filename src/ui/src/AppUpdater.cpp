@@ -51,6 +51,10 @@ QString downloadDir() {
     return dir;
 }
 
+QString updateResultPath() {
+    return downloadDir() + QStringLiteral("/last-update-result.txt");
+}
+
 QString currentAppImagePath() {
     const QByteArray env = qgetenv("APPIMAGE");
     return env.isEmpty() ? QString() : QString::fromUtf8(env);
@@ -381,7 +385,41 @@ void AppUpdater::handleDownloadFinished(QNetworkReply* reply, AppUpdateInfo info
     }
 }
 
+void AppUpdater::setRestartGuard(std::function<bool(QString*)> guard) {
+    restartGuard_ = std::move(guard);
+}
+
+QString AppUpdater::takeLastUpdateFailure() {
+    QFile result(updateResultPath());
+    if (!result.open(QIODevice::ReadOnly))
+        return {};
+    const QString code = QString::fromUtf8(result.readAll()).trimmed();
+    result.close();
+    result.remove();
+    if (code.isEmpty() || code == QStringLiteral("ok"))
+        return {};
+    const QString log = downloadDir() + QStringLiteral("/update.log");
+    QString reason;
+    if (code == QStringLiteral("still-running"))
+        reason = tr("Vortia did not close in time, so nothing was changed.");
+    else if (code == QStringLiteral("mount"))
+        reason = tr("The downloaded disk image could not be opened.");
+    else if (code == QStringLiteral("contents"))
+        reason = tr("The downloaded disk image does not contain Vortia.app.");
+    else if (code == QStringLiteral("copy"))
+        reason = tr("The new version could not be copied next to the installed one.");
+    else if (code == QStringLiteral("replace"))
+        reason = tr("macOS did not allow replacing the installed application. Allow Vortia under System Settings → Privacy & Security → App Management, or install the downloaded disk image by hand.");
+    else
+        reason = tr("The update helper stopped unexpectedly.");
+    return tr("The last update was not installed. %1\n\nDetails: %2").arg(reason, log);
+}
+
 bool AppUpdater::applyDownloadedFile(const QString& path, const AppUpdateInfo& info, QString* error) {
+    // The application restarts: let its owner refuse (unsaved work) or save
+    // its state first. The downloaded package stays in the cache.
+    if (restartGuard_ && !restartGuard_(error))
+        return false;
 #if defined(Q_OS_LINUX)
     const QString appImage = currentAppImagePath();
     if (appImage.isEmpty()) {
@@ -415,7 +453,7 @@ bool AppUpdater::applyDownloadedFile(const QString& path, const AppUpdateInfo& i
         return false;
     }
     QFile::remove(backup);
-    QCoreApplication::quit();
+    QCoreApplication::exit(0);
     return true;
 #elif defined(Q_OS_MACOS)
     const QString bundle = macOSBundlePath();
@@ -424,35 +462,12 @@ bool AppUpdater::applyDownloadedFile(const QString& path, const AppUpdateInfo& i
             *error = tr("Not running from a Vortia.app bundle.");
         return false;
     }
-    // Helper waits for this process to exit, then swaps the .app from the DMG.
+    // The helper waits for this process to exit, then swaps the .app for the
+    // one in the disk image. Its outcome is read back at the next start
+    // (takeLastUpdateFailure), so a failed update is never silent.
     const QString scriptPath = downloadDir() + QStringLiteral("/apply-macos-update.sh");
     const QString mountPoint = downloadDir() + QStringLiteral("/dmg-mount");
-    QDir().mkpath(mountPoint);
-    const QString script = QStringLiteral(
-        "#!/bin/bash\n"
-        "set -euo pipefail\n"
-        "DMG=$1\n"
-        "MOUNT=$2\n"
-        "BUNDLE=$3\n"
-        "PARENT=$4\n"
-        "sleep 2\n"
-        "while kill -0 \"$PARENT\" 2>/dev/null; do sleep 0.5; done\n"
-        "hdiutil detach \"$MOUNT\" -force >/dev/null 2>&1 || true\n"
-        "rm -rf \"$MOUNT\"\n"
-        "mkdir -p \"$MOUNT\"\n"
-        "hdiutil attach \"$DMG\" -nobrowse -readonly -mountpoint \"$MOUNT\"\n"
-        "SRC=$(find \"$MOUNT\" -maxdepth 2 -name 'Vortia.app' -type d | head -n1)\n"
-        "if [[ -z \"$SRC\" ]]; then hdiutil detach \"$MOUNT\" -force || true; exit 1; fi\n"
-        "TMP=\"${BUNDLE}.vortia-new\"\n"
-        "BAK=\"${BUNDLE}.vortia-backup\"\n"
-        "rm -rf \"$TMP\" \"$BAK\"\n"
-        "ditto \"$SRC\" \"$TMP\"\n"
-        "mv \"$BUNDLE\" \"$BAK\"\n"
-        "if ! mv \"$TMP\" \"$BUNDLE\"; then mv \"$BAK\" \"$BUNDLE\"; exit 1; fi\n"
-        "hdiutil detach \"$MOUNT\" -force >/dev/null 2>&1 || true\n"
-        "rm -rf \"$BAK\" \"$DMG\"\n"
-        "open \"$BUNDLE\"\n"
-        "rm -f \"$0\"\n");
+    QFile::remove(updateResultPath());
     {
         QFile scriptFile(scriptPath);
         if (!scriptFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -460,19 +475,22 @@ bool AppUpdater::applyDownloadedFile(const QString& path, const AppUpdateInfo& i
                 *error = tr("Could not write the macOS update helper.");
             return false;
         }
-        scriptFile.write(script.toUtf8());
+        scriptFile.write(detail::macOSUpdateHelperScript().toUtf8());
         scriptFile.close();
         scriptFile.setPermissions(scriptFile.permissions() | QFileDevice::ExeUser);
     }
     emit applyStarted(tr("Installing Vortia %1 and restarting…").arg(info.version));
     if (!QProcess::startDetached(QStringLiteral("/bin/bash"),
                                  {scriptPath, path, mountPoint, bundle,
-                                  QString::number(QCoreApplication::applicationPid())})) {
+                                  QString::number(QCoreApplication::applicationPid()),
+                                  downloadDir() + QStringLiteral("/update.log"), updateResultPath()})) {
         if (error)
             *error = tr("Could not start the macOS update helper.");
         return false;
     }
-    QCoreApplication::quit();
+    // exit(), not quit(): quit() asks every window to close and is silently
+    // cancelled when one refuses, which left the helper waiting for ever.
+    QCoreApplication::exit(0);
     return true;
 #else
     Q_UNUSED(path);
