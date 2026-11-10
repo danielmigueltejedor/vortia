@@ -36,6 +36,12 @@ public:
     void setReadOnly(bool readOnly);
     void setEmbedded(bool embedded);
     void setToolPanelVisible(bool visible);
+    /// Undo, redo, copy, paste and delete, for a host toolbar.
+    [[nodiscard]] QList<QAction*> editActions() const {
+        return {undoAction_, redoAction_, copyAction_, pasteAction_, deleteAction_};
+    }
+    /// Empties the sketch (after the same confirmation-free behaviour as the button).
+    [[nodiscard]] QAction* clearAction() const { return clearAction_; }
     void loadSketch() { if(!readOnly_)load(); }
     void saveSketch() { save(); }
     [[nodiscard]] bool isReadOnly() const noexcept { return readOnly_; }
@@ -84,6 +90,7 @@ private:
     EditSnapshot committed_;
     bool restoring_{false},dragEditing_{false},dragRecorded_{false};
     QAction *undoAction_{nullptr},*redoAction_{nullptr},*copyAction_{nullptr},*pasteAction_{nullptr},*deleteAction_{nullptr};
+    QAction* clearAction_{nullptr};
 };
 
 } // namespace vortia

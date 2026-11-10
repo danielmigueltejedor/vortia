@@ -4,6 +4,9 @@
 <context>
     <name>vortia::MainWindow</name>
     <message><source>Main menu</source><translation>Menú principal</translation></message>
+    <message><source>Sketch files</source><translation>Archivos de croquis</translation></message>
+    <message><source>Sketch</source><translation>Croquis</translation></message>
+    <message><source>Edit</source><translation>Editar</translation></message>
     <message><source>Engineering analysis…</source><translation>Análisis de ingeniería…</translation></message>
 
     <message><source>Assign the highlighted boundaries, including a total-pressure inlet and a pressure outlet, before generating the case.</source><translation>Asigna los contornos señalados, incluida una entrada de presión total y una salida de presión, antes de generar el caso.</translation></message>

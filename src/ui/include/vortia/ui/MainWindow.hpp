@@ -25,6 +25,10 @@
 class QTemporaryDir;
 class QStackedWidget;
 
+class QHBoxLayout;
+class QMenu;
+class QAction;
+
 namespace vortia {
 class RunMonitor;
 class MeshRegionsWidget;
@@ -83,6 +87,7 @@ private:
     void buildDocks();
     void activateWorkflowStage(int stage);
     void setContextToolsVisible(bool);
+    void addRibbonGroup(QHBoxLayout* parent, const QString& title, const QList<QAction*>& actions);
     void updateWorkflowInspector();
     void rebuildMeshWorkspace();
     void rebuildPhysicsWorkspace();
@@ -146,6 +151,8 @@ private:
     // UI
     QTabBar* projectTabs_{nullptr};
     QTabWidget* workspaceTabs_{nullptr};
+    QHBoxLayout* geometryRibbon_{nullptr};   ///< Geometry page of the tool row.
+    QMenu* geometrySketchFiles_{nullptr};
     SketchEditorDialog* sketchEditor_{nullptr};
     VtkViewport* viewport_{nullptr};
     RunMonitor* runMonitor_{nullptr};

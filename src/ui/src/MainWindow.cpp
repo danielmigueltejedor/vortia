@@ -405,7 +405,6 @@ void MainWindow::buildMenusAndToolbar() {
     workflow->addWidget(navigator);
     connect(tabs,&QTabWidget::currentChanged,this,[this,stages](int index){
         if(auto* button=stages->button(index)){QSignalBlocker block(button);button->setChecked(true);}
-        setContextToolsVisible(index!=1&&index!=3);
         updateWorkflowInspector();
     });
     stages->button(0)->setChecked(true);
@@ -421,36 +420,7 @@ void MainWindow::buildMenusAndToolbar() {
     };
     auto addGroup = [this](QHBoxLayout* parent, const QString& title,
                            std::initializer_list<QAction*> actions) {
-        auto* group = new QWidget(this);
-        auto* vbox = new QVBoxLayout(group);
-        vbox->setContentsMargins(0, 0, 0, 0);
-        vbox->setSpacing(2);
-        auto* buttons = new QHBoxLayout();
-        buttons->setSpacing(2);
-        for (auto* action : actions) {
-            auto* button = new QToolButton(group);
-            button->setObjectName(QStringLiteral("vortia-ribbon-button"));
-            if(action->menu())button->setMenu(action->menu());
-            button->setDefaultAction(action);
-            if(action->menu())button->setPopupMode(QToolButton::InstantPopup);
-            button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-            button->setIconSize(QSize(20, 20));
-            button->setMinimumSize(QSize(0, 32));
-            button->setMaximumWidth(200);
-            button->setAccessibleName(action->text());
-            buttons->addWidget(button);
-        }
-        vbox->addLayout(buttons);
-        auto* caption = new QLabel(title, group);
-        caption->setObjectName(QStringLiteral("vortia-ribbon-group"));
-        caption->setAlignment(Qt::AlignCenter);
-        caption->hide();
-        group->setAccessibleName(title);
-        parent->addWidget(group);
-        auto* separator = new QFrame(this);
-        separator->setFrameShape(QFrame::VLine);
-        separator->setObjectName(QStringLiteral("vortia-ribbon-separator"));
-        parent->addWidget(separator);
+        addRibbonGroup(parent, title, QList<QAction*>(actions));
     };
 
     newProject->setIconText(tr("New"));openProject->setIconText(tr("Open"));saveProject->setIconText(tr("Save"));
@@ -477,13 +447,15 @@ void MainWindow::buildMenusAndToolbar() {
     connect(planar,&QAction::triggered,this,[this](){sketchEditor_->exportNozzleMesh();});
     connect(wedge,&QAction::triggered,this,[this](){sketchEditor_->exportWedgeMesh();});
     sketchFiles->setTitle(tr("Sketch files…"));sketchFiles->setIcon(toolIcon("sketch",QStyle::SP_FileIcon));fileMenu->insertMenu(importStl,sketchFiles);
-    Q_UNUSED(geometryPage);
+    // Filled in buildDocks(), once the sketch editor and its actions exist.
+    geometryRibbon_=geometryPage;
+    geometrySketchFiles_=sketchFiles;
     auto* meshPage=newPage(tr("Mesh"));
     addGroup(meshPage,tr("Mesh"),{generateMesh});
 
     auto* physicsPage=newPage(tr("Physics"));
     simMenu->addActions({materialsEditor,boundaryEditor});
-    Q_UNUSED(physicsPage);
+    addGroup(physicsPage,tr("Physics"),{materialsEditor,boundaryEditor});
 
     auto* simPage=newPage(tr("Calculation"));
     simMenu->addAction(solverEditor);
@@ -590,6 +562,40 @@ void MainWindow::buildMenusAndToolbar() {
     statusBar()->addWidget(statusLabel_, 1);
 }
 
+void MainWindow::addRibbonGroup(QHBoxLayout* parent, const QString& title,
+                                const QList<QAction*>& actions) {
+    auto* group = new QWidget(this);
+    auto* vbox = new QVBoxLayout(group);
+    vbox->setContentsMargins(0, 0, 0, 0);
+    vbox->setSpacing(2);
+    auto* buttons = new QHBoxLayout();
+    buttons->setSpacing(2);
+    for (auto* action : actions) {
+        auto* button = new QToolButton(group);
+        button->setObjectName(QStringLiteral("vortia-ribbon-button"));
+        if(action->menu())button->setMenu(action->menu());
+        button->setDefaultAction(action);
+        if(action->menu())button->setPopupMode(QToolButton::InstantPopup);
+        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        button->setIconSize(QSize(20, 20));
+        button->setMinimumSize(QSize(0, 32));
+        button->setMaximumWidth(200);
+        button->setAccessibleName(action->text());
+        buttons->addWidget(button);
+    }
+    vbox->addLayout(buttons);
+    auto* caption = new QLabel(title, group);
+    caption->setObjectName(QStringLiteral("vortia-ribbon-group"));
+    caption->setAlignment(Qt::AlignCenter);
+    caption->hide();
+    group->setAccessibleName(title);
+    parent->addWidget(group);
+    auto* separator = new QFrame(this);
+    separator->setFrameShape(QFrame::NoFrame);
+    separator->setObjectName(QStringLiteral("vortia-ribbon-separator"));
+    parent->addWidget(separator);
+}
+
 void MainWindow::activateWorkflowStage(int stage) {
     auto* tools=findChild<QTabWidget*>("vortia-ribbon");
     if(!tools||stage<0||stage>=tools->count()||!workspaceTabs_)return;
@@ -607,19 +613,21 @@ void MainWindow::activateWorkflowStage(int stage) {
     if(stage==4&&!projectSwitchLocked())propertiesTabs_->setCurrentIndex(0);
     if(stage==5&&propertiesTabs_->isTabVisible(1))propertiesTabs_->setCurrentIndex(1);
     if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->setVisible(stage==0||stage==4||(legacy&&(stage==2||stage==3))||(stage==5&&propertiesTabs_->isTabVisible(1)));
-    setContextToolsVisible(stage!=1&&stage!=3);
     updateWorkflowInspector();
 }
 
+// The contextual tool row is part of every stage and keeps one height, so the
+// navigation and the work area never move when the stage changes.
 void MainWindow::setContextToolsVisible(bool visible) {
     auto* toolbar=findChild<QToolBar*>("vortia-main-toolbar");
-    if(!toolbar)return;
-    if(findChild<QWidget*>("vortia-document-header")) {
-        auto* ribbon=findChild<QTabWidget*>("vortia-ribbon");ribbon->setVisible(visible);
-        auto* topBar=findChild<QWidget*>("vortia-top-bar");
-        const int height=42+(visible?ribbon->height():0);
-        topBar->setFixedHeight(height);toolbar->setFixedHeight(height+1);toolbar->show();
-    } else toolbar->setVisible(visible);
+    auto* ribbon=findChild<QTabWidget*>("vortia-ribbon");
+    if(!toolbar||!ribbon)return;
+    constexpr int ribbonHeight=48;
+    ribbon->setFixedHeight(ribbonHeight);ribbon->setVisible(visible);
+    const int header=findChild<QWidget*>("vortia-document-header")?44:0;
+    const int height=header+(visible?ribbonHeight:0);
+    if(auto* topBar=findChild<QWidget*>("vortia-top-bar"))topBar->setFixedHeight(height);
+    toolbar->setFixedHeight(height);toolbar->setVisible(height>0);
 }
 
 bool MainWindow::usesSketchFlow() const {
@@ -879,6 +887,12 @@ void MainWindow::buildDocks() {
     sketchEditor_ = new SketchEditorDialog(workspaceTabs_);
     sketchEditor_->setWindowFlags(Qt::Widget);sketchEditor_->setEmbedded(true);
     workspaceTabs_->addTab(sketchEditor_, tr("2D Sketch"));
+    if(geometryRibbon_) {
+        addRibbonGroup(geometryRibbon_,tr("Edit"),sketchEditor_->editActions());
+        auto* files=new QAction(geometrySketchFiles_->icon(),tr("Sketch files"),this);
+        files->setObjectName("vortia-geometry-sketch-files");files->setMenu(geometrySketchFiles_);
+        addRibbonGroup(geometryRibbon_,tr("Sketch"),{files,sketchEditor_->clearAction()});
+    }
     runMonitor_=new RunMonitor(workspaceTabs_);workspaceTabs_->addTab(runMonitor_,tr("Monitors"));
     meshWorkspacePage_=new QWidget(workspaceTabs_);meshWorkspacePage_->setObjectName("vortia-mesh-workspace");
     new QVBoxLayout(meshWorkspacePage_);workspaceTabs_->addTab(meshWorkspacePage_,tr("Mesh"));
@@ -2097,7 +2111,7 @@ void MainWindow::applyPreferences() {
             button->setText(button->property("stageTitle").toString());
         }
     }
-    if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))setContextToolsVisible(ribbon->currentIndex()!=1&&ribbon->currentIndex()!=3);
+    setContextToolsVisible(true);
     console_->setMaximumBlockCount(preferences_.consoleLines);
     viewport_->setNavigationPreferences(preferences_.cfdZoomSensitivity,preferences_.cfdPanSensitivity);
     sketchEditor_->setInteractionPreferences(preferences_.snapToGrid,preferences_.snapSpacing,

@@ -4,7 +4,22 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-10
+
+Interfaz rediseñada y coherente.
+
+### Corregido
+- **La fila de herramientas aparecía y desaparecía según la etapa**: Geometría
+  y Física no tenían, y al cambiar de etapa la navegación lateral y el área de
+  trabajo subían y bajaban. Ahora todas las etapas tienen su fila, con la
+  misma altura, y nada se mueve.
+- En Linux no se veían las etiquetas «Coordenada X/Y» del editor de croquis.
+
 ### Añadido
+- Herramientas propias de **Geometría** en la fila superior: deshacer, rehacer,
+  copiar, pegar, eliminar vértice, archivos de croquis y borrar croquis (ya no
+  están repartidas entre el panel lateral y un botón suelto bajo el lienzo).
+  **Física** tiene accesos a Modelos y Contornos.
 - **Lienzo**, lenguaje de diseño exportable (variante Papel): tokens en
   `resources/lienzo/tokens.json`, hoja de estilos Qt con marcadores y variables
   CSS generadas. Guía en `docs/LIENZO.md`.
