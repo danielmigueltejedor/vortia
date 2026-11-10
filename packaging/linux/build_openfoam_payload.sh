@@ -6,7 +6,8 @@
 # Ubuntu 20.04 is the oldest distribution OpenCFD publishes packages for, so
 # the engine runs on any distribution with glibc >= 2.31 (checked below).
 # The output directory receives:
-#   OpenFOAM-v<version>/     the unmodified ESI runtime, plus etc/vortia-runtime.sh
+#   OpenFOAM-v<version>/     the ESI runtime with a self-locating etc/bashrc,
+#                            plus etc/vortia-runtime.sh
 #   sysroot/usr/...          Open MPI (launcher, plugins, help files) and every
 #                            third-party library the engine links to
 #   licenses/                copyright files of everything copied
@@ -21,7 +22,7 @@ version="${2:-2412}"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl gnupg binutils file
+apt-get install -y --no-install-recommends ca-certificates curl gnupg binutils file python3
 curl -fsSL --proto '=https' --tlsv1.2 https://dl.openfoam.com/pubkey.gpg |
   gpg --dearmor > /usr/share/keyrings/openfoam.gpg
 echo "deb [arch=amd64 signed-by=/usr/share/keyrings/openfoam.gpg] https://dl.openfoam.com/repos/deb focal main" \
@@ -33,6 +34,28 @@ root="/usr/lib/openfoam/openfoam${version}"
 [[ -f "$root/etc/bashrc" ]] || { echo "Unexpected package layout: $root" >&2; exit 1; }
 engine="$out/OpenFOAM-v${version}"
 cp -a "$root" "$engine"
+
+# The Debian package pins the installation path in etc/bashrc. Put back the
+# upstream self-locating logic so the engine works wherever it is mounted.
+grep -n '^[[:space:]]*projectDir=' "$engine/etc/bashrc"
+[[ "$(grep -c "^projectDir=\"$root\"\$" "$engine/etc/bashrc")" -eq 1 ]] || {
+  echo "etc/bashrc does not pin projectDir the way this script expects" >&2
+  exit 1
+}
+python3 - "$engine/etc/bashrc" "$root" <<'PY'
+import sys
+path, root = sys.argv[1:3]
+text = open(path).read()
+pinned = f'projectDir="{root}"\n'
+relocatable = (
+    '# Vortia: self-locating (upstream default) instead of the packaged fixed path.\n'
+    'projectDir="${BASH_SOURCE:-${ZSH_NAME:+$0}}";\n'
+    '[ -n "$projectDir" ] && projectDir="$(\\cd "$(dirname "$projectDir")/.." && \\pwd -L)" ||\\\n'
+    'projectDir="$HOME/OpenFOAM/OpenFOAM-$WM_PROJECT_VERSION"\n'
+)
+assert text.count(pinned) == 1
+open(path, "w").write(text.replace(pinned, relocatable))
+PY
 
 sysroot="$out/sysroot"
 triplet="x86_64-linux-gnu"
@@ -102,6 +125,23 @@ apt-get install -y --no-install-recommends unzip patchelf libglu1-mesa libxft2 l
   libxinerama1 libxrender1 libxfixes3 libfontconfig1 libgomp1
 bash "$(dirname "$0")/../common/build_mesher_runtime.sh" "$out/mesher"
 
+# Self-check from a different location than the package's, with a clean
+# environment and without the system Open MPI on the path.
+relocated="$(mktemp -d)/engine with space"
+mkdir -p "$relocated"
+cp -a "$engine" "$sysroot" "$relocated/"
+env -i HOME=/root PATH=/usr/bin:/bin bash --noprofile --norc -c '
+  set -e
+  source "$1/etc/bashrc" >/dev/null 2>&1
+  source "$1/etc/vortia-runtime.sh"
+  [ "$WM_PROJECT_DIR" = "$1" ] || { echo "WM_PROJECT_DIR=$WM_PROJECT_DIR" >&2; exit 1; }
+  case "$(command -v blockMesh)" in "$1"/*) ;; *) echo "blockMesh not from the payload" >&2; exit 1 ;; esac
+  case "$(command -v mpirun)" in "$2"/*) ;; *) echo "mpirun not from the payload" >&2; exit 1 ;; esac
+  blockMesh -help >/dev/null
+  echo "Relocated engine works from: $WM_PROJECT_DIR"
+' bash "$relocated/OpenFOAM-v${version}" "$relocated/sysroot"
+rm -rf "$(dirname "$relocated")"
+
 needed_glibc="$(find "$out" -type f -print0 | xargs -0 file | awk -F: '/ELF/{print $1}' |
   { xargs -n 64 objdump -T 2>/dev/null || true; } |
   grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 1 | cut -d_ -f2)"
@@ -111,7 +151,9 @@ echo "$needed_glibc" > "$out/GLIBC_REQUIRED"
 cat > "$out/README.txt" <<EOF
 OpenFOAM v${version} (OpenCFD Ltd, ESI) runtime packaged with Vortia.
 Unmodified binaries from https://dl.openfoam.com/repos/deb (Ubuntu 20.04 build),
-with Open MPI and third-party libraries from Ubuntu 20.04.
+with Open MPI and third-party libraries from Ubuntu 20.04. Changes to the
+package: etc/bashrc locates itself instead of using a fixed installation path,
+and etc/vortia-runtime.sh is added.
 OpenFOAM is GPL-3.0-or-later; source: https://develop.openfoam.com/Development/openfoam
 (tag OpenFOAM-v${version}). Licences of the bundled libraries are in licenses/.
 OPENFOAM is a registered trademark of OpenCFD Ltd; Vortia is not endorsed by OpenCFD.

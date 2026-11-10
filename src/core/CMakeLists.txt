@@ -15,6 +15,6 @@ target_include_directories(vortia_core
 
 target_link_libraries(vortia_core
     PUBLIC nlohmann_json::nlohmann_json
-    PRIVATE vortia_warnings)
+    PRIVATE vortia_warnings ${CMAKE_DL_LIBS})
 
 target_compile_features(vortia_core PUBLIC cxx_std_20)

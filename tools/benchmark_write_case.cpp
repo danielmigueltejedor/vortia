@@ -1,6 +1,7 @@
 // Writes a Vortia verification case (Poiseuille or Ghia cavity) for OpenFOAM.
 // Usage: benchmark_write_case <poiseuille|ghia|blasius> <caseDir> [esi|foundation]
 #include "vortia/solver/openfoam/CaseWriter.hpp"
+#include "vortia/solver/openfoam/Forces.hpp"
 #include "vortia/solver/openfoam/Installation.hpp"
 #include "vortia/verification/Blasius.hpp"
 #include "vortia/verification/GhiaCavity.hpp"
@@ -92,6 +93,15 @@ int main(int argc, char** argv) {
     if (!sampleV.empty() && !writeText(caseDir / "system" / "sampleV", sampleV)) {
         std::cerr << "Failed to write system/sampleV\n";
         return 1;
+    }
+
+    if (kind == "poiseuille") {
+        // Wall force per unit density, checked against the momentum balance.
+        const auto forces = vortia::openfoam::forcesFunctionObject({{"bottomWall", "topWall"}, 1.0, {}});
+        if (!forces || !writeText(caseDir / "system" / "forces", *forces)) {
+            std::cerr << "Failed to write system/forces\n";
+            return 1;
+        }
     }
 
     std::cout << "Wrote " << kind << " case (" << dist << ") to " << caseDir << "\n";

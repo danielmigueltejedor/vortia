@@ -94,3 +94,22 @@ python3 "$root/benchmarks/common/compare_profiles.py" \
   --component 0 \
   --rel-l2-max 0.02 \
   --rel-linf-max 0.03
+
+# Wall force against the exact momentum balance F_x = (p_in - p_out) H W.
+force_tool="$(dirname "$write_tool")/force_report"
+if [[ "$dist" == "esi" && -x "$force_tool" ]]; then
+  if ! "${solver[@]}" -postProcess -func forces -latestTime > log.forces 2>&1; then
+    echo "forces post-processing failed:" >&2
+    tail -n 60 log.forces >&2
+    exit 1
+  fi
+  force_file="$(find "$case_dir/postProcessing/forces" -type f -name 'force*.dat' | sort | tail -n1 || true)"
+  if [[ -z "$force_file" ]]; then
+    echo "No forces file under postProcessing/forces" >&2
+    tail -n 40 log.forces >&2
+    exit 1
+  fi
+  "$force_tool" poiseuille "$force_file" 0.02
+else
+  echo "Wall-force check skipped (needs the ESI forces function object and force_report)."
+fi

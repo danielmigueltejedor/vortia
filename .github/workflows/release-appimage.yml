@@ -128,7 +128,8 @@ jobs:
           source "$root/etc/bashrc"
           source "$root/etc/vortia-runtime.sh"
           set -u
-          command -v simpleFoam blockMesh mpirun
+          test "$WM_PROJECT_DIR" = "$root"
+          for tool in simpleFoam blockMesh mpirun; do command -v "$tool"; done
           export VORTIA_NATIVE_OF_ROOT="$root"
           ctest --test-dir build --output-on-failure \
             -R 'benchmark_|EngineSelfTest|NativeInstalledEnvironmentSmoke' | tee native-verification.log
