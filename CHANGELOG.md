@@ -4,7 +4,56 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
-Trabajo hacia **0.3.0** — ver `docs/VORTIA_0.3.0.md`.
+## [0.3.0] — 2026-11-10
+
+Instaladores que abren en una máquina limpia, con el motor CFD dentro.
+
+### Corregido
+- **Linux: la AppImage no abría en la mayoría de distribuciones.** Causas
+  reproducidas en contenedores limpios con la 0.2.1: `AppRun` era un enlace
+  simbólico sin rutas de plugins de Qt; faltaban librerías que linuxdeploy
+  excluye (`libharfbuzz`, freetype, fontconfig, `libstdc++`…) y que el Qt de
+  conda-forge necesita más nuevas que las de Ubuntu 22.04/24.04 o Debian 12;
+  el ejecutable exigía glibc 2.38; y `libOpenGL.so.0` no viene instalada en
+  Ubuntu/Debian. Ahora la AppImage lleva todas sus dependencias, elige en el
+  arranque el `libstdc++` más nuevo entre el suyo y el del sistema, y se
+  prueba en Ubuntu 20.04/22.04/24.04, Debian 12/13, Fedora, Arch, openSUSE
+  Tumbleweed y Rocky 9 antes de publicarse.
+- **macOS: el DMG 0.2.1 declaraba macOS 13 pero exigía macOS 27** (Qt/VTK de
+  Homebrew). El DMG se construye ahora en CI con dependencias de conda-forge y
+  se prueba en runners limpios.
+- Los casos estacionarios (`simpleFoam`) escritos por Vortia abortaban en la
+  primera iteración con OpenFOAM real: faltaba un esquema en `fvSchemes`.
+- El `controlDict` estacionario ignoraba el número de iteraciones del caso.
+- Los programas que lanza Vortia (OpenFOAM, Python) ya no heredan las
+  librerías empaquetadas de la aplicación.
+
+### Añadido
+- **OpenFOAM integrado** en ambos instaladores (v2606 en macOS, v2412 en
+  Linux, con Open MPI) y **mallador integrado** (Python 3.12 + Gmsh 4.15).
+  `--verify-engine` ejecuta un caso real en serie y en paralelo;
+  `--verify-mesher` genera una malla; `--verify-startup` abre la ventana
+  principal y el visor.
+- Modelo de turbulencia **k-ω SST** estacionario con funciones de pared,
+  seleccionable en el panel del solucionador.
+- **Fuerzas de pared y coeficientes** C_D, C_L y C_p (biblioteca y herramienta
+  `force_report`).
+- **Verificación nativa en CI** con el motor empaquetado: Poiseuille (perfil y
+  fuerza de pared), cavidad de Ghia Re = 100 y placa plana turbulenta.
+- Si no hay OpenGL 3.2, Vortia reintenta con renderizado por software y, si
+  tampoco, lo explica en un diálogo. Un arranque fallido desde el escritorio
+  deja un registro en `~/.local/state/vortia/startup.log`.
+- Icono nuevo, con original vectorial en `resources/icons/vortia.svg`.
+- [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md): qué hace Vortia y
+  qué no frente a un solver industrial.
+
+### Notas
+- Sin paridad con ANSYS Fluent; ver la matriz de capacidades.
+- macOS: firma ad-hoc, sin notarización. Requiere macOS 14+ en Apple Silicon.
+- Linux: glibc 2.31+. El flujo compresible experimental no está disponible en
+  la AppImage (ver `docs/KNOWN_LIMITATIONS.md`).
+- El DMG pasa de ~55 MB a ~400 MB y la AppImage de ~100 MB a varios cientos
+  por el motor integrado.
 
 ## [0.2.1] — 2026-11-06
 

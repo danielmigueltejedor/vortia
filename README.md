@@ -4,7 +4,18 @@
 
 Vortia aspira a ser una alternativa abierta, moderna y rigurosa a las suites CFD comerciales: geometría → malla → física → ejecución supervisada → posproceso 3D interactivo, sin tocar la terminal.
 
-> Estado: **0.2.1 publicado** (fix actualizador macOS ad-hoc). Continuación en **0.3.0** — ver `docs/VORTIA_0.3.0.md`, `docs/VALIDATION.md`, `benchmarks/`.
+> Estado: **0.3.0** — experimental. Instaladores autónomos para macOS (Apple Silicon) y Linux (x86_64) con OpenFOAM y mallador integrados. Qué hace y qué no: [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) · limitaciones: [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) · verificación: [`docs/VALIDATION.md`](docs/VALIDATION.md).
+
+## Instalación
+
+| Sistema | Archivo | Requisitos |
+|---|---|---|
+| macOS | `Vortia-<versión>-macos-arm64.dmg` | Apple Silicon, macOS 14+. Firma ad-hoc sin notarizar: la primera vez, clic derecho → Abrir |
+| Linux | `Vortia-<versión>-linux-x86_64.AppImage` | x86_64, glibc 2.31+ (Ubuntu 20.04+, Debian 11+, Fedora, Arch…). Dar permiso de ejecución y abrir |
+
+No hace falta instalar OpenFOAM, MPI, Python ni Gmsh: van dentro. Para
+comprobar una instalación: `vortia --verify-engine` (caso real en serie y en
+paralelo) y `vortia --verify-mesher`.
 
 ## Stack
 
@@ -18,13 +29,13 @@ C++20 · Qt 6 · VTK · OpenFOAM (motor externo, vía procesos) · Open CASCADE 
 | Compilador C++20 | Clang 15 / GCC 12 / MSVC 2022 | |
 | Qt | 6.5 | Widgets, OpenGLWidgets |
 | VTK | 9.2 | Con módulo `GUISupportQt` (build Qt6) |
-| OpenFOAM | ESI v2412+ o Foundation 11+ | Solo para ejecutar simulaciones (no para compilar) |
+| OpenFOAM | ESI v2412+ o Foundation 11+ | Solo al compilar desde el código; los instaladores lo incluyen |
 
 ### macOS (Homebrew)
 
 ```sh
-brew install cmake ninja qt vtk
-# OpenFOAM no es nativo en macOS: usa Docker o una máquina Linux.
+brew install cmake ninja qt vtk nlohmann-json hdf5 googletest
+# Motor: OpenFOAM.app (gerlero/openfoam-app) o el integrado en el DMG publicado.
 ```
 
 ### Ubuntu 24.04
@@ -41,7 +52,7 @@ sudo apt install cmake ninja-build qt6-base-dev libgl1-mesa-dev
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ctest --test-dir build --output-on-failure
-./build/src/app/vortia
+./build/bin/vortia
 ```
 
 ## Documentación
@@ -70,9 +81,9 @@ cmake --build build-macos --target vortia_macos_bundle
 open build-macos/Vortia.app
 ```
 
-El ejecutable de desarrollo `build-macos/bin/vortia` sigue disponible. El
-paquete `.app` está pensado para **uso local**; distribuirlo en otros Mac
-requerirá incorporar las dependencias de Qt/VTK y firmarlo/notarizarlo.
+El ejecutable de desarrollo `build-macos/bin/vortia` sigue disponible. Para un
+paquete distribuible, `packaging/macos/deploy_bundle.py` incorpora Qt/VTK y
+firma ad-hoc; el DMG publicado lo construye el workflow `Release packages`.
 
 
 ## Cálculo compresible en varios procesos
