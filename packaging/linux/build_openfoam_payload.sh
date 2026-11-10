@@ -25,7 +25,8 @@ export DEBIAN_FRONTEND=noninteractive
 # release build: retry, and use a mirror when the caller names one.
 echo 'Acquire::Retries "8"; Acquire::http::Timeout "30";' > /etc/apt/apt.conf.d/80-vortia-retries
 if [[ -n "${VORTIA_APT_MIRROR:-}" ]]; then
-  sed -i -E "s|http://(archive\.ubuntu\.com\|security\.ubuntu\.com)/ubuntu/?|${VORTIA_APT_MIRROR%/}/|g" /etc/apt/sources.list
+  sed -i -E "s#http://(archive|security)\.ubuntu\.com/ubuntu/?#${VORTIA_APT_MIRROR%/}/#g" /etc/apt/sources.list
+  grep -c "${VORTIA_APT_MIRROR%/}/" /etc/apt/sources.list
 fi
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl gnupg binutils file python3
