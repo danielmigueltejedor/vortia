@@ -2,9 +2,11 @@
 // benchmark, compares the wall force with the exact momentum balance.
 // Usage: force_report <force.dat>
 //        force_report poiseuille <force.dat> [relative-tolerance]
+//        force_report turbulent-plate <force.dat> [relative-tolerance]
 // Exit codes: 0 ok / pass, 1 fail or unreadable, 2 usage.
 #include "vortia/solver/openfoam/Forces.hpp"
 #include "vortia/verification/Poiseuille.hpp"
+#include "vortia/verification/TurbulentFlatPlate.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -32,7 +34,8 @@ void print(const char* label, const vortia::Vec3& v) {
 } // namespace
 
 int main(int argc, char** argv) {
-    const bool poiseuille = argc >= 3 && std::string(argv[1]) == "poiseuille";
+    const bool plate = argc >= 3 && std::string(argv[1]) == "turbulent-plate";
+    const bool poiseuille = (argc >= 3 && std::string(argv[1]) == "poiseuille") || plate;
     if (!(argc == 2 || (poiseuille && argc <= 4))) {
         std::cerr << "Usage: force_report <force.dat>\n"
                      "       force_report poiseuille <force.dat> [relative-tolerance]\n";
@@ -57,6 +60,30 @@ int main(int argc, char** argv) {
     print("viscous", last.viscous);
     if (!poiseuille)
         return 0;
+
+    if (plate) {
+        // Friction drag of the plate against the Prandtl-Schlichting law.
+        const vortia::verification::TurbulentPlate reference;
+        const double expected = vortia::verification::schlichtingPlateForce(reference);
+        const double tolerance = argc == 4 ? std::strtod(argv[3], nullptr) : 0.15;
+        if (!(tolerance > 0.0) || !(tolerance < 1.0)) {
+            std::cerr << "Invalid tolerance\n";
+            return 2;
+        }
+        const double q = 0.5 * reference.freestream * reference.freestream;
+        const double area = reference.length * reference.depth;
+        const double relative = std::abs(last.viscous.x - expected) / expected;
+        std::cout << "Re_L = " << vortia::verification::plateReynolds(reference) << "\n"
+                  << "C_D computed = " << last.viscous.x / (q * area) << "\n"
+                  << "C_D Prandtl-Schlichting = " << expected / (q * area) << "\n"
+                  << "relative difference = " << relative << " (limit " << tolerance << ")\n";
+        if (relative > tolerance) {
+            std::cerr << "FAIL: plate drag is outside the a-priori band around the correlation\n";
+            return 1;
+        }
+        std::cout << "PASS\n";
+        return 0;
+    }
 
     // Fully developed channel, force per unit density on both walls:
     // the wall shear balances the pressure drop, F_x = (p_in - p_out) H W.

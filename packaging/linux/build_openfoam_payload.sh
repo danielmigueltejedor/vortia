@@ -35,25 +35,26 @@ root="/usr/lib/openfoam/openfoam${version}"
 engine="$out/OpenFOAM-v${version}"
 cp -a "$root" "$engine"
 
-# The Debian package pins the installation path in etc/bashrc. Put back the
-# upstream self-locating logic so the engine works wherever it is mounted.
-grep -n '^[[:space:]]*projectDir=' "$engine/etc/bashrc"
-[[ "$(grep -c "^projectDir=\"$root\"\$" "$engine/etc/bashrc")" -eq 1 ]] || {
-  echo "etc/bashrc does not pin projectDir the way this script expects" >&2
-  exit 1
-}
+# The Debian package's post-install step pins the installation path in
+# etc/bashrc ("Replaced WM_PROJECT_DIR by ...") and removes the upstream
+# self-locating logic. Put that logic back so the engine works wherever the
+# AppImage is mounted.
+grep -n 'WM_PROJECT_DIR=' "$engine/etc/bashrc" || true
 python3 - "$engine/etc/bashrc" "$root" <<'PY'
 import sys
 path, root = sys.argv[1:3]
 text = open(path).read()
-pinned = f'projectDir="{root}"\n'
+pinned = f'export WM_PROJECT_DIR="{root}"\n'
 relocatable = (
-    '# Vortia: self-locating (upstream default) instead of the packaged fixed path.\n'
-    'projectDir="${BASH_SOURCE:-${ZSH_NAME:+$0}}";\n'
-    '[ -n "$projectDir" ] && projectDir="$(\\cd "$(dirname "$projectDir")/.." && \\pwd -L)" ||\\\n'
-    'projectDir="$HOME/OpenFOAM/OpenFOAM-$WM_PROJECT_VERSION"\n'
+    '# Vortia: locate this installation from the path of this file (upstream\n'
+    '# behaviour) instead of the fixed path written by the Debian package.\n'
+    '_vortiaProjectDir="${BASH_SOURCE:-${ZSH_NAME:+$0}}"\n'
+    '_vortiaProjectDir="$(\\cd "$(dirname "$_vortiaProjectDir")/.." && \\pwd -L)"\n'
+    'export WM_PROJECT_DIR="$_vortiaProjectDir"\n'
+    'unset _vortiaProjectDir\n'
 )
-assert text.count(pinned) == 1
+if text.count(pinned) != 1:
+    sys.exit(f"etc/bashrc does not pin WM_PROJECT_DIR the way this script expects ({text.count(pinned)} matches)")
 open(path, "w").write(text.replace(pinned, relocatable))
 PY
 

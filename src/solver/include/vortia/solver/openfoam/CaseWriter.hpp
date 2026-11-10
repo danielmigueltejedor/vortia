@@ -38,7 +38,12 @@ public:
     [[nodiscard]] static std::string fvSolution(const CaseSetup& setup);
     [[nodiscard]] static std::string transportProperties(const CaseSetup& setup,
                                                          const Capabilities& caps);
-    [[nodiscard]] static std::string turbulenceProperties();
+    [[nodiscard]] static std::string turbulenceProperties(const CaseSetup& setup,
+                                                          const Capabilities& caps);
+    /// Turbulence fields for RANS cases (k, omega, nut); empty for laminar.
+    [[nodiscard]] static std::string fieldK(const CaseSetup& setup);
+    [[nodiscard]] static std::string fieldOmega(const CaseSetup& setup);
+    [[nodiscard]] static std::string fieldNut(const CaseSetup& setup);
     [[nodiscard]] static std::string fieldU(const CaseSetup& setup);
     [[nodiscard]] static std::string fieldP(const CaseSetup& setup);
 };

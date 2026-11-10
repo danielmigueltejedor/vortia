@@ -60,6 +60,28 @@ struct NumericsConfig {
     int maxIterationsP{1000};
 };
 
+// ---------------------------------------------------------------------------
+// Turbulence
+// ---------------------------------------------------------------------------
+
+enum class TurbulenceModel {
+    Laminar,   ///< No model: direct solution of the laminar equations.
+    KOmegaSST, ///< Menter k-ω SST RANS with wall functions (steady simpleFoam).
+};
+
+struct TurbulenceConfig {
+    TurbulenceModel model{TurbulenceModel::Laminar};
+    double intensity{0.01};     ///< I = u'/U at inlets and in the initial field (0 < I ≤ 1).
+    double lengthScale{0.01};   ///< Turbulent length scale ℓ [m].
+    double referenceSpeed{0.0}; ///< U for k [m/s]; 0 = largest prescribed speed of the case.
+};
+
+/// k = 3/2 (U I)² [m²/s²]. NaN for non-finite or negative input.
+[[nodiscard]] double turbulentKineticEnergy(double speed, double intensity);
+
+/// ω = √k / (C_μ^¼ ℓ) with C_μ = 0.09 [1/s]. NaN for invalid input.
+[[nodiscard]] double specificDissipationRate(double k, double lengthScale);
+
 struct TimeConfig {
     double startTime{0.0};      ///< s
     double endTime{0.5};        ///< s
@@ -92,6 +114,11 @@ struct CaseSetup {
     TimeConfig time;
     NumericsConfig numerics;
     SolverApp solver{SolverApp::IcoFoam};
+    TurbulenceConfig turbulence;
+
+    /// Speed used for the turbulence quantities: the configured reference
+    /// speed, else the largest prescribed boundary or initial speed.
+    [[nodiscard]] double turbulenceReferenceSpeed() const;
 
     /// Structural + physical validation. Errors block case generation;
     /// warnings are surfaced to the user (e.g. Courant estimate).

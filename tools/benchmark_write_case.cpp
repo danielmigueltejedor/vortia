@@ -1,5 +1,5 @@
 // Writes a Vortia verification case (Poiseuille or Ghia cavity) for OpenFOAM.
-// Usage: benchmark_write_case <poiseuille|ghia|blasius> <caseDir> [esi|foundation]
+// Usage: benchmark_write_case <poiseuille|ghia|blasius|turbulent-plate> <caseDir> [esi|foundation]
 #include "vortia/solver/openfoam/CaseWriter.hpp"
 #include "vortia/solver/openfoam/Forces.hpp"
 #include "vortia/solver/openfoam/Installation.hpp"
@@ -7,12 +7,14 @@
 #include "vortia/verification/GhiaCavity.hpp"
 #include "vortia/verification/Poiseuille.hpp"
 #include "vortia/verification/SampleFunctions.hpp"
+#include "vortia/verification/TurbulentFlatPlate.hpp"
 
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -41,7 +43,7 @@ vortia::openfoam::Capabilities capsFor(std::string_view dist) {
 
 int main(int argc, char** argv) {
     if (argc < 3 || argc > 4) {
-        std::cerr << "Usage: benchmark_write_case <poiseuille|ghia|blasius> <caseDir> [esi|foundation]\n";
+        std::cerr << "Usage: benchmark_write_case <poiseuille|ghia|blasius|turbulent-plate> <caseDir> [esi|foundation]\n";
         return 2;
     }
     const std::string kind = argv[1];
@@ -72,6 +74,12 @@ int main(int argc, char** argv) {
         const double yEnd = vortia::verification::delta99(plate, x);
         sampleU = vortia::verification::verticalCentrelineSampleDict(
             x, 0.0, yEnd, 0.5 * plate.depth, 80);
+    } else if (kind == "turbulent-plate") {
+        const vortia::verification::TurbulentPlate plate;
+        setup = vortia::verification::makeTurbulentPlateCase(plate);
+        // Boundary-layer profile near the trailing edge, for the record.
+        sampleU = vortia::verification::verticalCentrelineSampleDict(
+            0.9 * plate.length, 0.0, 0.25, 0.5 * plate.depth, 100);
     } else {
         std::cerr << "Unknown case kind: " << kind << "\n";
         return 2;
@@ -95,9 +103,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (kind == "poiseuille") {
-        // Wall force per unit density, checked against the momentum balance.
-        const auto forces = vortia::openfoam::forcesFunctionObject({{"bottomWall", "topWall"}, 1.0, {}});
+    if (kind == "poiseuille" || kind == "turbulent-plate") {
+        // Wall force per unit density: momentum balance (Poiseuille) or
+        // skin-friction law (turbulent plate).
+        const std::vector<std::string> walls = kind == "poiseuille"
+            ? std::vector<std::string>{"bottomWall", "topWall"} : std::vector<std::string>{"plate"};
+        const auto forces = vortia::openfoam::forcesFunctionObject({walls, 1.0, {}});
         if (!forces || !writeText(caseDir / "system" / "forces", *forces)) {
             std::cerr << "Failed to write system/forces\n";
             return 1;

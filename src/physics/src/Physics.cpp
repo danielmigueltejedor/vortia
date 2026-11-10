@@ -166,12 +166,51 @@ std::vector<Issue> CaseSetup::validate() const {
     if (time.adjustTimeStep && solver == SolverApp::SimpleFoam)
         warning("adjustTimeStep has no effect in steady-state simpleFoam");
 
+    // --- Turbulence ---
+    if (turbulence.model == TurbulenceModel::KOmegaSST) {
+        if (numerics.ddt != TimeScheme::SteadyState || solver != SolverApp::SimpleFoam)
+            error("the k-omega SST model is available for steady simpleFoam cases only");
+        if (!std::isfinite(turbulence.intensity) || turbulence.intensity <= 0.0 ||
+            turbulence.intensity > 1.0)
+            error("turbulence intensity must be greater than 0 and at most 1");
+        if (!std::isfinite(turbulence.lengthScale) || turbulence.lengthScale <= 0.0)
+            error("turbulent length scale must be positive and finite");
+        if (!std::isfinite(turbulence.referenceSpeed) || turbulence.referenceSpeed < 0.0)
+            error("turbulence reference speed must be zero (automatic) or positive");
+        else if (!(turbulenceReferenceSpeed() > 0.0))
+            error("the k-omega SST model needs a prescribed velocity or a reference speed");
+    }
+
     const double re = estimateReynolds();
-    if (re > 2000.0)
+    if (turbulence.model == TurbulenceModel::Laminar && re > 2000.0)
         warning("estimated Reynolds number is " + std::to_string(re) +
                 " (> ~2000): the laminar model may be physically inappropriate");
 
     return issues;
+}
+
+double turbulentKineticEnergy(double speed, double intensity) {
+    if (!std::isfinite(speed) || !std::isfinite(intensity) || speed < 0.0 || intensity < 0.0)
+        return std::numeric_limits<double>::quiet_NaN();
+    const double fluctuation = speed * intensity;
+    return 1.5 * fluctuation * fluctuation;
+}
+
+double specificDissipationRate(double k, double lengthScale) {
+    if (!std::isfinite(k) || !std::isfinite(lengthScale) || k < 0.0 || lengthScale <= 0.0)
+        return std::numeric_limits<double>::quiet_NaN();
+    constexpr double cMu = 0.09;
+    return std::sqrt(k) / (std::pow(cMu, 0.25) * lengthScale);
+}
+
+double CaseSetup::turbulenceReferenceSpeed() const {
+    if (turbulence.referenceSpeed > 0.0)
+        return turbulence.referenceSpeed;
+    double speed = internalVelocity.norm();
+    for (const auto& bc : boundaries)
+        if (bc.velocity == VelocityBc::FixedValue)
+            speed = std::max(speed, bc.velocityValue.norm());
+    return std::isfinite(speed) ? speed : 0.0;
 }
 
 } // namespace vortia

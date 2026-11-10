@@ -43,6 +43,10 @@ struct Capabilities {
     /// Foundation ≤ 11) or "physicalProperties" (Foundation ≥ 12).
     std::string transportDict{"transportProperties"};
 
+    /// Name of the turbulence dictionary under constant/: "turbulenceProperties"
+    /// (ESI, Foundation ≤ 7) or "momentumTransport" (Foundation ≥ 8).
+    std::string turbulenceDict{"turbulenceProperties"};
+
     /// Command for a transient laminar incompressible run.
     std::string laminarTransientSolver{"icoFoam"};
     std::vector<std::string> laminarTransientArgs{};

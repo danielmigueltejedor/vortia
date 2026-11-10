@@ -55,6 +55,7 @@ Capabilities capabilitiesFor(const Installation& installation) {
             caps.laminarSteadySolver = "simpleFoam";
         }
         caps.transportDict = (major >= 12) ? "physicalProperties" : "transportProperties";
+        caps.turbulenceDict = (major >= 8) ? "momentumTransport" : "turbulenceProperties";
     }
     // Distribution::Unknown keeps conservative defaults (ESI-style names),
     // but callers must treat needsVerification() as a hard stop.
