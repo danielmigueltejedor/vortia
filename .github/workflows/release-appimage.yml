@@ -119,8 +119,14 @@ jobs:
         run: |
           # The conda toolchain targets an old glibc through its own sysroot.
           # The runner's /usr/bin/c++ would tie the binary to Ubuntu 24.04.
-          echo "CC=$CC CXX=$CXX"
-          case "$CXX" in *conda*) ;; *) echo "conda C++ compiler is not active" >&2; exit 1 ;; esac
+          # micromamba's login-shell activation does not run the compiler
+          # packages' activate.d scripts, so do it here (0.2.x was silently
+          # built by the runner's compiler for this reason).
+          set +eu
+          for script in "$CONDA_PREFIX"/etc/conda/activate.d/*.sh; do source "$script"; done
+          set -eu
+          echo "CC=${CC:-} CXX=${CXX:-}"
+          case "${CXX:-}" in *conda*) ;; *) echo "conda C++ compiler is not active" >&2; exit 1 ;; esac
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DVORTIA_BUILD_UI=ON \
