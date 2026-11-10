@@ -76,7 +76,9 @@ esac
 
 note "Library resolution (as the launcher resolves it)"
 report="$work/ldd.txt"
-find "$app/usr/bin/vortia" "$app/usr/plugins" "$app/usr/lib" -type f \
+# The engine has its own library tree and is exercised by --verify-engine.
+find "$app/usr/bin/vortia" "$app/usr/plugins" "$app/usr/lib" \
+  -path "$app/usr/lib/openfoam-engine" -prune -o -type f \
   \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) -print0 |
   while IFS= read -r -d '' elf; do
     LD_LIBRARY_PATH="$launcher_path" ldd -r "$elf" 2>&1 | sed "s|^|$(basename "$elf"): |"
@@ -159,6 +161,10 @@ if ((modern)); then
   sed 's/^/  | /' "$log" | head -n 12
   if [[ "$rc" -eq 5 ]] && grep -q 'OpenGL 3.2' "$log" && grep -q 'software rendering' "$log"; then
     echo "OK: reported and exited with rc=5 after retrying with software rendering"
+  elif [[ "$rc" -eq 0 ]]; then
+    # Some Mesa builds ignore the override for core contexts: nothing was
+    # withheld, so nothing could be tested here. Any crash still fails.
+    echo "NOT EXERCISED: this Mesa still offered OpenGL 3.2 despite the override"
   else
     bad "expected rc=5 with an OpenGL explanation, got rc=$rc"
   fi

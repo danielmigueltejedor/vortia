@@ -124,10 +124,11 @@ jobs:
         run: |
           set -o pipefail
           root="$(echo "$PWD"/engine/OpenFOAM-v*)"
-          set +u
+          # The engine bashrc is not written for "set -e" / "set -u".
+          set +eu
           source "$root/etc/bashrc"
           source "$root/etc/vortia-runtime.sh"
-          set -u
+          set -eu
           test "$WM_PROJECT_DIR" = "$root"
           for tool in simpleFoam blockMesh mpirun; do command -v "$tool"; done
           export VORTIA_NATIVE_OF_ROOT="$root"

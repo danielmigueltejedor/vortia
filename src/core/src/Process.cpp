@@ -112,6 +112,18 @@ Expected<ProcessResult> PosixProcessRunner::run(const ProcessRequest& request,
     }
     for (const auto& [k, v] : request.environment)
         envStorage.push_back(k + "=" + v);
+    if (!request.workingDirectory.empty()) {
+        // The child starts in workingDirectory, so PWD must say so. A stale
+        // PWD (the directory Vortia was launched from, or the one captured
+        // with the engine environment) misleads programs that trust it:
+        // OpenFOAM aborts when it contains a blank.
+        std::erase_if(envStorage, [](const std::string& entry) {
+            return entry.rfind("PWD=", 0) == 0 || entry.rfind("OLDPWD=", 0) == 0;
+        });
+        std::error_code ec;
+        const auto absolute = std::filesystem::absolute(request.workingDirectory, ec);
+        envStorage.push_back("PWD=" + (ec ? request.workingDirectory : absolute).string());
+    }
     std::vector<char*> envp;
     envp.reserve(envStorage.size() + 1);
     for (auto& s : envStorage)
