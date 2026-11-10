@@ -16,7 +16,10 @@ app="$1"
 out="$2"
 here="$(cd "$(dirname "$0")" && pwd)"
 version="${3:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$1/Contents/Info.plist")}"
-bg="$here/dmg-background.png"
+# 1x + 2x TIFF rendered from dmg-background.svg (render_dmg_background.swift).
+# It is much larger than the window on purpose: Finder does not scale the
+# picture, and a window opened wider (sidebar, toolbar) showed a white band.
+bg="$here/dmg-background.tiff"
 
 [[ -d "$app" && -f "$app/Contents/MacOS/vortia" ]] || {
   echo "Missing Vortia.app" >&2
@@ -35,7 +38,7 @@ trap 'rm -rf "$(dirname "$stage")" "$(dirname "$rw")" >/dev/null 2>&1 || true' E
 
 ditto "$app" "$stage/Vortia.app"
 ln -s /Applications "$stage/Applications"
-cp "$bg" "$stage/.background/background.png"
+cp "$bg" "$stage/.background/background.tiff"
 
 # Room for the app plus file-system overhead, whatever the bundle weighs.
 stage_mb="$(du -sm "$stage" | cut -f1)"
@@ -58,11 +61,14 @@ tell application "Finder"
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
+    set sidebar width of container window to 0
     set the bounds of container window to {200, 120, 860, 520}
     set theViewOptions to the icon view options of container window
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to 128
-    set background picture of theViewOptions to file ".background:background.png"
+    set text size of theViewOptions to 13
+    set label position of theViewOptions to bottom
+    set background picture of theViewOptions to file ".background:background.tiff"
     set position of item "Vortia.app" of container window to {160, 200}
     set position of item "Applications" of container window to {500, 200}
     update without registering applications

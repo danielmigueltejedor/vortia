@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 1300" width="2000" height="1300">
+  <!-- Lienzo · Papel. The Finder window is 660x400 points; the canvas colour
+       continues far beyond it so a larger window never shows a white gap. -->
+  <rect width="2000" height="1300" fill="#EEF1F5"/>
+  <rect x="30" y="34" width="600" height="332" rx="22" fill="#FFFFFF" stroke="#D5DBE3" stroke-width="1"/>
+  <text x="56" y="76" font-family="-apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#1B2533">Vortia</text>
+  <text x="604" y="76" text-anchor="end" font-family="-apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12" fill="#5F6C7D">Engineering the Flow</text>
+  <!-- Drop targets under the two Finder icons (centres at 160,200 and 500,200). -->
+  <rect x="80" y="120" width="160" height="186" rx="18" fill="#F6F8FA"/>
+  <rect x="420" y="120" width="160" height="186" rx="18" fill="#E3EEFC"/>
+  <!-- Arrow from the app to the Applications folder. -->
+  <g fill="none" stroke="#1F7AE0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M274 200 H384"/>
+    <path d="M370 186 L386 200 L370 214"/>
+  </g>
+  <text x="330" y="346" text-anchor="middle" font-family="-apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="12" fill="#5F6C7D">Arrastra Vortia a Aplicaciones  ·  Drag Vortia to Applications</text>
+</svg>
