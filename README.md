@@ -33,7 +33,7 @@
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/hero.webp" width="920" alt="Vortia showing the speed and temperature fields of a jet, in dark and light mode">
+  <img src="docs/screenshots/hero.webp" width="920" alt="Vortia showing live run monitors in dark mode and a dimensioned nozzle sketch in light mode">
 </p>
 
 ---
@@ -59,13 +59,15 @@ with the evidence behind it in [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MAT
 
 | | |
 |---|---|
-| <img src="docs/screenshots/results-speed-dark.webp" alt="Speed field of a jet in the results view, dark mode"> | <img src="docs/screenshots/results-temperature-light.webp" alt="Temperature field in the results view, light mode"> |
-| Results: speed field of a jet | Results: temperature field, light mode |
-| <img src="docs/screenshots/geometry-dark.webp" alt="2D sketch editor with its tools"> | <img src="docs/screenshots/physics-light.webp" alt="Physics models and material form"> |
-| Geometry: 2D sketch editor | Physics: models and material |
+| <img src="docs/screenshots/geometry-dark.webp" alt="2D sketch of a nozzle with its dimensions and vertex table"> | <img src="docs/screenshots/calculation-dark.webp" alt="Run monitors: Courant number, mass imbalance, field variation and equation indicator"> |
+| Geometry: dimensioned 2D sketch of a nozzle | Calculation: live run monitors |
+| <img src="docs/screenshots/results-speed-dark.webp" alt="Speed field of a jet in the results view"> | <img src="docs/screenshots/physics-light.webp" alt="Physics models and material form, light mode"> |
+| Results: speed field of a jet | Physics: models and material, light mode |
 
-The result views show the `examples/nozzle-practice-2026` case. They are
-interface captures, not validation: see [`docs/VALIDATION.md`](docs/VALIDATION.md).
+The results view shows the `examples/nozzle-practice-2026` case; the sketch and
+the monitors come from a working project. In the monitors capture the line with
+the local path of the run log is covered. These are interface captures, not
+validation: see [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
 ## What it does
 
