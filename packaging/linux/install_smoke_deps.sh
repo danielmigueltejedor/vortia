@@ -23,7 +23,7 @@ elif command -v pacman >/dev/null 2>&1; then
 elif command -v zypper >/dev/null 2>&1; then
   zypper -n install --no-recommends \
     xorg-x11-server-Xvfb xvfb-run xauth Mesa-libGL1 Mesa-libEGL1 Mesa-dri \
-    libOpenGL0 fontconfig dejavu-fonts file binutils which findutils gawk
+    fontconfig dejavu-fonts file binutils which findutils gawk
 else
   echo "Unsupported distribution: no apt-get, dnf, pacman or zypper" >&2
   exit 1
