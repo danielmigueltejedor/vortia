@@ -1,0 +1,41 @@
+# Temporary: reproduce the reported "AppImage does not open" on clean distros.
+name: AppImage repro
+on:
+  push:
+    branches: [release/0.3.0]
+    paths:
+      - ".github/workflows/appimage-repro.yml"
+      - "packaging/linux/smoke_test_appimage.sh"
+      - "packaging/linux/install_smoke_deps.sh"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p img/released img/main
+          gh release download v0.2.1 --repo "${{ github.repository }}" -p '*.AppImage' -D img/released
+          gh run download 42230533406 --repo "${{ github.repository }}" -D img/dl
+          find img/dl -name '*.AppImage' -exec mv {} img/main/ \;
+          rm -rf img/dl; ls -lR img
+      - uses: actions/upload-artifact@v4
+        with: { name: images, path: img, retention-days: 2 }
+  smoke:
+    needs: fetch
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04", "debian:12", "fedora:latest", "archlinux:latest", "opensuse/tumbleweed:latest"]
+        which: [released, main]
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: images, path: img }
+      - run: sh packaging/linux/install_smoke_deps.sh
+      - run: bash packaging/linux/smoke_test_appimage.sh img/${{ matrix.which }}/*.AppImage
