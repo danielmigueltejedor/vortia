@@ -34,7 +34,14 @@ trap 'rm -rf "$temporary"' EXIT
 iconset="$temporary/Vortia.iconset"
 mkdir -p "$iconset"
 native_png="$temporary/Vortia-macos.png"
-/usr/bin/swift "$(dirname "$0")/prepare_icon.swift" "$png" "$native_png"
+# macOS applies its own icon mask, so it gets the full-bleed artwork when the
+# project provides one; otherwise the transparent canvas of the icon is filled.
+macos_art="$(dirname "$png")/vortia-macos.png"
+if [[ -f "$macos_art" ]]; then
+    cp "$macos_art" "$native_png"
+else
+    /usr/bin/swift "$(dirname "$0")/prepare_icon.swift" "$png" "$native_png"
+fi
 # iconutil expects pairs of normal/Retina PNG images.
 for size in 16 32 128 256 512; do
     retina=$((size * 2))
