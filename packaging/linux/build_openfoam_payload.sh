@@ -21,6 +21,12 @@ version="${2:-2412}"
 [[ "${VERSION_CODENAME:-}" == "focal" ]] || { echo "Run this in ubuntu:20.04 (focal)" >&2; exit 1; }
 
 export DEBIAN_FRONTEND=noninteractive
+# archive.ubuntu.com drops connections from CI runners often enough to fail a
+# release build: retry, and use a mirror when the caller names one.
+echo 'Acquire::Retries "8"; Acquire::http::Timeout "30";' > /etc/apt/apt.conf.d/80-vortia-retries
+if [[ -n "${VORTIA_APT_MIRROR:-}" ]]; then
+  sed -i -E "s|http://(archive\.ubuntu\.com\|security\.ubuntu\.com)/ubuntu/?|${VORTIA_APT_MIRROR%/}/|g" /etc/apt/sources.list
+fi
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl gnupg binutils file python3
 curl -fsSL --proto '=https' --tlsv1.2 https://dl.openfoam.com/pubkey.gpg |

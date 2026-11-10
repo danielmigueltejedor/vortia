@@ -87,7 +87,8 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           mkdir payload
-          docker run --rm -v "$PWD:/work" -w /work ubuntu:20.04 \
+          docker run --rm -v "$PWD:/work" -w /work \
+            -e VORTIA_APT_MIRROR=http://azure.archive.ubuntu.com/ubuntu ubuntu:20.04 \
             bash packaging/linux/build_openfoam_payload.sh /work/payload 2412
           sudo tar -C payload -cf openfoam-engine.tar .
           sudo chown "$(id -u)" openfoam-engine.tar
