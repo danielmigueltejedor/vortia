@@ -1,6 +1,6 @@
 """Vortia tool icons: one grid (24), one stroke (1.75), round caps and joins, 3 px of clear margin.
 Each entry is a list of SVG fragments. `dot(x, y)` is a filled node; `d="..."` strings are stroked paths."""
-import sys, os
+import os
 
 def P(d, **kw):
     extra = ''.join(f' {k.replace("_", "-")}="{v}"' for k, v in kw.items())
@@ -83,8 +83,9 @@ I = {
 
 HEAD = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">'
 if __name__ == '__main__':
-    out = sys.argv[1]
-    os.makedirs(out, exist_ok=True)
+    # Always writes next to the sources it belongs to: no path comes from the command line.
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'resources', 'icons', 'ui')
     for name, parts in sorted(I.items()):
-        open(os.path.join(out, name + '.svg'), 'w').write(HEAD + ''.join(parts) + '</svg>\n')
+        with open(os.path.join(out, name + '.svg'), 'w') as handle:
+            handle.write(HEAD + ''.join(parts) + '</svg>\n')
     print(len(I))

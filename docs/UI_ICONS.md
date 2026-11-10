@@ -19,7 +19,7 @@ el resto del código. No se copian ni adaptan de otros conjuntos.
 Se generan con:
 
 ```sh
-python3 tools/ui_icons.py resources/icons/ui
+python3 tools/ui_icons.py
 ```
 
 `tools/ui_icons.py` contiene la definición de cada icono; para cambiar uno se
