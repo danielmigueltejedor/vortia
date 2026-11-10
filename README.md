@@ -142,14 +142,14 @@ and applies an ad-hoc signature; the published DMG is built by the
 
 ### Application icon
 
-The vector original is `resources/icons/vortia.svg`. Regenerate the PNG with:
+`resources/icons/vortia.png` (512 px) is embedded through the Qt resource
+system (`:/vortia/app-icon.png`), so the window and the Dock use the same
+design. `resources/icons/vortia-macos.png` is the same artwork at full bleed
+for the macOS bundle, where the system applies its own icon mask.
 
-```sh
-swift packaging/macos/render_icon_svg.swift resources/icons/vortia.svg resources/icons/vortia.png 512
-```
-
-The PNG is embedded through the Qt resource system (`:/vortia/app-icon.png`),
-so the window and the Dock use the same design.
+The icon is a black-and-white portrait of Daniel Bernoulli over blue, part of
+the Nodalia icon family. The source is an 18th-century engraving in the public
+domain (Wikimedia Commons, `Daniel Bernoulli 001.jpg`).
 
 ## Parallel compressible runs
 
