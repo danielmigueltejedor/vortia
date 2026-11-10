@@ -225,6 +225,26 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(appUpdater_, &AppUpdater::applyStarted, this, [this](const QString& message) {
         setProjectState(message);
     });
+    // An update restarts Vortia without asking each window: refuse while
+    // there is unsaved work, otherwise save the session state ourselves.
+    appUpdater_->setRestartGuard([this](QString* error) {
+        storeCurrentTab();
+        for (const auto& doc : documents_) {
+            if (doc.modified) {
+                if (error)
+                    *error = tr("There are unsaved projects. Save or close them, then update again: installing the update restarts Vortia.");
+                return false;
+            }
+        }
+        saveSettings();
+        return true;
+    });
+    // A failed in-place update must not be silent at the next start.
+    QTimer::singleShot(800, this, [this] {
+        const QString failure = AppUpdater::takeLastUpdateFailure();
+        if (!failure.isEmpty())
+            QMessageBox::warning(this, tr("Update"), failure);
+    });
 
     loadSettings();
     addProjectTab(tr("Untitled %1").arg(++untitledCount_), setup_);

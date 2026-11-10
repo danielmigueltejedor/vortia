@@ -134,7 +134,7 @@ endif()
 # AppUpdater pure helpers (SHA-256 digest + macOS publisher policy). Needs Qt Core only.
 find_package(Qt6 QUIET COMPONENTS Core)
 if(Qt6_FOUND)
-    add_executable(test_app_updater unit/test_app_updater.cpp)
+    add_executable(test_app_updater unit/test_app_updater.cpp unit/test_update_helper.cpp)
     target_include_directories(test_app_updater PRIVATE
         ${PROJECT_SOURCE_DIR}/src/ui/include
         ${PROJECT_SOURCE_DIR}/src/ui/src)
