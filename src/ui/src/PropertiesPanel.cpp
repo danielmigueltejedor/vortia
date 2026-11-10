@@ -102,6 +102,12 @@ PropertiesPanel::PropertiesPanel(QWidget* parent) : QWidget(parent) {
     layout->addWidget(applyButton_);
 }
 
+namespace {
+/// Solver-combo entry for steady simpleFoam with the k-omega SST model;
+/// distinct from every SolverApp value.
+constexpr int kSteadySstChoice = 1000;
+} // namespace
+
 void PropertiesPanel::buildDomainPage() {
     auto* page = new QWidget(this);
     auto* form = new QFormLayout(page);
@@ -237,6 +243,23 @@ void PropertiesPanel::buildSolverPage() {
     solverCombo_ = new QComboBox(page);
     solverCombo_->addItem(tr("Transient laminar (icoFoam)"), static_cast<int>(SolverApp::IcoFoam));
     solverCombo_->addItem(tr("Steady laminar (simpleFoam)"), static_cast<int>(SolverApp::SimpleFoam));
+    // Same steady solver with the k-omega SST RANS model and wall functions.
+    solverCombo_->addItem(tr("Steady turbulent, k-omega SST (simpleFoam)"), kSteadySstChoice);
+    turbulenceIntensityEdit_ = new QDoubleSpinBox(page);
+    turbulenceIntensityEdit_->setRange(0.01, 100.0);
+    turbulenceIntensityEdit_->setDecimals(2);
+    turbulenceIntensityEdit_->setSuffix(QStringLiteral(" %"));
+    turbulenceIntensityEdit_->setToolTip(tr("Turbulence intensity at inlets and in the initial field. Used by the k-omega SST model only."));
+    turbulenceLengthEdit_ = new QDoubleSpinBox(page);
+    turbulenceLengthEdit_->setRange(1e-6, 1e3);
+    turbulenceLengthEdit_->setDecimals(6);
+    turbulenceLengthEdit_->setToolTip(tr("Turbulent length scale in metres. Used by the k-omega SST model only."));
+    const auto syncTurbulenceEditors = [this] {
+        const bool sst = solverCombo_->currentData().toInt() == kSteadySstChoice;
+        turbulenceIntensityEdit_->setEnabled(sst);
+        turbulenceLengthEdit_->setEnabled(sst);
+    };
+    connect(solverCombo_, &QComboBox::currentIndexChanged, this, syncTurbulenceEditors);
     endTimeEdit_ = new QDoubleSpinBox(page);
     endTimeEdit_->setRange(0.0, 1e9);
     endTimeEdit_->setDecimals(4);
@@ -249,6 +272,9 @@ void PropertiesPanel::buildSolverPage() {
     form->addRow(tr("End time (s)"), endTimeEdit_);
     form->addRow(tr("Delta T (s)"), deltaTEdit_);
     form->addRow(tr("Write interval (steps)"), writeIntervalEdit_);
+    form->addRow(tr("Turbulence intensity"), turbulenceIntensityEdit_);
+    form->addRow(tr("Turbulent length scale (m)"), turbulenceLengthEdit_);
+    syncTurbulenceEditors();
     stack_->addWidget(page);
 }
 
@@ -296,7 +322,11 @@ void PropertiesPanel::loadEditorsFromSetup() {
             lidU = b.velocityValue.x;
     lidUx_->setValue(lidU);
 
-    solverCombo_->setCurrentIndex(solverCombo_->findData(static_cast<int>(setup_.solver)));
+    const bool sst = setup_.turbulence.model == TurbulenceModel::KOmegaSST;
+    solverCombo_->setCurrentIndex(
+        solverCombo_->findData(sst ? kSteadySstChoice : static_cast<int>(setup_.solver)));
+    turbulenceIntensityEdit_->setValue(setup_.turbulence.intensity * 100.0);
+    turbulenceLengthEdit_->setValue(setup_.turbulence.lengthScale);
     endTimeEdit_->setValue(setup_.time.endTime);
     deltaTEdit_->setValue(setup_.time.deltaT);
     writeIntervalEdit_->setValue(setup_.time.writeInterval);
@@ -324,7 +354,12 @@ void PropertiesPanel::applyEditorsToSetup() {
             break;
         }
 
-    setup_.solver = static_cast<SolverApp>(solverCombo_->currentData().toInt());
+    const int solverChoice = solverCombo_->currentData().toInt();
+    const bool sst = solverChoice == kSteadySstChoice;
+    setup_.solver = sst ? SolverApp::SimpleFoam : static_cast<SolverApp>(solverChoice);
+    setup_.turbulence.model = sst ? TurbulenceModel::KOmegaSST : TurbulenceModel::Laminar;
+    setup_.turbulence.intensity = turbulenceIntensityEdit_->value() / 100.0;
+    setup_.turbulence.lengthScale = turbulenceLengthEdit_->value();
     setup_.time.endTime = endTimeEdit_->value();
     setup_.time.deltaT = deltaTEdit_->value();
     setup_.time.writeInterval = writeIntervalEdit_->value();
