@@ -20,7 +20,7 @@ jobs:
           mkdir -p img/released img/main
           gh release download v0.2.1 --repo "${{ github.repository }}" -p '*.AppImage' -D img/released
           gh run download 42230533406 --repo "${{ github.repository }}" -D img/dl
-          find img/dl -name '*.AppImage' -exec mv {} img/main/ \;
+          find img/dl -type f -name '*.AppImage' -exec mv {} img/main/ \;
           rm -rf img/dl; ls -lR img
       - uses: actions/upload-artifact@v4
         with: { name: images, path: img, retention-days: 2 }
