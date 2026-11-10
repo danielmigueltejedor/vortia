@@ -3,6 +3,7 @@
 <TS version="2.1" language="es_ES">
 <context>
     <name>vortia::MainWindow</name>
+    <message><source>Main menu</source><translation>Menú principal</translation></message>
     <message><source>Engineering analysis…</source><translation>Análisis de ingeniería…</translation></message>
 
     <message><source>Assign the highlighted boundaries, including a total-pressure inlet and a pressure outlet, before generating the case.</source><translation>Asigna los contornos señalados, incluida una entrada de presión total y una salida de presión, antes de generar el caso.</translation></message>
@@ -2087,5 +2088,12 @@ SHA-256 de la muestra: %5</translation>
     <message><source>Installing Vortia %1 and restarting…</source><translation>Instalando Vortia %1 y reiniciando…</translation></message>
     <message><source>Could not start the macOS update helper.</source><translation>No se pudo iniciar el asistente de actualización de macOS.</translation></message>
     <message><source>In-place updates are not supported on this platform.</source><translation>Las actualizaciones en el sitio no están disponibles en esta plataforma.</translation></message>
+</context>
+<context>
+    <name>vortia::lienzo::WindowChrome</name>
+    <message><source>Minimize</source><translation>Minimizar</translation></message>
+    <message><source>Maximize</source><translation>Maximizar</translation></message>
+    <message><source>Restore</source><translation>Restaurar</translation></message>
+    <message><source>Close</source><translation>Cerrar</translation></message>
 </context>
 </TS>

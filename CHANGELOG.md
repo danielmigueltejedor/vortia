@@ -4,6 +4,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+### Añadido
+- **Lienzo**, lenguaje de diseño exportable (variante Papel): tokens en
+  `resources/lienzo/tokens.json`, hoja de estilos Qt con marcadores y variables
+  CSS generadas. Guía en `docs/LIENZO.md`.
+- **Linux: una sola barra superior.** Los controles de ventana, el menú y las
+  pestañas de documento comparten la barra de la aplicación; ya no hay barra de
+  título del sistema ni barra de menús aparte. El lado y los botones siguen la
+  configuración del escritorio (GNOME, KDE). `VORTIA_NATIVE_TITLEBAR=1` vuelve
+  a la barra del sistema.
+
+### Cambiado
+- Tema unificado: un solo aspecto de «seleccionado», acento azul, paneles como
+  tarjetas, botones en píldora. El esquema claro pasa a ser el predeterminado
+  en instalaciones nuevas; quien tuviera elegido el oscuro lo conserva.
+
 ## [0.3.0] — 2026-11-10
 
 Instaladores que abren en una máquina limpia, con el motor CFD dentro.

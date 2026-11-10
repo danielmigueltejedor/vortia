@@ -170,6 +170,17 @@ if ((modern)); then
   fi
 fi
 
+if [[ -n "${VORTIA_SCREENSHOT_DIR:-}" ]] && ((modern)); then
+  note "Screenshots of the main window (integrated top bar)"
+  mkdir -p "$VORTIA_SCREENSHOT_DIR"
+  for theme in light dark; do
+    shot="$VORTIA_SCREENSHOT_DIR/vortia-$(. /etc/os-release && echo "$ID-$VERSION_ID")-$theme.png"
+    "${clean_env[@]}" VORTIA_THEME="$theme" timeout --kill-after=10 60 \
+      "${xvfb[@]}" "$app/AppRun" --screenshot "$shot" >/dev/null 2>&1 || bad "--screenshot ($theme) rc=$?"
+    [[ -s "$shot" ]] && echo "saved $(basename "$shot") ($(stat -c %s "$shot") bytes)" || bad "no screenshot for $theme"
+  done
+fi
+
 if [[ -d "$app/usr/Resources/gmsh" ]]; then
   note "Packaged mesher (Python + Gmsh)"
   command -v python3 >/dev/null 2>&1 && echo "note: host already provides python3"

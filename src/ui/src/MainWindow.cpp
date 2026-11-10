@@ -1,6 +1,7 @@
 #include "vortia/ui/UiIcon.hpp"
 #include "vortia/ui/FlowSetup.hpp"
 #include "vortia/ui/MeshRegionsWidget.hpp"
+#include <functional>
 #include <QDoubleSpinBox>
 #include "vortia/ui/LineProfile.hpp"
 #include "vortia/ui/FieldTools.hpp"
@@ -35,6 +36,7 @@
 #include "vortia/solver/openfoam/Detector.hpp"
 #include "vortia/ui/OpenFoamRuntime.hpp"
 #include "vortia/ui/ThemeManager.hpp"
+#include "vortia/ui/WindowChrome.hpp"
 #include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/ui/ResultFiles.hpp"
 
@@ -156,9 +158,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 #if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     // Keep AppKit's real traffic lights and fullscreen behavior. The document
     // header occupies the titlebar, reserving space beside the native controls.
-    setWindowFlags(windowFlags()|Qt::ExpandedClientAreaHint|Qt::NoTitleBarBackgroundHint);
-    setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea,false);
-    setAttribute(Qt::WA_LayoutOnEntireRect,true);
+    if(!lienzo::usesClientSideDecorations()) {
+        setWindowFlags(windowFlags()|Qt::ExpandedClientAreaHint|Qt::NoTitleBarBackgroundHint);
+        setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea,false);
+        setAttribute(Qt::WA_LayoutOnEntireRect,true);
+    }
 #endif
 
     buildMenusAndToolbar();
@@ -234,6 +238,7 @@ bool MainWindow::eventFilter(QObject* object,QEvent* event) {
 #if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     if(event->type()==QEvent::MouseButtonPress||event->type()==QEvent::MouseButtonDblClick) {
         auto* mouse=static_cast<QMouseEvent*>(event);
+        if(lienzo::usesClientSideDecorations())return QMainWindow::eventFilter(object,event);
         const bool header=object->objectName()=="vortia-document-header"||object->objectName()=="vortia-native-window-controls-space";
         const bool emptyTabs=object==projectTabs_&&projectTabs_->tabAt(mouse->position().toPoint())<0;
         if(mouse->button()==Qt::LeftButton&&(header||emptyTabs)) {
@@ -795,19 +800,55 @@ void MainWindow::buildDocks() {
     projectTabs_->setDocumentMode(true);
     projectTabs_->setExpanding(false);
     projectTabs_->setUsesScrollButtons(true);
+    // One bar above the content. macOS keeps AppKit's own window buttons and
+    // reserves room for them; Linux draws them in this bar (WindowChrome), so
+    // there is no system title bar and no separate menu bar on top.
 #if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
-    auto* topBar=findChild<QWidget*>("vortia-top-bar");
-    auto* header=new QWidget(topBar);header->setObjectName("vortia-document-header");header->setFixedHeight(42);
-    auto* row=new QHBoxLayout(header);row->setContentsMargins(0,0,0,0);row->setSpacing(0);
-    auto* trafficSpace=new QWidget(header);trafficSpace->setObjectName("vortia-native-window-controls-space");
-    trafficSpace->setFixedWidth(84);row->addWidget(trafficSpace);
-    projectTabs_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);row->addWidget(projectTabs_,1);
-    qobject_cast<QVBoxLayout*>(topBar->layout())->insertWidget(0,header);
-    // The header has a native titlebar hit target even in its unused tab area.
-    header->installEventFilter(this);trafficSpace->installEventFilter(this);projectTabs_->installEventFilter(this);
+    const bool nativeUnifiedHeader=!lienzo::usesClientSideDecorations();
 #else
-    centralLayout->addWidget(projectTabs_);
+    const bool nativeUnifiedHeader=false;
 #endif
+    const bool clientDecorations=lienzo::usesClientSideDecorations();
+    if(nativeUnifiedHeader||clientDecorations) {
+        auto* topBar=findChild<QWidget*>("vortia-top-bar");
+        auto* header=new QWidget(topBar);header->setObjectName("vortia-document-header");header->setFixedHeight(44);
+        auto* row=new QHBoxLayout(header);row->setContentsMargins(0,0,0,0);row->setSpacing(0);
+        if(nativeUnifiedHeader) {
+            auto* trafficSpace=new QWidget(header);trafficSpace->setObjectName("vortia-native-window-controls-space");
+            trafficSpace->setFixedWidth(84);row->addWidget(trafficSpace);
+            trafficSpace->installEventFilter(this);
+        } else {
+            // The menus of the hidden menu bar live behind one button.
+            auto* appMenu=new QToolButton(header);appMenu->setObjectName("lienzo-app-menu");
+            appMenu->setText(QStringLiteral("\u2261"));appMenu->setToolTip(tr("Main menu"));
+            appMenu->setPopupMode(QToolButton::InstantPopup);appMenu->setFocusPolicy(Qt::NoFocus);
+            auto* menu=new QMenu(appMenu);
+            connect(menu,&QMenu::aboutToShow,this,[this,menu]{menu->clear();menu->addActions(menuBar()->actions());});
+            appMenu->setMenu(menu);
+            row->addSpacing(8);row->addWidget(appMenu);row->addSpacing(4);
+        }
+        projectTabs_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);row->addWidget(projectTabs_,1);
+        qobject_cast<QVBoxLayout*>(topBar->layout())->insertWidget(0,header);
+        if(nativeUnifiedHeader) {
+            // The header has a native titlebar hit target even in its unused tab area.
+            header->installEventFilter(this);projectTabs_->installEventFilter(this);
+        } else {
+            auto* chrome=new lienzo::WindowChrome(this,header,row,lienzo::systemButtonLayout());
+            chrome->addDragArea(projectTabs_);
+            // A hidden menu bar no longer delivers shortcuts: keep every
+            // menu action registered on the window itself.
+            std::function<void(const QList<QAction*>&)> keepShortcuts=[&](const QList<QAction*>& actions) {
+                for(QAction* action:actions) {
+                    if(action->menu())keepShortcuts(action->menu()->actions());
+                    else if(!action->isSeparator())addAction(action);
+                }
+            };
+            keepShortcuts(menuBar()->actions());
+            menuBar()->hide();
+        }
+    } else {
+        centralLayout->addWidget(projectTabs_);
+    }
     updateNotice_ = new QLabel(central);
     updateNotice_->setObjectName(QStringLiteral("vortia-update-notice"));
     updateNotice_->setWordWrap(true);

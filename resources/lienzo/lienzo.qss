@@ -1,5 +1,5 @@
 /* Lienzo · Papel — Qt style sheet template.
-   {{group.token}} placeholders are filled from tokens.json for the active
+   Placeholders in double braces (group.token) are filled from tokens.json for the active
    colour scheme. Panels are white cards floating on the canvas colour;
    controls are rounded, primary actions are pills in the accent colour. */
 QWidget {font-size:{{font.base}}px;}
