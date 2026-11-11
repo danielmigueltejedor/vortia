@@ -196,12 +196,9 @@ pub enum Interpolation {
 }
 
 impl Interpolation {
-    /// From a `divSchemes` entry such as `Gauss upwind` or `bounded Gauss linear`.
+    /// From a `divSchemes` entry such as `Gauss upwind`. `bounded` changes
+    /// the equation, not the interpolation: read it with [`Convection`].
     pub fn from_scheme(words: &[&str]) -> Result<Self> {
-        let words = match words {
-            ["bounded", rest @ ..] => rest,
-            all => all,
-        };
         match words {
             ["Gauss", "upwind"] => Ok(Self::Upwind),
             ["Gauss", "linear"] => Ok(Self::Linear),
@@ -210,6 +207,38 @@ impl Interpolation {
                 other.join(" ")
             ))),
         }
+    }
+}
+
+/// A `divSchemes` entry: the interpolation, and whether it is `bounded`,
+/// which takes `(∇·φ) ψ` back out so that a flux that does not conserve
+/// (a steady solve before it converges) cannot change a uniform field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Convection {
+    pub interpolation: Interpolation,
+    pub bounded: bool,
+}
+
+impl Convection {
+    /// From a `divSchemes` entry such as `bounded Gauss linear`.
+    pub fn from_scheme(words: &[&str]) -> Result<Self> {
+        let (bounded, rest) = match words {
+            ["bounded", rest @ ..] => (true, rest),
+            all => (false, all),
+        };
+        Ok(Self {
+            interpolation: Interpolation::from_scheme(rest)?,
+            bounded,
+        })
+    }
+}
+
+/// What `bounded` subtracts, `fvm::Sp(fvc::surfaceIntegrate(phi), ψ)`: the
+/// cell's net outflow on the diagonal.
+pub fn bounded_correction(m: &mut LduMatrix, mesh: &PolyMesh, fv: &FvGeometry, phi: &[f64]) {
+    let div = surface_integrate(mesh, fv, phi);
+    for ((d, &net), &v) in m.diag.iter_mut().zip(&div).zip(fv.volumes()) {
+        *d -= v * net;
     }
 }
 

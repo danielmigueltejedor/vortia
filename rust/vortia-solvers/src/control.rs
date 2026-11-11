@@ -8,7 +8,7 @@ use vortia_fv::{
     Controls, LduMatrix, Performance, pbicgstab_dilu, pcg_dic, smooth_sym_gauss_seidel,
 };
 
-use crate::case::{Case, time_name};
+use crate::case::{Case, DEFAULT_TIME_PRECISION, MAX_TIME_PRECISION, time_name, time_name_with};
 use crate::error::{Result, SolverError};
 
 /// The most time steps one run may take, so a typo in `deltaT` cannot hang.
@@ -22,6 +22,8 @@ pub struct RunControl {
     pub start_name: String,
     pub delta_t: f64,
     pub n_steps: u64,
+    /// Significant digits in the names of the times written.
+    pub precision: u32,
     write: WriteControl,
 }
 
@@ -47,13 +49,26 @@ impl RunControl {
         if !(0.0..=MAX_STEPS as f64).contains(&steps) {
             return Err(SolverError::Setup(format!("{steps} time steps")));
         }
+        let n_steps = steps as u64;
+        let requested = case
+            .control
+            .label("timePrecision")
+            .and_then(|p| u32::try_from(p).ok())
+            .unwrap_or(DEFAULT_TIME_PRECISION);
+        let precision = distinct_precision(requested, start_time, delta_t, n_steps)?;
         Ok(Self {
             start_time,
             start_name,
             delta_t,
-            n_steps: steps as u64,
+            n_steps,
+            precision,
             write: WriteControl::read(case, delta_t)?,
         })
+    }
+
+    /// The directory name of the time at the end of `step`.
+    pub fn name(&self, step: u64) -> String {
+        time_name_with(self.time(step), self.precision)
     }
 
     /// The time at the end of `step` (counted from 1).
@@ -67,6 +82,27 @@ impl RunControl {
         self.write
             .due(step, step as f64 * self.delta_t, self.delta_t)
     }
+}
+
+/// The fewest digits, from `requested` up, that give every time of the run
+/// a name of its own, so no write lands on another time's directory (or on
+/// the start). OpenFOAM raises `timePrecision` the same way when names
+/// collide.
+fn distinct_precision(requested: u32, start: f64, dt: f64, n_steps: u64) -> Result<u32> {
+    let end = start + n_steps as f64 * dt;
+    let largest = start.abs().max(end.abs());
+    if largest == 0.0 || n_steps == 0 {
+        return Ok(requested.clamp(1, MAX_TIME_PRECISION));
+    }
+    let exp = largest.log10().floor() as i32;
+    // Names a rounding step of no more than `dt` apart stay distinct.
+    (requested.clamp(1, MAX_TIME_PRECISION)..=MAX_TIME_PRECISION)
+        .find(|&p| 10f64.powi(exp + 1 - p as i32) <= dt * (1.0 + 1e-9))
+        .ok_or_else(|| {
+            SolverError::Setup(format!(
+                "deltaT {dt} is too small to name the times near {largest} apart"
+            ))
+        })
 }
 
 /// The linear solvers the engine has, by their `fvSolution` names.
@@ -177,7 +213,23 @@ impl WriteControl {
 
 #[cfg(test)]
 mod tests {
-    use super::WriteControl;
+    use super::{WriteControl, distinct_precision};
+    use crate::case::time_name_with;
+
+    #[test]
+    fn time_names_gain_digits_rather_than_collide() {
+        // The tutorial's times keep OpenFOAM's six digits.
+        assert_eq!(distinct_precision(6, 0.0, 0.005, 100).unwrap(), 6);
+        // A restart at 50000 by 0.01 would name its first step "50000" again.
+        let p = distinct_precision(6, 50000.0, 0.01, 100).unwrap();
+        let names: Vec<_> = (0..=100)
+            .map(|k| time_name_with(50000.0 + k as f64 * 0.01, p))
+            .collect();
+        let mut unique = names.clone();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len(), "{names:?}");
+        assert!(distinct_precision(6, 1e10, 1e-9, 10).is_err());
+    }
 
     #[test]
     fn run_time_writes_follow_the_interval_not_a_rounded_step_count() {

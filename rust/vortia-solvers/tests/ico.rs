@@ -326,4 +326,31 @@ fn unsupported_settings_are_refused() {
     );
     refuse("0/U", "type noSlip;", "type slip;", "slip");
     refuse("system/fvSolution", "pFinal", "pLast", "pFinal");
+    // What a directive would change is unknown until it is evaluated.
+    refuse(
+        "system/fvSolution",
+        "PISO {",
+        "#include \"more\"\nPISO {",
+        "#include",
+    );
+    // Units are checked, not assumed.
+    refuse(
+        "constant/transportProperties",
+        "nu 0.01;",
+        "nu [0 0 0 0 0 0 0] 0.01;",
+        "nu has dimensions",
+    );
+    refuse(
+        "0/p",
+        "[0 2 -2 0 0 0 0]",
+        "[1 -1 -2 0 0 0 0]",
+        "p has dimensions",
+    );
+    // A flipped face makes a mesh no solution can be trusted on.
+    refuse(
+        "constant/polyMesh/faces",
+        "4(1 22 463 442)",
+        "4(442 463 22 1)",
+        "wrongly oriented",
+    );
 }

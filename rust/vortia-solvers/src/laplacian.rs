@@ -8,10 +8,9 @@
 
 use vortia_fields::{Data, ScalarField};
 use vortia_fv::ops::{self, SnGrad};
-use vortia_fv::{Boundary, FvGeometry, LduMatrix, Performance};
-use vortia_mesh::PolyMesh;
+use vortia_fv::{Boundary, LduMatrix, Performance};
 
-use crate::case::{Case, read_dict, time_name};
+use crate::case::{Case, Dims, KINEMATIC_DIFFUSIVITY, check_dimensions, read_dict};
 use crate::control::{LinearSolver, RunControl, solve_line};
 use crate::error::{Result, SolverError};
 
@@ -62,27 +61,34 @@ pub(crate) fn sn_grad(case: &Case, key: &str, field: &str) -> Result<SnGrad> {
 }
 
 pub(crate) fn diffusivity(case: &Case) -> Result<f64> {
-    transport_property(case, "DT")
+    transport_property(case, "DT", KINEMATIC_DIFFUSIVITY)
 }
 
-/// A non-negative constant of `constant/transportProperties`.
-pub(crate) fn transport_property(case: &Case, key: &str) -> Result<f64> {
+/// A non-negative constant of `constant/transportProperties`, whose
+/// dimensions, when it gives them, must be `dims`.
+pub(crate) fn transport_property(case: &Case, key: &str, dims: Dims) -> Result<f64> {
     let props = read_dict(&case.dir.join("constant").join("transportProperties"))?;
+    let invalid = || SolverError::Setup(format!("transportProperties has no valid '{key}'"));
     // `DT 4e-05;`, `DT [0 2 -1 0 0 0 0] 4e-05;` and `DT DT [...] 4e-05;` all
     // end in the number.
-    props
-        .values(key)
-        .and_then(|v| v.last())
+    let values = props.values(key).ok_or_else(invalid)?;
+    if let Some(d) = values
+        .iter()
+        .find(|v| matches!(v, vortia_foamfile::Value::Dimensions(_)))
+    {
+        check_dimensions(key, d, dims)?;
+    }
+    values
+        .last()
         .and_then(|v| v.as_scalar())
         .filter(|v| v.is_finite() && *v >= 0.0)
-        .ok_or_else(|| SolverError::Setup(format!("transportProperties has no valid '{key}'")))
+        .ok_or_else(invalid)
 }
 
 /// Runs the case and returns what each time step did. `log` receives the
 /// lines OpenFOAM would print.
 pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
-    let mesh = PolyMesh::read_case(&case.dir)?;
-    let fv = FvGeometry::new(&mesh);
+    let (mesh, fv) = case.mesh()?;
     let dt_coeff = diffusivity(case)?;
 
     let ddt = Ddt::read(case, "ddt(T)")?;
@@ -99,7 +105,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
     let mut steps = Vec::new();
     for step in 1..=run.n_steps {
-        let name = time_name(run.time(step));
+        let name = run.name(step);
         log(&format!("Time = {name}\n"));
         let old = t.clone();
         let mut solves = Vec::new();

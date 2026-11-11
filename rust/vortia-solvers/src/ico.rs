@@ -12,14 +12,16 @@
 use vortia_core::Vec3;
 use vortia_fields::{Data, Location, PatchField, ScalarField, VectorField};
 use vortia_foamfile::{Dictionary, Value};
-use vortia_fv::ops::{self, Interpolation, SnGrad};
+use vortia_fv::ops::{self, Convection, SnGrad};
 use vortia_fv::vector::{dot_interpolate, solution_directions};
 use vortia_fv::{
     Boundary, FvGeometry, LduMatrix, Performance, ScalarBc, VectorBoundary, VectorMatrix,
 };
 use vortia_mesh::{PatchKind, PolyMesh};
 
-use crate::case::{Case, time_name};
+use crate::case::{
+    Case, KINEMATIC_DIFFUSIVITY, KINEMATIC_PRESSURE, VELOCITY, VOLUME_FLUX, check_dimensions,
+};
 use crate::control::{LinearSolver, RunControl, solve_line};
 use crate::error::{Result, SolverError};
 use crate::laplacian::{Ddt, transport_property};
@@ -93,7 +95,7 @@ fn switch(d: &Dictionary, key: &str) -> Option<bool> {
 
 /// The schemes `icoFoam` asks for, checked against what the engine has.
 struct Schemes {
-    convection: Interpolation,
+    convection: Convection,
     momentum_sn_grad: SnGrad,
     pressure_sn_grad: SnGrad,
 }
@@ -106,7 +108,7 @@ impl Schemes {
             ));
         }
         let words = |section: &str, key: &str| -> Result<Vec<String>> { case.scheme(section, key) };
-        let convection = Interpolation::from_scheme(&as_str(&words("divSchemes", "div(phi,U)")?))?;
+        let convection = Convection::from_scheme(&as_str(&words("divSchemes", "div(phi,U)")?))?;
         let sn = |key: &str| -> Result<SnGrad> {
             let w = words("laplacianSchemes", key)?;
             let s = SnGrad::from_scheme(&as_str(&w))?;
@@ -145,9 +147,8 @@ fn as_str(w: &[String]) -> Vec<&str> {
 /// Runs the case and returns what each time step did. `log` receives the
 /// lines OpenFOAM would print.
 pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
-    let mesh = PolyMesh::read_case(&case.dir)?;
-    let fv = FvGeometry::new(&mesh);
-    let nu = transport_property(case, "nu")?;
+    let (mesh, fv) = case.mesh()?;
+    let nu = transport_property(case, "nu", KINEMATIC_DIFFUSIVITY)?;
     let schemes = Schemes::read(case)?;
     let piso = Piso::read(case, mesh.n_cells())?;
     let (u_solver, u_controls) = LinearSolver::read(case, "U")?;
@@ -158,6 +159,8 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let start = case.dir.join(&run.start_name);
     let mut u_field = VectorField::read(start.join("U"))?;
     let mut p_field = ScalarField::read(start.join("p"))?;
+    check_dimensions("U", &u_field.dimensions, VELOCITY)?;
+    check_dimensions("p", &p_field.dimensions, KINEMATIC_PRESSURE)?;
     let u_bc = VectorBoundary::from_field(&u_field, &mesh)?;
     let p_bc = Boundary::from_field(&p_field, &mesh)?;
     let mut u = u_field
@@ -182,20 +185,19 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
     let mut steps = Vec::new();
     for step in 1..=run.n_steps {
-        let name = time_name(run.time(step));
+        let name = run.name(step);
         log(&format!("Time = {name}\n\n"));
         let u_old = u.clone();
         let phi_old = phi.clone();
         let mut solves = Vec::new();
 
         let mut u_eqn = VectorMatrix::ddt_euler(&mesh, &fv, &u_old, run.delta_t)?;
-        u_eqn.add(&VectorMatrix::convection(
-            &mesh,
-            &fv,
-            &u_bc,
-            &phi,
-            schemes.convection,
-        )?);
+        let mut convection =
+            VectorMatrix::convection(&mesh, &fv, &u_bc, &phi, schemes.convection.interpolation)?;
+        if schemes.convection.bounded {
+            ops::bounded_correction(&mut convection.ldu, &mesh, &fv, &phi);
+        }
+        u_eqn.add(&convection);
         u_eqn.sub(&VectorMatrix::laplacian(
             &mesh,
             &fv,
@@ -425,7 +427,7 @@ fn adjust_phi(mesh: &PolyMesh, bc: &VectorBoundary, phi: &mut [f64]) -> Result<(
 }
 
 /// `phi` as the `surfaceScalarField` OpenFOAM writes.
-fn flux_field(mesh: &PolyMesh, phi: &[f64]) -> ScalarField {
+pub(crate) fn flux_field(mesh: &PolyMesh, phi: &[f64]) -> ScalarField {
     let n_internal = mesh.n_internal_faces();
     let boundary = mesh
         .patches()
@@ -447,9 +449,9 @@ fn flux_field(mesh: &PolyMesh, phi: &[f64]) -> ScalarField {
             }
         })
         .collect();
-    let dims = [0, 3, -1, 0, 0, 0, 0]
+    let dims = VOLUME_FLUX
         .into_iter()
-        .map(Value::Label)
+        .map(|d| Value::Label(i64::from(d)))
         .collect();
     ScalarField {
         name: "phi".into(),

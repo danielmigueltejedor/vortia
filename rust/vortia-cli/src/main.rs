@@ -239,7 +239,7 @@ fn solve(case: &Path) -> ExitCode {
         let mut out = std::io::stdout().lock();
         // A closed pipe (`| head`) is not a reason to stop the run.
         vortia_solvers::run(&c, |line| {
-            let _ = out.write_all(shown(line).as_bytes());
+            let _ = out.write_all(shown_line(line).as_bytes());
         })
     });
     match result {
@@ -251,12 +251,12 @@ fn solve(case: &Path) -> ExitCode {
     }
 }
 
-/// Case-derived text with control characters escaped, so a crafted case
-/// cannot drive the terminal (move the cursor, print a fake "Mesh OK.").
+/// Case-derived text with control characters escaped, newlines included, so
+/// a crafted case cannot drive the terminal or print a fake "Mesh OK." line.
 fn shown(text: &str) -> String {
     text.chars()
         .flat_map(|c| {
-            let escaped: Vec<char> = if c.is_control() && c != '\n' {
+            let escaped: Vec<char> = if c.is_control() {
                 c.escape_default().collect()
             } else {
                 vec![c]
@@ -266,14 +266,25 @@ fn shown(text: &str) -> String {
         .collect()
 }
 
+/// A solver log line: escaped like [`shown`], keeping only its final newline.
+fn shown_line(line: &str) -> String {
+    match line.strip_suffix('\n') {
+        Some(body) => format!("{}\n", shown(body)),
+        None => shown(line),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::shown;
+    use super::{shown, shown_line};
 
     #[test]
     fn control_characters_are_escaped() {
         assert_eq!(shown("inlet"), "inlet");
         assert_eq!(shown("a\u{1b}[2Jb"), "a\\u{1b}[2Jb");
-        assert_eq!(shown("line\n"), "line\n");
+        // A newline in a patch type must not start a line of its own.
+        assert_eq!(shown("wall\nMesh OK."), "wall\\nMesh OK.");
+        assert_eq!(shown_line("Time = 1\n"), "Time = 1\n");
+        assert_eq!(shown_line("a\nMesh OK.\n"), "a\\nMesh OK.\n");
     }
 }

@@ -8,26 +8,26 @@
 use vortia_core::Vec3;
 use vortia_fields::{Data, ScalarField, VectorField};
 use vortia_fv::fvgeom::transform;
-use vortia_fv::ops::{self, Interpolation};
+use vortia_fv::ops::{self, Convection};
 use vortia_fv::{Boundary, FvGeometry, LduMatrix};
 use vortia_mesh::{PatchKind, PolyMesh};
 
-use crate::case::{Case, time_name};
+use crate::case::{Case, VELOCITY, VOLUME_FLUX, check_dimensions};
 use crate::control::{LinearSolver, RunControl, solve_line};
 use crate::error::{Result, SolverError};
+use crate::ico::flux_field;
 use crate::laplacian::{Ddt, Step, diffusivity, sn_grad};
 
 /// Runs the case and returns what each time step did. `log` receives the
 /// lines OpenFOAM would print.
 pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
-    let mesh = PolyMesh::read_case(&case.dir)?;
-    let fv = FvGeometry::new(&mesh);
+    let (mesh, fv) = case.mesh()?;
     let dt_coeff = diffusivity(case)?;
 
     let ddt = Ddt::read(case, "ddt(T)")?;
     let words = case.scheme("divSchemes", "div(phi,T)")?;
-    let interpolation =
-        Interpolation::from_scheme(&words.iter().map(String::as_str).collect::<Vec<_>>())?;
+    let convection =
+        Convection::from_scheme(&words.iter().map(String::as_str).collect::<Vec<_>>())?;
     let sn_grad = sn_grad(case, "laplacian(DT,T)", "T")?;
     let (solver, controls) = LinearSolver::read(case, "T")?;
     let n_corr = case.non_orthogonal_correctors("SIMPLE");
@@ -40,11 +40,11 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         .internal
         .expand(mesh.n_cells())
         .ok_or_else(|| SolverError::Setup("T does not fit the mesh".into()))?;
-    let phi = flux(&mesh, &fv, &start)?;
+    let (phi, flow) = flux(&mesh, &fv, &start)?;
 
     let mut steps = Vec::new();
     for step in 1..=run.n_steps {
-        let name = time_name(run.time(step));
+        let name = run.name(step);
         log(&format!("Time = {name}\n\n"));
         let old = t.clone();
         let mut solves = Vec::new();
@@ -53,7 +53,11 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             if ddt == Ddt::Euler {
                 ops::ddt_euler(&mut m, &fv, &old, run.delta_t)?;
             }
-            ops::convection(&mut m, &mesh, &fv, &bc, &phi, interpolation)?;
+            // First, so its round-off falls where OpenFOAM's does.
+            if convection.bounded {
+                ops::bounded_correction(&mut m, &mesh, &fv, &phi);
+            }
+            ops::convection(&mut m, &mesh, &fv, &bc, &phi, convection.interpolation)?;
             ops::diffusion(&mut m, &mesh, &fv, &bc, dt_coeff, sn_grad, &t)?;
             let perf = solver.solve(&m, &mut t, &controls)?;
             log(&solve_line("T", &perf));
@@ -63,6 +67,15 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         if written {
             field.internal = Data::NonUniform(t.clone());
             field.write(&case.dir, &name)?;
+            // The flow goes with it, as OpenFOAM writes it, so a run can
+            // restart from any time it wrote.
+            match &flow {
+                Flow::Phi(f) => f.write(&case.dir, &name)?,
+                Flow::U(u) => {
+                    u.write(&case.dir, &name)?;
+                    flux_field(&mesh, &phi).write(&case.dir, &name)?;
+                }
+            }
         }
         steps.push(Step {
             time: name,
@@ -74,20 +87,27 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     Ok(steps)
 }
 
+/// Where the flux came from, to be written back beside `T`.
+enum Flow {
+    Phi(ScalarField),
+    U(VectorField),
+}
+
 /// The face flux, internal faces then boundary faces in patch order: `phi`
 /// when the start time has one, else `U` interpolated to the faces.
-fn flux(mesh: &PolyMesh, fv: &FvGeometry, start: &std::path::Path) -> Result<Vec<f64>> {
+fn flux(mesh: &PolyMesh, fv: &FvGeometry, start: &std::path::Path) -> Result<(Vec<f64>, Flow)> {
     let path = start.join("phi");
     if path.is_file() || start.join("phi.gz").is_file() {
         let phi = ScalarField::read(&path)?;
-        return face_values(mesh, &phi);
+        return Ok((face_values(mesh, &phi)?, Flow::Phi(phi)));
     }
     let u = VectorField::read(start.join("U"))?;
-    flux_of(mesh, fv, &u)
+    Ok((flux_of(mesh, fv, &u)?, Flow::U(u)))
 }
 
 pub(crate) fn face_values(mesh: &PolyMesh, phi: &ScalarField) -> Result<Vec<f64>> {
     phi.check_against(mesh)?;
+    check_dimensions("phi", &phi.dimensions, VOLUME_FLUX)?;
     let mut out = phi
         .internal
         .expand(mesh.n_internal_faces())
@@ -112,6 +132,7 @@ pub(crate) fn face_values(mesh: &PolyMesh, phi: &ScalarField) -> Result<Vec<f64>
 /// `linearInterpolate(U) & Sf`, with each patch's own velocity.
 fn flux_of(mesh: &PolyMesh, fv: &FvGeometry, u: &VectorField) -> Result<Vec<f64>> {
     u.check_against(mesh)?;
+    check_dimensions("U", &u.dimensions, VELOCITY)?;
     let cells = u
         .internal
         .expand(mesh.n_cells())

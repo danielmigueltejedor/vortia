@@ -114,6 +114,21 @@ fn steady_upwind_transport_matches_openfoam() {
     );
 }
 
+/// The nozzle's flux is a mass flux read as a volume flux, so it does not
+/// conserve: `bounded` is what keeps that from creating or destroying `T`.
+#[test]
+fn bounded_steady_transport_matches_openfoam() {
+    let dir = case("steadyState", "bounded Gauss upwind", "3", "1", true);
+    let steps = scalar_transport::run(&Case::open(dir.path()).unwrap(), |_| {}).unwrap();
+    assert_eq!(iterations(&steps), [32, 34, 26, 13, 1, 0]);
+    check(
+        dir.path(),
+        "3",
+        [399.9999999987419, 300.0010536554006, 300.00000000000006],
+        328.491639886155,
+    );
+}
+
 #[test]
 fn transient_linear_transport_with_the_flux_built_from_u_matches_openfoam() {
     let dir = case("Euler", "Gauss linear", "5e-06", "1e-06", false);
@@ -131,4 +146,34 @@ fn transient_linear_transport_with_the_flux_built_from_u_matches_openfoam() {
 fn an_unsupported_convection_scheme_is_an_error() {
     let dir = case("Euler", "Gauss vanLeer", "1e-06", "1e-06", true);
     assert!(scalar_transport::run(&Case::open(dir.path()).unwrap(), |_| {}).is_err());
+}
+
+#[test]
+fn a_run_restarts_from_the_last_time_it_wrote() {
+    let dir = case("Euler", "Gauss linear", "2e-06", "1e-06", false);
+    scalar_transport::run(&Case::open(dir.path()).unwrap(), |_| {}).unwrap();
+    for f in ["T", "U", "phi"] {
+        assert!(dir.path().join("2e-06").join(f).is_file(), "{f}");
+    }
+    let control = dir.path().join("system/controlDict");
+    let text = std::fs::read_to_string(&control).unwrap();
+    let text = text
+        .replace("startFrom startTime", "startFrom latestTime")
+        .replace("endTime 2e-06", "endTime 3e-06");
+    std::fs::write(&control, text).unwrap();
+    let steps = scalar_transport::run(&Case::open(dir.path()).unwrap(), |_| {}).unwrap();
+    assert_eq!(steps.len(), 1);
+    assert!(dir.path().join("3e-06/T").is_file());
+}
+
+#[test]
+fn a_mass_flux_is_refused_as_a_volume_flux() {
+    let dir = case("steadyState", "Gauss upwind", "1", "1", true);
+    let phi = dir.path().join("0/phi");
+    let text = std::fs::read_to_string(&phi).unwrap();
+    std::fs::write(&phi, text.replace("[0 3 -1 0 0 0 0]", "[1 0 -1 0 0 0 0]")).unwrap();
+    let err = scalar_transport::run(&Case::open(dir.path()).unwrap(), |_| {})
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("phi has dimensions"), "{err}");
 }

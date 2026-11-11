@@ -2,8 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use vortia_foamfile::{Dictionary, FoamFile};
-use vortia_fv::Controls;
+use vortia_foamfile::{Dictionary, Entry, FoamFile, Value};
+use vortia_fv::{Controls, FvGeometry};
+use vortia_mesh::PolyMesh;
 
 use crate::error::{Result, SolverError};
 
@@ -15,8 +16,80 @@ pub struct Case {
     pub solution: Dictionary,
 }
 
+/// A dictionary the solver can use as written: one with a directive in it
+/// (`#include`, `#calc`, …) is refused, since what it would have changed is
+/// not known until it is evaluated, and the engine does not evaluate them yet.
 pub fn read_dict(path: &Path) -> Result<Dictionary> {
-    Ok(FoamFile::open(path)?.dictionary()?.1)
+    let d = FoamFile::open(path)?.dictionary()?.1;
+    match first_directive(&d) {
+        Some(key) => Err(SolverError::Setup(format!(
+            "{}: '{key}' is not supported yet",
+            path.display()
+        ))),
+        None => Ok(d),
+    }
+}
+
+/// SI exponents: kg, m, s, K, mol, A, cd.
+pub type Dims = [i32; 7];
+pub const KINEMATIC_DIFFUSIVITY: Dims = [0, 2, -1, 0, 0, 0, 0];
+pub const VELOCITY: Dims = [0, 1, -1, 0, 0, 0, 0];
+pub const VOLUME_FLUX: Dims = [0, 3, -1, 0, 0, 0, 0];
+pub const KINEMATIC_PRESSURE: Dims = [0, 2, -2, 0, 0, 0, 0];
+
+/// Refuses `value` unless it is the dimension set `expected`, written as
+/// five or seven numbers as OpenFOAM accepts it.
+pub fn check_dimensions(what: &str, value: &Value, expected: Dims) -> Result<()> {
+    let wrong = || {
+        SolverError::Setup(format!(
+            "{what} has dimensions {}, expected {}",
+            shown_dims(value),
+            format_dims(expected)
+        ))
+    };
+    let Value::Dimensions(items) = value else {
+        return Err(wrong());
+    };
+    let numbers: Option<Vec<f64>> = items.iter().map(Value::as_scalar).collect();
+    let numbers = numbers
+        .filter(|n| n.len() == 5 || n.len() == 7)
+        .ok_or_else(wrong)?;
+    let same = expected
+        .iter()
+        .enumerate()
+        .all(|(i, &e)| numbers.get(i).copied().unwrap_or(0.0) == f64::from(e));
+    if same { Ok(()) } else { Err(wrong()) }
+}
+
+fn format_dims(d: Dims) -> String {
+    let parts: Vec<String> = d.iter().map(i32::to_string).collect();
+    format!("[{}]", parts.join(" "))
+}
+
+fn shown_dims(value: &Value) -> String {
+    match value {
+        Value::Dimensions(items) => {
+            let parts: Vec<String> = items
+                .iter()
+                .map(|v| match v {
+                    Value::Word(w) => w.clone(),
+                    other => other
+                        .as_scalar()
+                        .map_or_else(|| "?".into(), |x| x.to_string()),
+                })
+                .collect();
+            format!("[{}]", parts.join(" "))
+        }
+        _ => "none".into(),
+    }
+}
+
+fn first_directive(d: &Dictionary) -> Option<&str> {
+    d.entries().find_map(|(k, e)| match e {
+        Entry::Directive(_) => Some(k),
+        Entry::Dict(inner) => first_directive(inner),
+        Entry::Values(_) => None,
+    })
 }
 
 impl Case {
@@ -29,6 +102,22 @@ impl Case {
             solution: read_dict(&system.join("fvSolution"))?,
             dir,
         })
+    }
+
+    /// The case's mesh with its geometry, refused when it cannot be solved
+    /// on: a flipped face or a collapsed cell would otherwise give
+    /// coefficients that look valid and a result that is not.
+    pub fn mesh(&self) -> Result<(PolyMesh, FvGeometry)> {
+        let mesh = PolyMesh::read_case(&self.dir)?;
+        let fv = FvGeometry::new(&mesh);
+        let problems = vortia_mesh::check::check(&mesh, &fv.geo).unsolvable();
+        if !problems.is_empty() {
+            return Err(SolverError::Setup(format!(
+                "the mesh cannot be solved on: {}",
+                problems.join(", ")
+            )));
+        }
+        Ok((mesh, fv))
     }
 
     pub fn application(&self) -> Option<&str> {
@@ -99,7 +188,7 @@ impl Case {
         let find = |name: &str| {
             solvers.dict(name).or_else(|| {
                 solvers.entries().rev().find_map(|(k, e)| match e {
-                    vortia_foamfile::Entry::Dict(d) if key_matches(k, name) => Some(d),
+                    Entry::Dict(d) if key_matches(k, name) => Some(d),
                     _ => None,
                 })
             })
@@ -161,19 +250,32 @@ fn key_matches(pattern: &str, name: &str) -> bool {
 
 /// A time as OpenFOAM names its directory: `%g` with 6 significant digits.
 pub fn time_name(t: f64) -> String {
+    time_name_with(t, DEFAULT_TIME_PRECISION)
+}
+
+/// `timePrecision` when `controlDict` gives none.
+pub const DEFAULT_TIME_PRECISION: u32 = 6;
+/// More digits than an `f64` holds say nothing.
+pub const MAX_TIME_PRECISION: u32 = 17;
+
+/// The name OpenFOAM gives time `t` with `precision` significant digits
+/// (C's `%g`).
+pub fn time_name_with(t: f64, precision: u32) -> String {
     if t == 0.0 {
         return "0".into();
     }
+    let p = precision.clamp(1, MAX_TIME_PRECISION) as i32;
     let exp = t.abs().log10().floor() as i32;
-    if !(-4..6).contains(&exp) {
-        let s = format!("{t:.5e}");
+    if !(-4..p).contains(&exp) {
+        let digits = usize::try_from(p - 1).unwrap_or(0);
+        let s = format!("{t:.digits$e}");
         let (mant, e) = s.split_once('e').unwrap_or((&s, "0"));
         let mant = trim(mant);
         let e: i32 = e.parse().unwrap_or(0);
         let sign = if e < 0 { '-' } else { '+' };
         return format!("{mant}e{sign}{:02}", e.abs());
     }
-    let decimals = usize::try_from(5 - exp).unwrap_or(0);
+    let decimals = usize::try_from(p - 1 - exp).unwrap_or(0);
     trim(&format!("{t:.decimals$}"))
 }
 
@@ -187,7 +289,7 @@ fn trim(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::time_name;
+    use super::{time_name, time_name_with};
 
     #[test]
     fn time_names_match_openfoam() {
@@ -202,5 +304,8 @@ mod tests {
         ] {
             assert_eq!(time_name(t), name);
         }
+        assert_eq!(time_name_with(50000.01, 6), "50000");
+        assert_eq!(time_name_with(50000.01, 7), "50000.01");
+        assert_eq!(time_name_with(1234567.0, 8), "1234567");
     }
 }

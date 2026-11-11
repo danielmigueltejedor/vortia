@@ -111,6 +111,33 @@ impl MeshReport {
     pub fn is_ok(&self) -> bool {
         self.failed_checks().is_empty()
     }
+
+    /// The failures no discretisation can be built on. Poor orthogonality
+    /// and skewness are left out: OpenFOAM solves on such meshes, less
+    /// accurately, and so does the engine.
+    pub fn unsolvable(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut fail = |n: usize, what: &str| {
+            if n > 0 {
+                out.push(format!("{n} {what}"));
+            }
+        };
+        fail(self.open_cells, "open cells");
+        fail(
+            self.non_positive_volumes,
+            "cells with zero or negative volume",
+        );
+        fail(self.zero_area_faces, "faces with zero area");
+        fail(self.wrongly_oriented, "wrongly oriented faces");
+        fail(
+            self.non_finite_geometry,
+            "cells or faces with non-finite geometry",
+        );
+        if !self.upper_triangular {
+            out.push("internal faces not in upper-triangular order".into());
+        }
+        out
+    }
 }
 
 pub fn check(mesh: &PolyMesh, geo: &MeshGeometry) -> MeshReport {

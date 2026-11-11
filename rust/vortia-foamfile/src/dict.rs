@@ -29,15 +29,18 @@ pub enum Value {
 }
 
 impl Value {
-    /// How many values this holds once expanded, itself included: what a
-    /// uniform list of it costs per copy.
+    /// How many values this holds once expanded, itself included, with text
+    /// counted by the values its bytes would fill: what a uniform list of it
+    /// costs per copy.
     fn weight(&self) -> usize {
         match self {
             Value::List(items) | Value::Dimensions(items) => items
                 .iter()
                 .fold(1usize, |acc, v| acc.saturating_add(v.weight())),
-            Value::Dict(d) | Value::Keyed(_, d) => d.weight(),
-            _ => 1,
+            Value::Dict(d) => d.weight(),
+            Value::Keyed(k, d) => text_weight(k).saturating_add(d.weight()),
+            Value::Word(w) | Value::Str(w) => text_weight(w),
+            Value::Label(_) | Value::Scalar(_) => 1,
         }
     }
 
@@ -85,15 +88,20 @@ pub struct Dictionary {
     entries: Vec<(String, Entry)>,
 }
 
+/// Text costs one value plus the values its bytes would fill.
+fn text_weight(text: &str) -> usize {
+    1 + text.len() / std::mem::size_of::<Value>()
+}
+
 impl Dictionary {
     fn weight(&self) -> usize {
-        self.entries.iter().fold(1usize, |acc, (_, e)| {
-            let w = match e {
+        self.entries.iter().fold(1usize, |acc, (k, e)| {
+            let w = text_weight(k).saturating_add(match e {
                 Entry::Dict(d) => d.weight(),
                 Entry::Values(vs) | Entry::Directive(vs) => {
                     vs.iter().fold(1usize, |a, v| a.saturating_add(v.weight()))
                 }
-            };
+            });
             acc.saturating_add(w)
         })
     }
@@ -380,6 +388,14 @@ mod tests {
                 "{src}"
             );
         }
+        // Text counts by its bytes: a million copies of a kilobyte is a
+        // gigabyte however few values it is.
+        let big = format!("a 1000{{1000{{\"{}\"}}}};", "x".repeat(1024));
+        assert!(Dictionary::parse(&mut Tokenizer::new(big.as_bytes()), false, 0).is_err());
+        let keyed = |k: &str| format!("a 100{{100{{{{{k} 1;}}}}}};");
+        assert!(Dictionary::parse(&mut Tokenizer::new(keyed("k").as_bytes()), false, 0).is_ok());
+        let long = keyed(&"k".repeat(16 * 1024));
+        assert!(Dictionary::parse(&mut Tokenizer::new(long.as_bytes()), false, 0).is_err());
         let deep = "(".repeat(10_000);
         assert!(
             Dictionary::parse(
