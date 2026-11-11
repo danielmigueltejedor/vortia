@@ -42,6 +42,7 @@ ApplicationPreferences ApplicationPreferences::load(QSettings& s) {
     const auto choice=[&](const char* key,const QString& fallback,const QStringList& values){const auto v=s.value(key,fallback).toString();return values.contains(v)?v:fallback;};
     p.language=choice("language",p.language,{"system","en","es"});p.theme=choice("theme",p.theme,{"dark","light"});
     p.density=choice("ui/density",p.density,{"comfortable","compact"});
+    p.windowControls=choice("ui/window-controls",p.windowControls,{"nodalia","system"});
     p.interfaceScale=integer(s,"ui/scale",100,90,140);
     p.showToolLabels=s.value("ui/showToolLabels",true).toBool();
     p.automaticMeshPreview=s.value("mesh/automaticPreview",true).toBool();
@@ -65,6 +66,7 @@ ApplicationPreferences ApplicationPreferences::load(QSettings& s) {
 }
 void ApplicationPreferences::save(QSettings& s) const {
     s.setValue("language",language);s.setValue("theme",theme);s.setValue("ui/density",density);s.setValue("ui/scale",interfaceScale);
+    s.setValue("ui/window-controls",windowControls);
     s.setValue("ui/showToolLabels",showToolLabels);s.remove("ui/showStageNumbers");
     s.setValue("mesh/automaticPreview",automaticMeshPreview);
     s.setValue("updates/automaticCheck",checkForUpdatesAutomatically);
@@ -103,10 +105,18 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     auto* theme=new QComboBox(&dialog);theme->setObjectName("preference-theme");theme->addItem(tr("Dark"),"dark");theme->addItem(tr("Light"),"light");theme->setCurrentIndex(std::max(0,theme->findData(previous.theme)));appearance->addRow(tr("Theme"),theme);
     auto* density=new QComboBox(&dialog);density->setObjectName("preference-density");density->addItem(tr("Comfortable"),"comfortable");density->addItem(tr("Compact"),"compact");density->setCurrentIndex(std::max(0,density->findData(previous.density)));appearance->addRow(tr("Tool density"),density);
     auto* scale=spin(appearance,"scale","Interface size (%)",previous.interfaceScale,90,140);scale->setSingleStep(10);
+    auto* controls=new QComboBox(&dialog);controls->setObjectName("preference-window-controls");
+    controls->addItem(tr("Nodalia"),"nodalia");controls->addItem(tr("System"),"system");
+    controls->setCurrentIndex(std::max(0,controls->findData(previous.windowControls)));
+#ifdef Q_OS_LINUX
+    appearance->addRow(tr("Window controls"),controls);
+#else
+    controls->hide();
+#endif
     auto* remember=check(appearance,"remember-layout","Remember window and panel layout",previous.rememberLayout);
     auto* labels=check(appearance,"tool-labels","Show labels beside tool icons",previous.showToolLabels);
     auto* autoUpdates=check(appearance,"auto-updates","Check for updates automatically when Vortia starts",previous.checkForUpdatesAutomatically);
-    info(appearance,"Appearance and navigation changes apply immediately. Language changes apply after restarting.");
+    info(appearance,"Appearance and navigation changes apply immediately. Language and window controls change after restarting.");
     auto* sketch=page("Sketch and navigation","sketch","Sketch");
     auto* grid=check(sketch,"grid","Show construction grid",previous.showGrid);
     auto* dimensions=check(sketch,"dimensions","Show dimension annotations",previous.showDimensions);
@@ -156,6 +166,7 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     });
     if(dialog.exec()!=QDialog::Accepted)return {};
     auto p=previous;p.language=language->currentData().toString();p.theme=theme->currentData().toString();p.density=density->currentData().toString();p.interfaceScale=scale->value();
+    p.windowControls=controls->currentData().toString();
     p.showToolLabels=labels->isChecked();
     p.checkForUpdatesAutomatically=autoUpdates->isChecked();
     p.automaticMeshPreview=meshPreview->isChecked();

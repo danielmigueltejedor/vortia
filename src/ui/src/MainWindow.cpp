@@ -910,6 +910,21 @@ void MainWindow::buildDocks() {
         }
     } else {
         centralLayout->addWidget(projectTabs_);
+#ifdef Q_OS_LINUX
+        // The desktop's own frame (Preferences › Window controls › System): the menus still go
+        // to a top bar that takes them; elsewhere the window keeps its menu bar.
+        if(ndl::globalMenuAvailable()) {
+            std::function<void(const QList<QAction*>&)> keepShortcuts=[&](const QList<QAction*>& actions) {
+                for(QAction* action:actions) {
+                    if(action->menu())keepShortcuts(action->menu()->actions());
+                    else if(!action->isSeparator())addAction(action);
+                }
+            };
+            keepShortcuts(menuBar()->actions());
+            ndl::exportGlobalMenu(menuBar());
+            menuBar()->hide();
+        }
+#endif
     }
     updateNotice_ = new QLabel(central);
     updateNotice_->setObjectName(QStringLiteral("vortia-update-notice"));

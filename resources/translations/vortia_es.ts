@@ -1468,7 +1468,10 @@ Caso fallido conservado: %2
     <message><source>Calculation</source><translation>Cálculo</translation></message>
     <message><source>Engine and storage</source><translation>Motor y archivos</translation></message>
 
-    <message><source>Appearance and navigation changes apply immediately. Language changes apply after restarting.</source><translation>Los cambios de apariencia y navegación se aplican al momento. El idioma cambia al reiniciar.</translation></message>
+    <message><source>Appearance and navigation changes apply immediately. Language and window controls change after restarting.</source><translation>Los cambios de apariencia y navegación se aplican al momento. El idioma y los controles de ventana cambian al reiniciar.</translation></message>
+    <message><source>Window controls</source><translation>Controles de ventana</translation></message>
+    <message><source>Nodalia</source><translation>Nodalia</translation></message>
+    <message><source>System</source><translation>Del sistema</translation></message>
     <message><source>Appearance and workspace</source><translation>Apariencia y espacio de trabajo</translation></message>
     <message><source>Automatic</source><translation>Automático</translation></message>
     <message><source>Automatic (recommended)</source><translation>Automático (recomendado)</translation></message>

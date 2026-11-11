@@ -244,7 +244,11 @@ bool usesClientSideDecorations() {
     if (qEnvironmentVariableIntValue("VORTIA_FORCE_CSD") != 0)
         return true;
 #ifdef Q_OS_LINUX
-    return qEnvironmentVariableIntValue("VORTIA_NATIVE_TITLEBAR") == 0;
+    if (qEnvironmentVariableIntValue("VORTIA_NATIVE_TITLEBAR") != 0)
+        return false;
+    // Preferences › Window controls: "system" hands the frame back to the desktop.
+    const QSettings settings(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
+    return settings.value(QStringLiteral("ui/window-controls")).toString() != QStringLiteral("system");
 #else
     return false;
 #endif

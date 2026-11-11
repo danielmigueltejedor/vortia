@@ -43,8 +43,8 @@ struct WindowButtonLayout {
 /// set, else GNOME-family settings or KWin's configuration, else the default.
 [[nodiscard]] WindowButtonLayout systemButtonLayout();
 
-/// True when Vortia should draw its own window controls: Linux desktops,
-/// unless `VORTIA_NATIVE_TITLEBAR=1` asks for the system title bar.
+/// True when Vortia should draw its own window controls: Linux desktops, unless Preferences ›
+/// Window controls is "System" or `VORTIA_NATIVE_TITLEBAR=1` asks for the desktop's title bar.
 [[nodiscard]] bool usesClientSideDecorations();
 
 /// Turns `header` into the title bar of a frameless `window`: window buttons
