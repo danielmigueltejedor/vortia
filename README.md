@@ -173,7 +173,9 @@ and applies an ad-hoc signature; the published DMG is built by the
 
 `resources/icons/vortia.png` (512 px) is embedded through the Qt resource
 system (`:/vortia/app-icon.png`), so the window and the Dock use the same
-design. `resources/icons/vortia-macos.png` is the same artwork at full bleed
+design. It sits on the Nodalix app grid, like the Colloid icons around it: a
+tile of 224/256 with a 16 px margin, a 51.5 px radius and a soft shadow, made
+by `tools/nodalia-app-icon.py` in nodalix-icon-theme. `resources/icons/vortia-macos.png` is the same artwork at full bleed
 for the macOS bundle, where the system applies its own icon mask.
 
 The icon is a black-and-white portrait of Daniel Bernoulli over blue, part of
