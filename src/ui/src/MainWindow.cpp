@@ -555,7 +555,8 @@ void MainWindow::buildMenusAndToolbar() {
             this, &MainWindow::onFieldChanged);
     resultsPage->addWidget(fields);
     fieldCombo_->setEnabled(false);
-    auto* resultMenu=menuBar()->addMenu(tr("Results"));resultMenu->setObjectName("vortia-results-menu");
+    // Help stays the last menu.
+    auto* resultMenu=new QMenu(tr("Results"),menuBar());resultMenu->setObjectName("vortia-results-menu");menuBar()->insertMenu(helpMenu->menuAction(),resultMenu);
     fileMenu->removeAction(openResults);resultMenu->addActions({viewLatest,openResults});resultMenu->addSeparator();
     const auto menuAction=[&](QMenu* menu,const QString& name,const QString& glyph){menu->setTitle(name);menu->setIcon(toolIcon(glyph,QStyle::SP_FileDialogDetailedView));auto* action=menu->menuAction();return action;};
     auto* dataMenu=new QMenu(this);dataMenu->addActions({viewLatest,openResults});
@@ -909,8 +910,21 @@ void MainWindow::buildDocks() {
                 }
             };
             keepShortcuts(menuBar()->actions());
-            // The menus also go to the desktop's top bar where there is one (Nodalix on Wayland).
-            ndl::exportGlobalMenu(menuBar());
+            // Where no desktop top bar takes the menus (GNOME, KDE, X11…), they stay in the window:
+            // a menu bar at the head of the document header, before the tabs, as Forja does. It
+            // goes once a top bar accepts them (Nodalix on Wayland) and comes back if that bar
+            // goes away. The same menus and actions as the hidden main menu bar.
+            auto* inlineMenus=new QMenuBar(header);
+            inlineMenus->setObjectName(QStringLiteral("vortia-inline-menu"));
+            inlineMenus->setNativeMenuBar(false);
+            inlineMenus->addActions(menuBar()->actions());
+            inlineMenus->setSizePolicy(QSizePolicy::Maximum,QSizePolicy::Preferred);
+            row->insertWidget(1,inlineMenus,0,Qt::AlignVCenter);
+            inlineMenus->setVisible(!ndl::globalMenuAvailable());
+            // Guarded: the registrar can answer, or vanish, after the window has gone.
+            ndl::exportGlobalMenu(menuBar(),[bar=QPointer<QMenuBar>(inlineMenus)](bool accepted){
+                if(bar)bar->setVisible(!accepted||!ndl::globalMenuAvailable());
+            });
             menuBar()->hide();
         }
     } else {
