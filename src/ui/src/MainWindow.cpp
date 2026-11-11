@@ -414,7 +414,8 @@ void MainWindow::buildMenusAndToolbar() {
     auto* appMenu = new QToolButton(sidebarHeader); appMenu->setObjectName("ndl-app-menu");
     appMenu->setIcon(uiIcon(QStringLiteral(":/vortia/icons/menu.svg"))); appMenu->setIconSize({18,18});
     appMenu->setToolTip(tr("Main menu")); appMenu->setAccessibleName(tr("Main menu"));
-    appMenu->setPopupMode(QToolButton::InstantPopup); appMenu->setFocusPolicy(Qt::NoFocus);
+    // Reachable with Tab: with the menu bar hidden it is the keyboard's way into every menu.
+    appMenu->setPopupMode(QToolButton::InstantPopup); appMenu->setFocusPolicy(Qt::TabFocus);
     auto* primaryMenu = new QMenu(appMenu); primaryMenu->setObjectName("ndl-primary-menu");
     connect(primaryMenu, &QMenu::aboutToShow, this, [this, primaryMenu, preferences] {
         primaryMenu->clear();

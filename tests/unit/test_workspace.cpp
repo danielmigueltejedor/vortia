@@ -510,17 +510,26 @@ TEST(Workspace, CancelClosingDirtyTabKeepsDrawing) {
     MainWindow window;
     const auto shape = makeCircleSketch(55).value();
     WorkspaceTestAccess::edit(window, shape, {});
-    // The prompt names its action and offers Cancel; it no longer asks Yes/No.
+    // The prompt names its action and offers Cancel, the default; it no longer asks Yes/No.
     bool asked = false;
-    QTimer::singleShot(0, [&asked] {
+    QTimer answer;
+    answer.setSingleShot(true);
+    QObject::connect(&answer, &QTimer::timeout, [&asked] {
         auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
         ASSERT_NE(box, nullptr);
-        ASSERT_EQ(box->button(QMessageBox::No), nullptr);
-        ASSERT_NE(box->button(QMessageBox::Cancel), nullptr);
+        const bool yesNo = box->button(QMessageBox::No) != nullptr;
+        QAbstractButton* cancel = box->button(QMessageBox::Cancel);
+        if (yesNo || !cancel) {
+            box->reject();
+            FAIL() << "the prompt should offer Discard and Cancel";
+        }
+        EXPECT_EQ(box->defaultButton(), cancel);
         asked = true;
-        box->button(QMessageBox::Cancel)->click();
+        cancel->click();
     });
+    answer.start(0);
     WorkspaceTestAccess::close(window, 0);
+    answer.stop();
     EXPECT_TRUE(asked);
     EXPECT_EQ(WorkspaceTestAccess::count(window), 1U);
     EXPECT_TRUE(WorkspaceTestAccess::dirty(window));
@@ -532,19 +541,26 @@ TEST(Workspace, DiscardClosingDirtyTabClosesIt) {
     WorkspaceTestAccess::add(window, "second");
     WorkspaceTestAccess::edit(window, makeCircleSketch(55).value(), {});
     const int active = WorkspaceTestAccess::active(window);
-    QTimer::singleShot(0, [] {
+    bool discarded = false;
+    QTimer answer;
+    answer.setSingleShot(true);
+    QObject::connect(&answer, &QTimer::timeout, [&discarded] {
         auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
         ASSERT_NE(box, nullptr);
         for (QAbstractButton* button : box->buttons()) {
             if (box->buttonRole(button) == QMessageBox::DestructiveRole) {
+                discarded = true;
                 button->click();
                 return;
             }
         }
-        ADD_FAILURE() << "no Discard button";
         box->reject();
+        ADD_FAILURE() << "no Discard button";
     });
+    answer.start(0);
     WorkspaceTestAccess::close(window, active);
+    answer.stop();
+    EXPECT_TRUE(discarded);
     EXPECT_EQ(WorkspaceTestAccess::count(window), 1U);
 }
 

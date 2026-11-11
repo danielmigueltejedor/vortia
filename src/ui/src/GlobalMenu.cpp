@@ -14,6 +14,7 @@
 #include <QDBusMessage>
 #include <QDBusMetaType>
 #include <QDBusObjectPath>
+#include <QDBusPendingCallWatcher>
 #include <QDBusServiceWatcher>
 #include <QDBusVariant>
 #include <QDBusVirtualObject>
@@ -176,7 +177,11 @@ public:
             reply << revision_ << QVariant::fromValue(layout(args.value(0).toInt(), args.value(1).toInt()));
         } else if (member == QStringLiteral("GetGroupProperties")) {
             QList<ItemProperties> rows;
-            for (int id : qdbus_cast<QList<int>>(args.value(0)))
+            // An empty list asks for every item (the dbusmenu contract).
+            QList<int> ids = qdbus_cast<QList<int>>(args.value(0));
+            if (ids.isEmpty())
+                ids = actions_.keys();
+            for (int id : ids)
                 if (QAction* action = actions_.value(id))
                     rows.append({id, properties(action)});
             reply = message.createReply(QVariant::fromValue(rows));
@@ -208,8 +213,17 @@ public:
                 emit action->menu()->aboutToShow();
             reply = message.createReply(QVariant(true));
         } else if (member == QStringLiteral("AboutToShowGroup")) {
+            // The grouped form of AboutToShow: fill each menu; unknown ids are reported back.
+            QList<int> unknown;
+            for (int id : qdbus_cast<QList<int>>(args.value(0))) {
+                QAction* action = actions_.value(id);
+                if (action && action->menu())
+                    emit action->menu()->aboutToShow();
+                else if (!action)
+                    unknown.append(id);
+            }
             reply = message.createReply();
-            reply << QVariant::fromValue(QList<int>()) << QVariant::fromValue(QList<int>());
+            reply << QVariant::fromValue(QList<int>()) << QVariant::fromValue(unknown);
         } else {
             return false;
         }
@@ -314,8 +328,11 @@ private:
     ChangeFilter changes_;
 };
 
+/// Set when the registrar refused the registration: the menus then stay in the window.
+bool registrationFailed = false;
+
 /// Tells the registrar where the menu is. The window id is this process's id: on Wayland a
-/// window has no global id, and the shell finds the menu through the process that owns it.
+/// window has no global id, and Nodalix's bar finds the menu through the process that owns it.
 void registerWithRegistrar() {
     QDBusMessage call = QDBusMessage::createMethodCall(QString::fromLatin1(kRegistrar),
                                                        QString::fromLatin1(kRegistrarPath),
@@ -323,7 +340,11 @@ void registerWithRegistrar() {
                                                        QStringLiteral("RegisterWindow"));
     call << static_cast<uint>(QCoreApplication::applicationPid())
          << QDBusObjectPath(QString::fromLatin1(kMenuPath));
-    QDBusConnection::sessionBus().asyncCall(call);
+    auto* pending = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(call));
+    QObject::connect(pending, &QDBusPendingCallWatcher::finished, [](QDBusPendingCallWatcher* done) {
+        registrationFailed = done->isError();
+        done->deleteLater();
+    });
 }
 
 } // namespace
@@ -331,11 +352,17 @@ void registerWithRegistrar() {
 namespace vortia::ndl {
 
 bool globalMenuAvailable() {
-    if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
+    if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")) || registrationFailed)
         return false;
     QDBusConnection bus = QDBusConnection::sessionBus();
-    return bus.isConnected() && bus.interface()
-           && bus.interface()->isServiceRegistered(QString::fromLatin1(kRegistrar));
+    if (!bus.isConnected() || !bus.interface())
+        return false;
+    // Only a registrar that pairs a menu with its window by process can show it: Nodalix's,
+    // whose process also owns the global-menu service. Another registrar expects an X11 window
+    // id, and the menus would vanish from the window without reaching a bar.
+    const QString registrar = bus.interface()->serviceOwner(QString::fromLatin1(kRegistrar));
+    const QString nodalix = bus.interface()->serviceOwner(QStringLiteral("space.unmade.GlobalMenu"));
+    return !registrar.isEmpty() && registrar == nodalix;
 }
 
 void exportGlobalMenu(QMenuBar* menuBar) {

@@ -705,6 +705,12 @@ void installDockTitleBar(QDockWidget* dock) {
     auto* floatButton = button("undock", QObject::tr("Float"));
     auto* closeButton = button("close", QObject::tr("Close"));
     QObject::connect(floatButton, &QToolButton::clicked, dock, [dock] { dock->setFloating(!dock->isFloating()); });
+    // The same button docks a floating panel again: its name says which it does now.
+    QObject::connect(dock, &QDockWidget::topLevelChanged, floatButton, [floatButton](bool floating) {
+        floatButton->setToolTip(floating ? QObject::tr("Dock") : QObject::tr("Float"));
+        floatButton->setAccessibleName(floatButton->toolTip());
+    });
+    floatButton->setAccessibleName(floatButton->toolTip());
     QObject::connect(closeButton, &QToolButton::clicked, dock, &QWidget::close);
     const auto sync = [dock, floatButton, closeButton] {
         floatButton->setVisible(dock->features().testFlag(QDockWidget::DockWidgetFloatable));
