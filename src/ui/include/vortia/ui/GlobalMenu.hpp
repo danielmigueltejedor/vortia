@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 class QMenuBar;
 
 namespace vortia::ndl {
@@ -12,10 +14,13 @@ namespace vortia::ndl {
 /// `com.canonical.AppMenu.Registrar`; the shell pairs it with the window through the process id.
 /// Does nothing elsewhere, or when no registrar is running. The menu bar stays the source of
 /// truth: the exported layout is read from it on every request.
-void exportGlobalMenu(QMenuBar* menuBar);
+/// `registered` hears whether the registrar accepted the menu (and again if it restarts), so
+/// the window hides its own menus only once the bar really has them.
+void exportGlobalMenu(QMenuBar* menuBar, std::function<void(bool)> registered = {});
 
-/// Whether exportGlobalMenu will put the menus in the desktop's top bar: Linux under Wayland with
-/// an AppMenu registrar running. The window then needs no menu button of its own.
+/// Whether the menus are in the desktop's top bar: Linux under Wayland with Nodalix's AppMenu
+/// registrar (it pairs a menu with its window by process), and a registration it accepted.
+/// Otherwise the window keeps its menus.
 [[nodiscard]] bool globalMenuAvailable();
 
 } // namespace vortia::ndl
