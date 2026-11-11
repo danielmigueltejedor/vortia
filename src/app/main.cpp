@@ -220,6 +220,9 @@ int main(int argc, char* argv[]) {
     app.setApplicationVersion(QStringLiteral(VORTIA_VERSION));
     app.setOrganizationName(QStringLiteral("Vortia"));
     app.setOrganizationDomain(QStringLiteral("vortia.dev"));
+    // The Wayland app id names Vortia.desktop. Without it Qt sends "dev.vortia.vortia", which no
+    // launcher matches, so the shell shows that string instead of the app's name and icon.
+    QGuiApplication::setDesktopFileName(QStringLiteral("Vortia"));
 
     // Qt has resolved its plugin directories by now; child processes get the
     // user's own Qt settings back.
