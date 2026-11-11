@@ -12,12 +12,9 @@ use vortia_fields::ScalarField;
 use vortia_solvers::control::RunControl;
 use vortia_solvers::{Case, scalar_transport};
 
-const HEADER: &str = "FoamFile { version 2.0; format ascii; class dictionary; object x; }\n";
+mod common;
 
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
-}
+use common::{HEADER, write};
 
 fn nozzle() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/nozzle-practice-2026")

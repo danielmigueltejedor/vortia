@@ -13,25 +13,21 @@
 //! writes them back with `phi`.
 
 use vortia_core::Vec3;
-use vortia_fields::{Data, ScalarField, VectorField};
 use vortia_foamfile::{Dictionary, Entry};
 use vortia_fv::ops::{self, Convection, SnGrad};
 use vortia_fv::stress::div_dev2_grad_t;
 use vortia_fv::vector::{dot_interpolate, solution_directions};
-use vortia_fv::{Boundary, LduMatrix, Performance, ScalarBc, VectorBoundary, VectorMatrix};
+use vortia_fv::{LduMatrix, Performance, VectorMatrix};
 
-use crate::case::{
-    Case, KINEMATIC_DIFFUSIVITY, KINEMATIC_PRESSURE, VELOCITY, check_dimensions, key_matches,
-    read_dict,
-};
+use crate::case::{Case, KINEMATIC_DIFFUSIVITY, key_matches, read_dict};
 use crate::control::{LinearSolver, RunControl, solve_line};
 use crate::error::{Result, SolverError};
 use crate::ico::{
-    Algorithm, Step, adjust_phi, constrained_boundary, extrapolated, flux_field, switch,
+    Algorithm, FlowFields, Step, adjust_phi, constrained_boundary, extrapolated, flux_field,
+    switch, write_flow,
 };
 use crate::laplacian::{Ddt, transport_property};
 use crate::rans::{Model, Turbulence};
-use crate::scalar_transport::face_values;
 
 /// The schemes `simpleFoam` asks for, checked against what the engine has.
 struct Schemes {
@@ -200,32 +196,19 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let run = RunControl::read(case)?;
 
     let start = case.dir.join(&run.start_name);
-    let mut u_field = VectorField::read(start.join("U"))?;
-    let mut p_field = ScalarField::read(start.join("p"))?;
-    check_dimensions("U", &u_field.dimensions, VELOCITY)?;
-    check_dimensions("p", &p_field.dimensions, KINEMATIC_PRESSURE)?;
-    let u_bc = VectorBoundary::from_field(&u_field, &mesh)?;
-    let p_bc = Boundary::from_field(&p_field, &mesh)?;
-    let mut u = u_field
-        .internal
-        .expand(mesh.n_cells())
-        .ok_or_else(|| SolverError::Setup("U does not fit the mesh".into()))?;
-    let mut p = p_field
-        .internal
-        .expand(mesh.n_cells())
-        .ok_or_else(|| SolverError::Setup("p does not fit the mesh".into()))?;
+    let FlowFields {
+        mut u_field,
+        mut p_field,
+        u_bc,
+        p_bc,
+        mut u,
+        mut p,
+        mut phi,
+        need_reference,
+    } = FlowFields::read(&start, &mesh, &fv)?;
     let mut turbulence = Turbulence::read(case, &mesh, &fv, &start, nu, (&u_bc, &u), |name| {
         relaxation.equation(name)
     })?;
-    let mut phi = if start.join("phi").is_file() || start.join("phi.gz").is_file() {
-        face_values(&mesh, &ScalarField::read(start.join("phi"))?)?
-    } else {
-        dot_interpolate(&mesh, &fv, &u, &u_bc.face_values(&mesh, &u))
-    };
-    let need_reference = !p_bc
-        .conditions
-        .iter()
-        .any(|c| matches!(c, ScalarBc::FixedValue(_)));
     let valid = solution_directions(&mesh, &fv);
     let names = ["Ux", "Uy", "Uz"];
     let alpha_u = relaxation.equation("U");
@@ -331,12 +314,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let converged = !residuals.is_empty() && converged(&residuals, &solves);
         let written = run.writes(step) || converged;
         if written {
-            u_field.internal = Data::NonUniform(u.clone());
-            u_field.drop_zero_gradient_values();
-            u_field.write(&case.dir, &name)?;
-            p_field.internal = Data::NonUniform(p.clone());
-            p_field.drop_zero_gradient_values();
-            p_field.write(&case.dir, &name)?;
+            write_flow(&case.dir, &name, (&mut u_field, &u), (&mut p_field, &p))?;
             flux_field(&mesh, &phi).write(&case.dir, &name)?;
             if let Some(t) = &turbulence {
                 t.write(&mesh, &case.dir, &name)?;

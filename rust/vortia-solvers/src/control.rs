@@ -55,14 +55,11 @@ impl RunControl {
                     let gap = (t.value - start).abs();
                     gap <= 1e-12 * start.abs().max(1.0) && gap < 0.5 * delta_t
                 };
+                // The nearest, so an exact match wins.
                 let name = times
                     .iter()
-                    .find(|t| t.value == start)
-                    .or_else(|| {
-                        times.iter().filter(near).min_by(|a, b| {
-                            (a.value - start).abs().total_cmp(&(b.value - start).abs())
-                        })
-                    })
+                    .filter(near)
+                    .min_by(|a, b| (a.value - start).abs().total_cmp(&(b.value - start).abs()))
                     .map_or_else(|| time_name(start), |t| t.name.clone());
                 (start, name)
             }

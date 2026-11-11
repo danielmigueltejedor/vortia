@@ -242,13 +242,12 @@ pub fn bounded_correction(m: &mut LduMatrix, mesh: &PolyMesh, fv: &FvGeometry, p
     }
 }
 
-/// Adds the implicit `∇·(φ ψ)` for a face flux `phi` (internal faces, then
-/// boundary faces in patch order).
-pub fn convection(
+/// The internal-face part of the implicit `∇·(φ ψ)`, shared by every
+/// matrix type: it checks that `phi` has one flux per face.
+pub(crate) fn convection_interior(
     m: &mut LduMatrix,
     mesh: &PolyMesh,
     fv: &FvGeometry,
-    bc: &Boundary,
     phi: &[f64],
     scheme: Interpolation,
 ) -> Result<()> {
@@ -259,8 +258,7 @@ pub fn convection(
             mesh.n_faces()
         )));
     }
-    let n_internal = mesh.n_internal_faces();
-    for f in 0..n_internal {
+    for f in 0..mesh.n_internal_faces() {
         let (Some(&l), Some(&u), Some(&flux)) = (m.l.get(f), m.u.get(f), phi.get(f)) else {
             continue;
         };
@@ -289,7 +287,20 @@ pub fn convection(
             *d -= upper;
         }
     }
+    Ok(())
+}
 
+/// Adds the implicit `∇·(φ ψ)` for a face flux `phi` (internal faces, then
+/// boundary faces in patch order).
+pub fn convection(
+    m: &mut LduMatrix,
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    bc: &Boundary,
+    phi: &[f64],
+    scheme: Interpolation,
+) -> Result<()> {
+    convection_interior(m, mesh, fv, phi, scheme)?;
     for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
         for (i, f) in patch.faces().enumerate() {
             let (Some(&c), Some(&flux)) = (mesh.owner().get(f), phi.get(f)) else {

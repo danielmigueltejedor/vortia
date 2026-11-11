@@ -11,12 +11,9 @@ use std::path::{Path, PathBuf};
 use vortia_fields::ScalarField;
 use vortia_solvers::{Case, laplacian};
 
-const HEADER: &str = "FoamFile { version 2.0; format ascii; class dictionary; object x; }\n";
+mod common;
 
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
-}
+use common::{HEADER, write};
 
 fn nozzle_case(ddt: &str, end: &str, dt: &str, correctors: u32) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();

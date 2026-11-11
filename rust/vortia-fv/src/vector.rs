@@ -296,42 +296,8 @@ impl VectorMatrix {
         phi: &[f64],
         scheme: Interpolation,
     ) -> Result<Self> {
-        if phi.len() != mesh.n_faces() {
-            return Err(FvError::Shape(format!(
-                "{} face fluxes for {} faces",
-                phi.len(),
-                mesh.n_faces()
-            )));
-        }
         let mut m = Self::new(mesh);
-        let ldu = &mut m.ldu;
-        for f in 0..mesh.n_internal_faces() {
-            let (Some(&l), Some(&u), Some(&flux)) = (ldu.l.get(f), ldu.u.get(f), phi.get(f)) else {
-                continue;
-            };
-            let w = match scheme {
-                Interpolation::Upwind => {
-                    if flux >= 0.0 {
-                        1.0
-                    } else {
-                        0.0
-                    }
-                }
-                Interpolation::Linear => fv.weights.get(f).copied().unwrap_or(0.5),
-            };
-            let lower = -w * flux;
-            let upper = lower + flux;
-            if let (Some(up), Some(lo)) = (ldu.upper.get_mut(f), ldu.lower.get_mut(f)) {
-                *up = upper;
-                *lo = lower;
-            }
-            if let Some(d) = ldu.diag.get_mut(l) {
-                *d -= lower;
-            }
-            if let Some(d) = ldu.diag.get_mut(u) {
-                *d -= upper;
-            }
-        }
+        crate::ops::convection_interior(&mut m.ldu, mesh, fv, phi, scheme)?;
         let n_internal = mesh.n_internal_faces();
         for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
             for (i, f) in patch.faces().enumerate() {

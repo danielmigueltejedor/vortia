@@ -58,7 +58,7 @@ pub fn check_dimensions(what: &str, value: &Value, expected: Dims) -> Result<()>
     let same = expected
         .iter()
         .enumerate()
-        .all(|(i, &e)| numbers.get(i).copied().unwrap_or(0.0) == f64::from(e));
+        .all(|(i, &e)| (numbers.get(i).copied().unwrap_or(0.0) - f64::from(e)).abs() < 1e-10);
     if same { Ok(()) } else { Err(wrong()) }
 }
 

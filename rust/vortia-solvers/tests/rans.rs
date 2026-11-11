@@ -16,12 +16,9 @@ use vortia_foamfile::RawPatch;
 use vortia_mesh::blocks::structured_box_raw;
 use vortia_solvers::{Case, simple};
 
-const HEADER: &str = "FoamFile { version 2.0; format ascii; class dictionary; object x; }\n";
+mod common;
 
-fn write(path: &Path, text: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, text).unwrap();
-}
+use common::{HEADER, write};
 
 fn field(dir: &Path, name: &str, class: &str, dims: &str, internal: &str, patches: &str) {
     write(

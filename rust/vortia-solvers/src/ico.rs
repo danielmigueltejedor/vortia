@@ -127,6 +127,75 @@ impl Schemes {
     }
 }
 
+/// The velocity and kinematic pressure a pressure-velocity solver starts
+/// from, with their conditions and the face flux.
+pub(crate) struct FlowFields {
+    pub u_field: VectorField,
+    pub p_field: ScalarField,
+    pub u_bc: VectorBoundary,
+    pub p_bc: Boundary,
+    pub u: Vec<Vec3>,
+    pub p: Vec<f64>,
+    /// `phi` from the start directory, or interpolated from `U`.
+    pub phi: Vec<f64>,
+    /// No fixed-value pressure anywhere, so the level must be pinned.
+    pub need_reference: bool,
+}
+
+impl FlowFields {
+    pub(crate) fn read(start: &std::path::Path, mesh: &PolyMesh, fv: &FvGeometry) -> Result<Self> {
+        let u_field = VectorField::read(start.join("U"))?;
+        let p_field = ScalarField::read(start.join("p"))?;
+        check_dimensions("U", &u_field.dimensions, VELOCITY)?;
+        check_dimensions("p", &p_field.dimensions, KINEMATIC_PRESSURE)?;
+        let u_bc = VectorBoundary::from_field(&u_field, mesh)?;
+        let p_bc = Boundary::from_field(&p_field, mesh)?;
+        let u = u_field
+            .internal
+            .expand(mesh.n_cells())
+            .ok_or_else(|| SolverError::Setup("U does not fit the mesh".into()))?;
+        let p = p_field
+            .internal
+            .expand(mesh.n_cells())
+            .ok_or_else(|| SolverError::Setup("p does not fit the mesh".into()))?;
+        let phi = if start.join("phi").is_file() || start.join("phi.gz").is_file() {
+            face_values(mesh, &ScalarField::read(start.join("phi"))?)?
+        } else {
+            dot_interpolate(mesh, fv, &u, &u_bc.face_values(mesh, &u))
+        };
+        let need_reference = !p_bc
+            .conditions
+            .iter()
+            .any(|c| matches!(c, ScalarBc::FixedValue(_)));
+        Ok(Self {
+            u_field,
+            p_field,
+            u_bc,
+            p_bc,
+            u,
+            p,
+            phi,
+            need_reference,
+        })
+    }
+}
+
+/// Writes `U` and `p` into the time directory `name`.
+pub(crate) fn write_flow(
+    dir: &std::path::Path,
+    name: &str,
+    (u_field, u): (&mut VectorField, &[Vec3]),
+    (p_field, p): (&mut ScalarField, &[f64]),
+) -> Result<()> {
+    u_field.internal = Data::NonUniform(u.to_vec());
+    u_field.drop_zero_gradient_values();
+    u_field.write(dir, name)?;
+    p_field.internal = Data::NonUniform(p.to_vec());
+    p_field.drop_zero_gradient_values();
+    p_field.write(dir, name)?;
+    Ok(())
+}
+
 /// Runs the case and returns what each time step did. `log` receives the
 /// lines OpenFOAM would print.
 pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
@@ -141,29 +210,16 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let run = RunControl::read(case)?;
 
     let start = case.dir.join(&run.start_name);
-    let mut u_field = VectorField::read(start.join("U"))?;
-    let mut p_field = ScalarField::read(start.join("p"))?;
-    check_dimensions("U", &u_field.dimensions, VELOCITY)?;
-    check_dimensions("p", &p_field.dimensions, KINEMATIC_PRESSURE)?;
-    let u_bc = VectorBoundary::from_field(&u_field, &mesh)?;
-    let p_bc = Boundary::from_field(&p_field, &mesh)?;
-    let mut u = u_field
-        .internal
-        .expand(mesh.n_cells())
-        .ok_or_else(|| SolverError::Setup("U does not fit the mesh".into()))?;
-    let mut p = p_field
-        .internal
-        .expand(mesh.n_cells())
-        .ok_or_else(|| SolverError::Setup("p does not fit the mesh".into()))?;
-    let mut phi = if start.join("phi").is_file() || start.join("phi.gz").is_file() {
-        face_values(&mesh, &ScalarField::read(start.join("phi"))?)?
-    } else {
-        dot_interpolate(&mesh, &fv, &u, &u_bc.face_values(&mesh, &u))
-    };
-    let need_reference = !p_bc
-        .conditions
-        .iter()
-        .any(|c| matches!(c, ScalarBc::FixedValue(_)));
+    let FlowFields {
+        mut u_field,
+        mut p_field,
+        u_bc,
+        p_bc,
+        mut u,
+        mut p,
+        mut phi,
+        need_reference,
+    } = FlowFields::read(&start, &mesh, &fv)?;
     let valid = solution_directions(&mesh, &fv);
     let names = ["Ux", "Uy", "Uz"];
 
@@ -263,12 +319,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
         let written = run.writes(step);
         if written {
-            u_field.internal = Data::NonUniform(u.clone());
-            u_field.drop_zero_gradient_values();
-            u_field.write(&case.dir, &name)?;
-            p_field.internal = Data::NonUniform(p.clone());
-            p_field.drop_zero_gradient_values();
-            p_field.write(&case.dir, &name)?;
+            write_flow(&case.dir, &name, (&mut u_field, &u), (&mut p_field, &p))?;
             flux_field(&mesh, &phi).write(&case.dir, &name)?;
         }
         steps.push(Step {
