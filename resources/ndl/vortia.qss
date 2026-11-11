@@ -40,6 +40,8 @@ QToolButton#ndl-window-button {background:{{color.controlBg}};border:0;border-ra
 QToolButton#ndl-window-button:hover {background:{{color.windowMinimizeTint}};color:{{color.windowMinimize}};}
 QToolButton#ndl-window-button[role="maximize"]:hover {background:{{color.windowMaximizeTint}};color:{{color.windowMaximize}};}
 QToolButton#ndl-window-button[role="close"]:hover {background:{{color.windowClose}};}
+/* The menus in the window's header where no desktop top bar takes them. */
+QMenuBar#vortia-inline-menu {background:transparent;margin:0 {{space.sm}}px 0 0;}
 QToolButton#ndl-app-menu {background:transparent;border:0;border-radius:{{space.lg}}px;min-width:{{space.xxl}}px;max-width:{{space.xxl}}px;min-height:{{space.xxl}}px;max-height:{{space.xxl}}px;padding:0;margin:0 {{space.xxs}}px;}
 QToolButton#ndl-app-menu:hover {background:{{color.controlBgHover}};}
 QToolButton#ndl-app-menu::menu-indicator {image:none;}
