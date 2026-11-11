@@ -36,6 +36,7 @@
 #include "vortia/solver/openfoam/Detector.hpp"
 #include "vortia/ui/OpenFoamRuntime.hpp"
 #include "vortia/ui/ThemeManager.hpp"
+#include "vortia/ui/GlobalMenu.hpp"
 #include "vortia/ui/WindowChrome.hpp"
 #include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/ui/ResultFiles.hpp"
@@ -872,6 +873,8 @@ void MainWindow::buildDocks() {
                 }
             };
             keepShortcuts(menuBar()->actions());
+            // The menus also go to the desktop's top bar where there is one (Nodalix on Wayland).
+            ndl::exportGlobalMenu(menuBar());
             menuBar()->hide();
         }
     } else {
