@@ -65,6 +65,17 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     };
     let words = case.scheme("laplacianSchemes", "laplacian(DT,T)")?;
     let sn_grad = SnGrad::from_scheme(&words.iter().map(String::as_str).collect::<Vec<_>>())?;
+    if sn_grad == SnGrad::Corrected {
+        // The correction interpolates the cell gradient; the engine has Gauss
+        // linear only, so any other choice must not silently become it.
+        let grad = case.scheme("gradSchemes", "grad(T)")?;
+        if grad != ["Gauss", "linear"] {
+            return Err(SolverError::Setup(format!(
+                "grad scheme '{}' is not supported yet; use Gauss linear",
+                grad.join(" ")
+            )));
+        }
+    }
     let (solver, precon, controls) = case.solver_controls("T")?;
     if solver != "PCG" || precon != "DIC" {
         return Err(SolverError::Setup(format!(
@@ -73,12 +84,17 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     }
     let n_corr = case.non_orthogonal_correctors("SIMPLE");
 
+    let times = vortia_fields::times(&case.dir)?;
     let start_time = match case.control.word("startFrom") {
-        Some("latestTime") => vortia_fields::latest(&case.dir)?
-            .map(|t| t.value)
-            .unwrap_or(0.0),
+        Some("latestTime") => times.last().map_or(0.0, |t| t.value),
         _ => case.control.scalar("startTime").unwrap_or(0.0),
     };
+    // Read from the directory as it is named on disk: `0.123456789` is not
+    // the six-digit name the engine would give that time.
+    let start_name = times
+        .iter()
+        .find(|t| (t.value - start_time).abs() <= 1e-12 * start_time.abs().max(1.0))
+        .map_or_else(|| time_name(start_time), |t| t.name.clone());
     let end_time = case.scalar("endTime")?;
     let delta_t = case.scalar("deltaT")?;
     if !(delta_t > 0.0 && delta_t.is_finite()) {
@@ -89,25 +105,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         return Err(SolverError::Setup(format!("{steps_f} time steps")));
     }
     let n_steps = steps_f as u64;
-    let write_every = match case.control.word("writeControl").unwrap_or("timeStep") {
-        "timeStep" => case
-            .control
-            .scalar("writeInterval")
-            .unwrap_or(1.0)
-            .round()
-            .max(1.0) as u64,
-        "runTime" | "adjustableRunTime" => (case.control.scalar("writeInterval").unwrap_or(delta_t)
-            / delta_t)
-            .round()
-            .max(1.0) as u64,
-        other => {
-            return Err(SolverError::Setup(format!(
-                "writeControl '{other}' is not supported yet"
-            )));
-        }
-    };
-
-    let start_name = time_name(start_time);
+    let write = WriteControl::read(case, delta_t)?;
     let mut field = ScalarField::read(case.dir.join(&start_name).join("T"))?;
     let bc = Boundary::from_field(&field, &mesh)?;
     let mut t = field
@@ -135,7 +133,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             ));
             solves.push(perf);
         }
-        let written = step % write_every == 0 || step == n_steps;
+        let written = write.due(step, step as f64 * delta_t, delta_t) || step == n_steps;
         if written {
             field.internal = Data::NonUniform(t.clone());
             field.write(&case.dir, &name)?;
@@ -148,4 +146,74 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     }
     log("End\n");
     Ok(steps)
+}
+
+/// When to write, as `controlDict` asks.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum WriteControl {
+    /// Every `n` steps.
+    Steps(u64),
+    /// Every `interval` of simulated time, counted from the start.
+    Time(f64),
+}
+
+impl WriteControl {
+    fn read(case: &Case, delta_t: f64) -> Result<Self> {
+        let interval = case.control.scalar("writeInterval");
+        let positive = |v: f64| v.is_finite() && v > 0.0;
+        match case.control.word("writeControl").unwrap_or("timeStep") {
+            "timeStep" => Ok(Self::Steps(
+                interval.unwrap_or(1.0).round().clamp(1.0, MAX_STEPS as f64) as u64,
+            )),
+            control @ ("runTime" | "adjustableRunTime") => {
+                let interval = interval.filter(|&v| positive(v)).ok_or_else(|| {
+                    SolverError::Setup("writeInterval must be a positive time".into())
+                })?;
+                // `adjustableRunTime` shortens steps to land on write times;
+                // the engine does not, so it accepts only intervals the steps
+                // already land on.
+                let steps = interval / delta_t;
+                if control == "adjustableRunTime" && (steps - steps.round()).abs() > 1e-9 * steps {
+                    return Err(SolverError::Setup(
+                        "adjustableRunTime with a writeInterval that is not a whole number \
+                         of deltaT is not supported yet"
+                            .into(),
+                    ));
+                }
+                Ok(Self::Time(interval))
+            }
+            other => Err(SolverError::Setup(format!(
+                "writeControl '{other}' is not supported yet"
+            ))),
+        }
+    }
+
+    /// Whether `step`, at `elapsed` time since the start, writes. A time
+    /// interval writes on the first step that reaches each multiple of it,
+    /// OpenFOAM's `writeTimeIndex` rule, so it never drifts.
+    fn due(self, step: u64, elapsed: f64, delta_t: f64) -> bool {
+        match self {
+            Self::Steps(n) => step.is_multiple_of(n),
+            Self::Time(interval) => {
+                let index = |t: f64| ((t + 0.5 * delta_t) / interval).floor();
+                index(elapsed) > index(elapsed - delta_t)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WriteControl;
+
+    #[test]
+    fn run_time_writes_follow_the_interval_not_a_rounded_step_count() {
+        let w = WriteControl::Time(0.25);
+        let written: Vec<u64> = (1..=10)
+            .filter(|&s| w.due(s, s as f64 * 0.1, 0.1))
+            .collect();
+        // What OpenFOAM v1912's laplacianFoam writes for this controlDict:
+        // 0.2, 0.5, 0.7 and 1, the step nearest each multiple of 0.25.
+        assert_eq!(written, [2, 5, 7, 10]);
+    }
 }

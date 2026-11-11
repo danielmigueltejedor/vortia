@@ -130,3 +130,34 @@ fn an_unsupported_setup_is_an_error_not_a_crash() {
     let dir = nozzle_case("Euler", "1e30", "1e-30", 0);
     assert!(laplacian::run(&Case::open(dir.path()).unwrap(), |_| {}).is_err());
 }
+
+#[test]
+fn a_gradient_other_than_gauss_linear_is_refused() {
+    let dir = nozzle_case("Euler", "0.01", "0.01", 1);
+    write(
+        &dir.path().join("system/fvSchemes"),
+        &format!(
+            "{HEADER}ddtSchemes {{ default Euler; }} gradSchemes {{ default leastSquares; }} \
+             laplacianSchemes {{ default Gauss linear corrected; }}"
+        ),
+    );
+    let err = laplacian::run(&Case::open(dir.path()).unwrap(), |_| {}).unwrap_err();
+    assert!(err.to_string().contains("leastSquares"), "{err}");
+}
+
+#[test]
+fn a_preconditioner_given_as_a_dictionary_is_read() {
+    let dir = nozzle_case("Euler", "0.01", "0.01", 1);
+    write(
+        &dir.path().join("system/fvSolution"),
+        &format!(
+            "{HEADER}solvers {{ T {{ solver PCG; preconditioner {{ preconditioner DIC; }} \
+             tolerance 1e-10; relTol 0; }} }}"
+        ),
+    );
+    let (solver, precon, _) = Case::open(dir.path())
+        .unwrap()
+        .solver_controls("T")
+        .unwrap();
+    assert_eq!((solver.as_str(), precon.as_str()), ("PCG", "DIC"));
+}

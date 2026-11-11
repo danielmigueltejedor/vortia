@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vortia_foamfile::{Dictionary, FoamFile, Value};
+use vortia_foamfile::{Dictionary, FoamFile};
 use vortia_fv::Controls;
 
 use crate::error::{Result, SolverError};
@@ -88,11 +88,13 @@ impl Case {
             max_iter: count("maxIter", defaults.max_iter),
             min_iter: count("minIter", defaults.min_iter),
         };
-        let precon = match d.value("preconditioner") {
-            Some(Value::Word(w)) => w.clone(),
-            Some(Value::Dict(p)) => p.word("preconditioner").unwrap_or("none").to_owned(),
-            _ => d.word("preconditioner").unwrap_or("none").to_owned(),
-        };
+        // `preconditioner DIC;` or `preconditioner { preconditioner DIC; … }`.
+        let precon = d
+            .dict("preconditioner")
+            .and_then(|p| p.word("preconditioner"))
+            .or_else(|| d.word("preconditioner"))
+            .unwrap_or("none")
+            .to_owned();
         let solver = d
             .word("solver")
             .ok_or_else(|| SolverError::Setup(format!("no 'solver' for '{field}'")))?;
