@@ -86,7 +86,7 @@ fn flux(mesh: &PolyMesh, fv: &FvGeometry, start: &std::path::Path) -> Result<Vec
     flux_of(mesh, fv, &u)
 }
 
-fn face_values(mesh: &PolyMesh, phi: &ScalarField) -> Result<Vec<f64>> {
+pub(crate) fn face_values(mesh: &PolyMesh, phi: &ScalarField) -> Result<Vec<f64>> {
     phi.check_against(mesh)?;
     let mut out = phi
         .internal

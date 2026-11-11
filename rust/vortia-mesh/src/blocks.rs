@@ -37,6 +37,12 @@ fn mesh_bytes(nx: usize, ny: usize, nz: usize) -> Option<usize> {
 
 /// A box split into `cells[0] × cells[1] × cells[2]` equal hexahedra.
 pub fn structured_box(bounds: Aabb, cells: [usize; 3]) -> Result<PolyMesh> {
+    PolyMesh::from_raw(structured_box_raw(bounds, cells)?)
+}
+
+/// The same box as its five files' contents, so patches can be renamed or
+/// retyped (`wall`, `empty`) before it is used or written.
+pub fn structured_box_raw(bounds: Aabb, cells: [usize; 3]) -> Result<RawPolyMesh> {
     let [nx, ny, nz] = cells;
     if nx == 0 || ny == 0 || nz == 0 {
         return Err(MeshError::Invalid(
@@ -197,7 +203,7 @@ pub fn structured_box(bounds: Aabb, cells: [usize; 3]) -> Result<PolyMesh> {
         add_patch(name, &mut faces, &mut owner, side(axis, high), !high);
     }
 
-    PolyMesh::from_raw(RawPolyMesh {
+    Ok(RawPolyMesh {
         points,
         faces,
         owner,

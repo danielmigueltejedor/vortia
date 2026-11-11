@@ -14,23 +14,26 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
 - `vortia-foamfile`: reader for the case format: dictionaries, lists,
   dimension sets, the `polyMesh` files; ASCII, optionally gzip-compressed.
 - `vortia-mesh`: the engine's polyhedral mesh: validation, face and cell
-  geometry, the quality report `checkMesh` gives, and structured boxes.
+  geometry, the quality report `checkMesh` gives, and structured boxes it
+  can write as `polyMesh` files.
 - `vortia-fields`: volume and surface fields with their boundary conditions,
   read, checked against the mesh and written back as OpenFOAM writes them.
 - `vortia-fv`: the finite-volume discretisation (gradient, diffusion with
   non-orthogonal correction, upwind and linear convection, Euler time
-  derivative) and linear solvers (PCG with DIC, PBiCGStab with DILU), with
-  OpenFOAM's residual definition.
+  derivative), vector equations with their `A` and `H` for pressure–velocity
+  coupling, and linear solvers (PCG with DIC, PBiCGStab with DILU, the
+  symmetric Gauss–Seidel smoother), with OpenFOAM's residual definition.
 - `vortia-solvers`: solvers run on a case directory: diffusion
-  (`laplacianFoam`) and convection–diffusion by a given flow
-  (`scalarTransportFoam`).
+  (`laplacianFoam`), convection–diffusion by a given flow
+  (`scalarTransportFoam`) and transient incompressible flow with PISO
+  (`icoFoam`).
 - `vortia-cli`: the `vortia` command.
 
 ```bash
 cd rust
 cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
 cargo run -p vortia-cli -- fields ../examples/nozzle-practice-2026
-cargo run -p vortia-cli -- solve path/to/a/case   # laplacianFoam or scalarTransportFoam
+cargo run -p vortia-cli -- solve path/to/a/case   # laplacianFoam, scalarTransportFoam or icoFoam
 ```
 
 ## Checks

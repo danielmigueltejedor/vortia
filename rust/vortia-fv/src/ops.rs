@@ -62,6 +62,9 @@ pub fn grad(mesh: &PolyMesh, fv: &FvGeometry, bc: &Boundary, cells: &[f64]) -> V
 /// How the face-normal gradient treats non-orthogonal faces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnGrad {
+    /// The difference of the two cells over their distance, as if every
+    /// face were orthogonal.
+    Orthogonal,
     /// The orthogonal part only.
     Uncorrected,
     /// Plus an explicit correction from the interpolated cell gradient.
@@ -73,13 +76,22 @@ impl SnGrad {
     pub fn from_scheme(words: &[&str]) -> Result<Self> {
         match words {
             ["Gauss", "linear", "corrected"] => Ok(Self::Corrected),
-            ["Gauss", "linear", "uncorrected"] | ["Gauss", "linear", "orthogonal"] => {
-                Ok(Self::Uncorrected)
-            }
+            ["Gauss", "linear", "uncorrected"] => Ok(Self::Uncorrected),
+            ["Gauss", "linear", "orthogonal"] => Ok(Self::Orthogonal),
             other => Err(FvError::Setup(format!(
                 "laplacian scheme '{}' is not supported yet",
                 other.join(" ")
             ))),
+        }
+    }
+}
+
+impl SnGrad {
+    /// The face coefficients this gradient multiplies the cell difference by.
+    pub fn coeffs(self, fv: &FvGeometry) -> &[f64] {
+        match self {
+            Self::Orthogonal => &fv.delta_coeffs,
+            Self::Uncorrected | Self::Corrected => &fv.non_orth_delta_coeffs,
         }
     }
 }
@@ -96,13 +108,13 @@ pub fn diffusion(
     cells: &[f64],
 ) -> Result<()> {
     let n_internal = mesh.n_internal_faces();
+    let dc = sn_grad.coeffs(fv);
     for f in 0..n_internal {
         let (Some(&l), Some(&u)) = (m.l.get(f), m.u.get(f)) else {
             continue;
         };
-        let coeff = gamma
-            * fv.mag_sf.get(f).copied().unwrap_or(0.0)
-            * fv.non_orth_delta_coeffs.get(f).copied().unwrap_or(0.0);
+        let coeff =
+            gamma * fv.mag_sf.get(f).copied().unwrap_or(0.0) * dc.get(f).copied().unwrap_or(0.0);
         if let (Some(up), Some(lo)) = (m.upper.get_mut(f), m.lower.get_mut(f)) {
             *up -= coeff;
             *lo -= coeff;
@@ -123,8 +135,8 @@ pub fn diffusion(
             let gm = gamma * fv.mag_sf.get(f).copied().unwrap_or(0.0);
             match cond {
                 ScalarBc::FixedValue(v) => {
-                    // The same 1/max(n·d, 0.05|d|) as the internal faces.
-                    let k = gm * fv.non_orth_delta_coeffs.get(f).copied().unwrap_or(0.0);
+                    // The same coefficient as the internal faces.
+                    let k = gm * dc.get(f).copied().unwrap_or(0.0);
                     if let (Some(d), Some(s)) = (m.diag.get_mut(c), m.source.get_mut(c)) {
                         *d += k;
                         *s += k * v.get(i).copied().unwrap_or(0.0);
@@ -297,4 +309,165 @@ pub fn ddt_euler(m: &mut LduMatrix, fv: &FvGeometry, old: &[f64], dt: f64) -> Re
         *s += k * o;
     }
     Ok(())
+}
+
+/// `w·(P − N) + N` on every internal face, then the boundary values given
+/// (`0` where `None`): OpenFOAM's linear `interpolate` of a scalar.
+pub fn interpolate_linear(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    cells: &[f64],
+    boundary: &[Option<f64>],
+) -> Vec<f64> {
+    let cell = |c: Option<&usize>| c.and_then(|&c| cells.get(c)).copied().unwrap_or(0.0);
+    let mut out = Vec::with_capacity(mesh.n_faces());
+    for f in 0..mesh.n_internal_faces() {
+        let w = fv.weights.get(f).copied().unwrap_or(0.5);
+        let (o, n) = (cell(mesh.owner().get(f)), cell(mesh.neighbour().get(f)));
+        out.push(w * (o - n) + n);
+    }
+    out.extend(boundary.iter().map(|v| v.unwrap_or(0.0)));
+    out
+}
+
+/// `∇·φ` of a face flux given on every face: the net outflow of each cell
+/// over its volume (OpenFOAM's `surfaceIntegrate`). Empty faces carry none.
+pub fn surface_integrate(mesh: &PolyMesh, fv: &FvGeometry, phi: &[f64]) -> Vec<f64> {
+    let mut out = vec![0.0; mesh.n_cells()];
+    for (f, (&o, &n)) in mesh.owner().iter().zip(mesh.neighbour()).enumerate() {
+        let flux = phi.get(f).copied().unwrap_or(0.0);
+        if let Some(v) = out.get_mut(o) {
+            *v += flux;
+        }
+        if let Some(v) = out.get_mut(n) {
+            *v -= flux;
+        }
+    }
+    for patch in mesh.patches() {
+        if patch.kind == vortia_mesh::PatchKind::Empty {
+            continue;
+        }
+        for f in patch.faces() {
+            if let (Some(&o), Some(&flux)) = (mesh.owner().get(f), phi.get(f))
+                && let Some(v) = out.get_mut(o)
+            {
+                *v += flux;
+            }
+        }
+    }
+    for (v, &vol) in out.iter_mut().zip(fv.volumes()) {
+        *v /= vol;
+    }
+    out
+}
+
+/// Implicit `∇·(Γ∇φ)` with `gamma` given on every face, OpenFOAM's sign
+/// (negative diagonal): `fvm::laplacian(Γ_f, φ)`. Only the orthogonal and
+/// uncorrected gradients are supported.
+pub fn laplacian(
+    m: &mut LduMatrix,
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    bc: &Boundary,
+    gamma: &[f64],
+    sn_grad: SnGrad,
+) -> Result<()> {
+    if sn_grad == SnGrad::Corrected {
+        return Err(FvError::Setup(
+            "the corrected Laplacian with a varying coefficient is not supported yet".into(),
+        ));
+    }
+    let dc = sn_grad.coeffs(fv);
+    let gm =
+        |f: usize| gamma.get(f).copied().unwrap_or(0.0) * fv.mag_sf.get(f).copied().unwrap_or(0.0);
+    for f in 0..mesh.n_internal_faces() {
+        let (Some(&l), Some(&u)) = (m.l.get(f), m.u.get(f)) else {
+            continue;
+        };
+        let coeff = dc.get(f).copied().unwrap_or(0.0) * gm(f);
+        if let (Some(up), Some(lo)) = (m.upper.get_mut(f), m.lower.get_mut(f)) {
+            *up += coeff;
+            *lo += coeff;
+        }
+        if let Some(d) = m.diag.get_mut(l) {
+            *d -= coeff;
+        }
+        if let Some(d) = m.diag.get_mut(u) {
+            *d -= coeff;
+        }
+    }
+    for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
+        for (i, f) in patch.faces().enumerate() {
+            let Some(&c) = mesh.owner().get(f) else {
+                continue;
+            };
+            let d = dc.get(f).copied().unwrap_or(0.0);
+            // `internalCoeffs` on the diagonal, `boundaryCoeffs` in the source.
+            let (internal, boundary) = match cond {
+                ScalarBc::FixedValue(v) => {
+                    let v = v.get(i).copied().unwrap_or(0.0);
+                    (gm(f) * -d, -gm(f) * (d * v))
+                }
+                ScalarBc::FixedGradient(g) => (0.0, -gm(f) * g.get(i).copied().unwrap_or(0.0)),
+                ScalarBc::ZeroGradient | ScalarBc::Reflect | ScalarBc::Empty => continue,
+                ScalarBc::Calculated(_) => {
+                    return Err(FvError::Condition(format!(
+                        "patch '{}': a 'calculated' condition cannot be solved for",
+                        patch.name
+                    )));
+                }
+            };
+            if let (Some(dg), Some(s)) = (m.diag.get_mut(c), m.source.get_mut(c)) {
+                *dg += internal;
+                *s += boundary;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The face flux of a solved [`laplacian`]: `Γ_f |S_f| ∂φ/∂n` on every face
+/// (OpenFOAM's `fvMatrix::flux`), zero on empty faces.
+pub fn laplacian_flux(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    bc: &Boundary,
+    gamma: &[f64],
+    sn_grad: SnGrad,
+    cells: &[f64],
+) -> Vec<f64> {
+    let dc = sn_grad.coeffs(fv);
+    let gm =
+        |f: usize| gamma.get(f).copied().unwrap_or(0.0) * fv.mag_sf.get(f).copied().unwrap_or(0.0);
+    let cell = |c: Option<&usize>| c.and_then(|&c| cells.get(c)).copied().unwrap_or(0.0);
+    let mut out = Vec::with_capacity(mesh.n_faces());
+    for f in 0..mesh.n_internal_faces() {
+        let coeff = dc.get(f).copied().unwrap_or(0.0) * gm(f);
+        let (o, n) = (cell(mesh.owner().get(f)), cell(mesh.neighbour().get(f)));
+        out.push(coeff * n - coeff * o);
+    }
+    for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
+        for (i, f) in patch.faces().enumerate() {
+            let d = dc.get(f).copied().unwrap_or(0.0);
+            let inside = cell(mesh.owner().get(f));
+            out.push(match cond {
+                ScalarBc::FixedValue(v) => {
+                    let v = v.get(i).copied().unwrap_or(0.0);
+                    gm(f) * -d * inside - -gm(f) * (d * v)
+                }
+                ScalarBc::FixedGradient(g) => -(-gm(f) * g.get(i).copied().unwrap_or(0.0)),
+                _ => 0.0,
+            });
+        }
+    }
+    out
+}
+
+/// Pins the solution of a matrix with no fixed value at `cell` to `value`
+/// (OpenFOAM's `setReference`).
+pub fn set_reference(m: &mut LduMatrix, cell: usize, value: f64) {
+    if let (Some(d), Some(s)) = (m.diag.get_mut(cell), m.source.get_mut(cell)) {
+        *s += *d * value;
+        *d += *d;
+    }
 }

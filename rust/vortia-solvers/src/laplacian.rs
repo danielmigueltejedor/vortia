@@ -62,15 +62,20 @@ pub(crate) fn sn_grad(case: &Case, key: &str, field: &str) -> Result<SnGrad> {
 }
 
 pub(crate) fn diffusivity(case: &Case) -> Result<f64> {
+    transport_property(case, "DT")
+}
+
+/// A non-negative constant of `constant/transportProperties`.
+pub(crate) fn transport_property(case: &Case, key: &str) -> Result<f64> {
     let props = read_dict(&case.dir.join("constant").join("transportProperties"))?;
     // `DT 4e-05;`, `DT [0 2 -1 0 0 0 0] 4e-05;` and `DT DT [...] 4e-05;` all
     // end in the number.
     props
-        .values("DT")
+        .values(key)
         .and_then(|v| v.last())
         .and_then(|v| v.as_scalar())
         .filter(|v| v.is_finite() && *v >= 0.0)
-        .ok_or_else(|| SolverError::Setup("transportProperties has no valid 'DT'".into()))
+        .ok_or_else(|| SolverError::Setup(format!("transportProperties has no valid '{key}'")))
 }
 
 /// Runs the case and returns what each time step did. `log` receives the

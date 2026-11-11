@@ -17,6 +17,7 @@
 pub mod case;
 pub mod control;
 pub mod error;
+pub mod ico;
 pub mod laplacian;
 pub mod scalar_transport;
 
@@ -28,6 +29,7 @@ pub fn run(case: &Case, log: impl FnMut(&str)) -> Result<()> {
     match case.application() {
         Some("laplacianFoam") => laplacian::run(case, log).map(|_| ()),
         Some("scalarTransportFoam") => scalar_transport::run(case, log).map(|_| ()),
+        Some("icoFoam") => ico::run(case, log).map(|_| ()),
         Some(other) => Err(SolverError::Setup(format!(
             "the engine has no counterpart of '{other}' yet"
         ))),

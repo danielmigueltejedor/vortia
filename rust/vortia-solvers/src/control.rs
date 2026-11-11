@@ -4,7 +4,9 @@
 //! The rules follow OpenFOAM's `Time` and `lduMatrix::solver` (OpenFOAM,
 //! GPL-3.0-or-later), measured against OpenFOAM v1912 where they are subtle.
 
-use vortia_fv::{Controls, LduMatrix, Performance, pbicgstab_dilu, pcg_dic};
+use vortia_fv::{
+    Controls, LduMatrix, Performance, pbicgstab_dilu, pcg_dic, smooth_sym_gauss_seidel,
+};
 
 use crate::case::{Case, time_name};
 use crate::error::{Result, SolverError};
@@ -72,6 +74,8 @@ impl RunControl {
 pub enum LinearSolver {
     PcgDic,
     PbicgstabDilu,
+    /// `smoothSolver` with `symGaussSeidel`, `nSweeps` per check.
+    SymGaussSeidel(usize),
 }
 
 impl LinearSolver {
@@ -81,10 +85,19 @@ impl LinearSolver {
         let s = match (solver.as_str(), precon.as_str()) {
             ("PCG", "DIC") => Self::PcgDic,
             ("PBiCGStab", "DILU") => Self::PbicgstabDilu,
+            ("smoothSolver", "symGaussSeidel") => {
+                let sweeps = case
+                    .solver_dict(field)?
+                    .label("nSweeps")
+                    .and_then(|v| usize::try_from(v).ok())
+                    .unwrap_or(1)
+                    .clamp(1, 1000);
+                Self::SymGaussSeidel(sweeps)
+            }
             _ => {
                 return Err(SolverError::Setup(format!(
                     "solver {solver} with {precon} for '{field}' is not supported yet; \
-                     use PCG with DIC or PBiCGStab with DILU"
+                     use PCG with DIC, PBiCGStab with DILU or smoothSolver with symGaussSeidel"
                 )));
             }
         };
@@ -95,6 +108,7 @@ impl LinearSolver {
         Ok(match self {
             Self::PcgDic => pcg_dic(m, x, c)?,
             Self::PbicgstabDilu => pbicgstab_dilu(m, x, c)?,
+            Self::SymGaussSeidel(sweeps) => smooth_sym_gauss_seidel(m, x, c, sweeps)?,
         })
     }
 }

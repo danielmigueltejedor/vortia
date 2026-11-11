@@ -73,6 +73,30 @@ impl LduMatrix {
         }
     }
 
+    /// `source − A x`, accumulated in the order OpenFOAM's
+    /// `lduMatrix::residual` uses, so iteration counts agree.
+    pub fn residual(&self, x: &[f64]) -> Vec<f64> {
+        let mut r: Vec<f64> = self
+            .source
+            .iter()
+            .zip(&self.diag)
+            .zip(x)
+            .map(|((&b, &d), &xc)| b - d * xc)
+            .collect();
+        for (l, u, up, lo) in self.faces() {
+            let (Some(&xl), Some(&xu)) = (x.get(l), x.get(u)) else {
+                continue;
+            };
+            if let Some(ru) = r.get_mut(u) {
+                *ru -= lo * xl;
+            }
+            if let Some(rl) = r.get_mut(l) {
+                *rl -= up * xu;
+            }
+        }
+        r
+    }
+
     /// Row sums.
     pub fn sum_a(&self) -> Vec<f64> {
         let mut s = self.diag.clone();

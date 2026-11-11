@@ -56,9 +56,9 @@ All under [`rust/`](../../rust), one workspace:
 | E1 | Case format reader, mesh, geometry, `checkMesh` | The nozzle wedge reads with OpenFOAM's counts, its analytic volume to 1e-9, and `checkMesh`'s volumes, areas, non-orthogonality and skewness to the digits it prints ✅ |
 | E2 | Fields and boundary conditions; writing time directories | Every nozzle field round-trips unchanged, and OpenFOAM (`foamToVTK`) reads what the engine wrote. Read/write ✅; evaluating conditions moves to E3 |
 | E3 | Operators: gradient, divergence, Laplacian with non-orthogonal correction, interpolation schemes | Each operator matches OpenFOAM on the same mesh. Gradient, corrected Laplacian, Euler, and convection with `Gauss upwind` and `Gauss linear` ✅; bounded higher-order schemes (`linearUpwind`, limited) next |
-| E4 | LDU matrix and linear solvers: PCG/DIC, PBiCGStab/DILU, Gauss–Seidel, then GAMG | Same iterations and residuals as OpenFOAM on the same system. PCG/DIC and PBiCGStab/DILU ✅ |
+| E4 | LDU matrix and linear solvers: PCG/DIC, PBiCGStab/DILU, Gauss–Seidel, then GAMG | Same iterations and residuals as OpenFOAM on the same system. PCG/DIC, PBiCGStab/DILU and `smoothSolver` with `symGaussSeidel` ✅ |
 | E5 | First solver: diffusion (`laplacianFoam`), steady and transient | On the nozzle wedge with non-orthogonal correction, every solve takes OpenFOAM v1912's iteration count and the temperatures agree to 1e-13 ✅. Convection–diffusion (`scalarTransportFoam`) in the nozzle's own flow, with its `phi` or one built from `U`: same iteration counts, agreement to 1e-14 ✅ |
-| E6 | Incompressible: PISO transient, SIMPLE steady | Ghia cavity and Poiseuille, the existing native cases |
+| E6 | Incompressible: PISO transient, SIMPLE steady | Ghia cavity and Poiseuille, the existing native cases. PISO (`icoFoam`) on the lid-driven cavity, meshed by the engine and run by OpenFOAM v1912 on the same files: all 400 solves of the tutorial's 100 steps take OpenFOAM's iteration count, and `U`, `p` and `phi` agree to 1e-14 ✅; SIMPLE next |
 | E7 | Turbulence: k-ω SST with wall functions | Flat plate against the correlation already used |
 | E8 | Compressible nozzle (the current in-house central scheme) | The nozzle cases in `examples/` |
 | E9 | Meshing: multi-block `blockMesh` with grading and wedges, Gmsh and Fluent import | Same meshes as today's pipeline |

@@ -20,6 +20,8 @@ pub struct FvGeometry {
     /// coefficient of the orthogonal part of the face-normal gradient. Measured
     /// against OpenFOAM v1912, boundary conditions use this one too.
     pub non_orth_delta_coeffs: Vec<f64>,
+    /// 1/|d| for every face: what the `orthogonal` surface-normal gradient uses.
+    pub delta_coeffs: Vec<f64>,
     /// n − d·nonOrthDeltaCoeff per internal face: the direction of the
     /// explicit non-orthogonal correction.
     pub corr_vecs: Vec<Vec3>,
@@ -37,6 +39,7 @@ impl FvGeometry {
         let mut weights = Vec::with_capacity(n_internal);
         let mut non_orth_delta_coeffs = Vec::with_capacity(n_faces);
         let mut corr_vecs = Vec::with_capacity(n_internal);
+        let mut delta_coeffs = Vec::with_capacity(n_faces);
 
         let centre = |c: usize| geo.cell_centres.get(c).copied().unwrap_or_default();
         for f in 0..n_faces {
@@ -59,6 +62,7 @@ impl FvGeometry {
                 None => cf - c_own,
             };
             let mag_d = delta.norm();
+            delta_coeffs.push(if mag_d > 0.0 { 1.0 / mag_d } else { 0.0 });
             let denom = unit.dot(delta).max(0.05 * mag_d);
             let nodc = if denom > 0.0 { 1.0 / denom } else { 0.0 };
             non_orth_delta_coeffs.push(nodc);
@@ -72,6 +76,7 @@ impl FvGeometry {
             mag_sf,
             weights,
             non_orth_delta_coeffs,
+            delta_coeffs,
             corr_vecs,
         }
     }

@@ -319,6 +319,118 @@ pub fn pbicgstab_dilu(m: &LduMatrix, x: &mut [f64], c: &Controls) -> Result<Perf
     Ok(perf)
 }
 
+/// One symmetric Gauss–Seidel sweep pair (forward, then backward) on
+/// `A x = source`, as OpenFOAM's `symGaussSeidelSmoother` runs it: the faces
+/// of a row are the ones it owns, and lower-triangle terms are pushed to the
+/// rows below as each value is finished.
+fn sym_gauss_seidel(m: &LduMatrix, x: &mut [f64], own_start: &[usize], b_prime: &mut [f64]) {
+    let n = m.n_cells();
+    let row = |c: usize| {
+        let a = own_start.get(c).copied().unwrap_or(0);
+        let b = own_start.get(c + 1).copied().unwrap_or(a);
+        a..b
+    };
+    let relax = |c: usize, x: &mut [f64], b_prime: &mut [f64]| {
+        let mut v = b_prime.get(c).copied().unwrap_or(0.0);
+        for f in row(c) {
+            let (Some(&up), Some(&u)) = (m.upper.get(f), m.u.get(f)) else {
+                continue;
+            };
+            v -= up * x.get(u).copied().unwrap_or(0.0);
+        }
+        v /= m.diag.get(c).copied().unwrap_or(1.0);
+        for f in row(c) {
+            let (Some(&lo), Some(&u)) = (m.lower.get(f), m.u.get(f)) else {
+                continue;
+            };
+            if let Some(b) = b_prime.get_mut(u) {
+                *b -= lo * v;
+            }
+        }
+        if let Some(xc) = x.get_mut(c) {
+            *xc = v;
+        }
+    };
+    b_prime.copy_from_slice(&m.source);
+    for c in 0..n {
+        relax(c, x, b_prime);
+    }
+    // The backward sweep starts from what the forward one left in `b_prime`,
+    // as OpenFOAM's does.
+    for c in (0..n).rev() {
+        relax(c, x, b_prime);
+    }
+}
+
+/// OpenFOAM's `smoothSolver` with the `symGaussSeidel` smoother: sweeps of
+/// `n_sweeps` until converged.
+pub fn smooth_sym_gauss_seidel(
+    m: &LduMatrix,
+    x: &mut [f64],
+    c: &Controls,
+    n_sweeps: usize,
+) -> Result<Performance> {
+    let n = m.n_cells();
+    if x.len() != n || m.source.len() != n {
+        return Err(FvError::Shape(format!("{} unknowns for {n} rows", x.len())));
+    }
+    if m.diag.iter().any(|&d| d == 0.0 || !d.is_finite()) {
+        return Err(FvError::Singular("symGaussSeidel: a zero diagonal".into()));
+    }
+    let n_sweeps = n_sweeps.max(1);
+    let mut perf = Performance {
+        solver: "smoothSolver",
+        initial_residual: 0.0,
+        final_residual: 0.0,
+        iterations: 0,
+        converged: false,
+    };
+    let mut ax = vec![0.0; n];
+    m.amul(x, &mut ax);
+    let norm = m.norm_factor(x, &ax);
+    perf.initial_residual = m
+        .source
+        .iter()
+        .zip(&ax)
+        .map(|(b, a)| (b - a).abs())
+        .sum::<f64>()
+        / norm;
+    perf.final_residual = perf.initial_residual;
+
+    if c.min_iter > 0 || !c.converged(perf.initial_residual, perf.final_residual) {
+        // Where each row's owned faces start: faces are sorted by owner.
+        let mut own_start = vec![0usize; n + 1];
+        for &l in &m.l {
+            if let Some(s) = own_start.get_mut(l + 1) {
+                *s += 1;
+            }
+        }
+        for i in 1..own_start.len() {
+            let prev = own_start.get(i - 1).copied().unwrap_or(0);
+            if let Some(s) = own_start.get_mut(i) {
+                *s += prev;
+            }
+        }
+        let mut b_prime = vec![0.0; n];
+        loop {
+            for _ in 0..n_sweeps {
+                sym_gauss_seidel(m, x, &own_start, &mut b_prime);
+            }
+            perf.final_residual = sum_mag(&m.residual(x)) / norm;
+            perf.iterations += n_sweeps;
+            let done = c.converged(perf.initial_residual, perf.final_residual);
+            if !((perf.iterations < c.max_iter && !done) || perf.iterations < c.min_iter) {
+                break;
+            }
+        }
+    }
+    perf.converged = c.converged(perf.initial_residual, perf.final_residual);
+    if !perf.final_residual.is_finite() {
+        return Err(FvError::Diverged(format!("{perf}")));
+    }
+    Ok(perf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,6 +491,31 @@ mod tests {
         m.amul(&x, &mut ax);
         for (a, b) in ax.iter().zip(&m.source) {
             assert!((a - b).abs() < 1e-10, "{a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn sym_gauss_seidel_solves_an_asymmetric_chain() {
+        let mut m = chain(30);
+        for (k, lo) in m.lower.iter_mut().enumerate() {
+            *lo = -1.0 - 0.01 * k as f64;
+        }
+        for d in &mut m.diag {
+            *d = 2.5;
+        }
+        let exact: Vec<f64> = (0..30).map(|i| (i as f64 * 0.3).sin()).collect();
+        let mut b = vec![0.0; 30];
+        m.amul(&exact, &mut b);
+        m.source = b;
+        let mut x = vec![0.0; 30];
+        let c = Controls {
+            tolerance: 1e-12,
+            ..Controls::default()
+        };
+        let perf = smooth_sym_gauss_seidel(&m, &mut x, &c, 1).unwrap();
+        assert!(perf.converged && perf.iterations > 1, "{perf}");
+        for (a, e) in x.iter().zip(&exact) {
+            assert!((a - e).abs() < 1e-10);
         }
     }
 

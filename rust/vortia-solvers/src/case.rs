@@ -61,21 +61,7 @@ impl Case {
 
     /// The linear-solver settings for `field`, by exact key then pattern.
     pub fn solver_controls(&self, field: &str) -> Result<(String, String, Controls)> {
-        let solvers = self
-            .solution
-            .dict("solvers")
-            .ok_or_else(|| SolverError::Setup("fvSolution has no 'solvers'".into()))?;
-        let d = solvers
-            .dict(field)
-            .or_else(|| {
-                solvers.entries().rev().find_map(|(k, e)| match e {
-                    vortia_foamfile::Entry::Dict(d) if key_matches(k, field) => Some(d),
-                    _ => None,
-                })
-            })
-            .ok_or_else(|| {
-                SolverError::Setup(format!("fvSolution/solvers has no entry for '{field}'"))
-            })?;
+        let d = self.solver_dict(field)?;
         let defaults = Controls::default();
         let count = |k: &str, def: usize| {
             d.label(k)
@@ -93,12 +79,35 @@ impl Case {
             .dict("preconditioner")
             .and_then(|p| p.word("preconditioner"))
             .or_else(|| d.word("preconditioner"))
+            .or_else(|| d.word("smoother"))
             .unwrap_or("none")
             .to_owned();
         let solver = d
             .word("solver")
             .ok_or_else(|| SolverError::Setup(format!("no 'solver' for '{field}'")))?;
         Ok((solver.to_owned(), precon, controls))
+    }
+
+    /// The `fvSolution/solvers` entry for `field`, by exact key then
+    /// pattern, with `$other` lines replaced by that entry's contents (what
+    /// `pFinal { $p; relTol 0; }` means).
+    pub fn solver_dict(&self, field: &str) -> Result<Dictionary> {
+        let solvers = self
+            .solution
+            .dict("solvers")
+            .ok_or_else(|| SolverError::Setup("fvSolution has no 'solvers'".into()))?;
+        let find = |name: &str| {
+            solvers.dict(name).or_else(|| {
+                solvers.entries().rev().find_map(|(k, e)| match e {
+                    vortia_foamfile::Entry::Dict(d) if key_matches(k, name) => Some(d),
+                    _ => None,
+                })
+            })
+        };
+        let d = find(field).ok_or_else(|| {
+            SolverError::Setup(format!("fvSolution/solvers has no entry for '{field}'"))
+        })?;
+        expand(d, &find, 0)
     }
 
     pub fn non_orthogonal_correctors(&self, algorithm: &str) -> usize {
@@ -109,6 +118,34 @@ impl Case {
             .unwrap_or(0)
             .min(100)
     }
+}
+
+/// `d` with each `$name` entry replaced by the entries of `find(name)`.
+fn expand<'a>(
+    d: &Dictionary,
+    find: &impl Fn(&str) -> Option<&'a Dictionary>,
+    depth: u32,
+) -> Result<Dictionary> {
+    if depth > 8 {
+        return Err(SolverError::Setup(
+            "fvSolution: '$' references nest too deep".into(),
+        ));
+    }
+    let mut out = Dictionary::new();
+    for (key, entry) in d.entries() {
+        match key.strip_prefix('$') {
+            Some(name) => {
+                let other = find(name).ok_or_else(|| {
+                    SolverError::Setup(format!("fvSolution/solvers has no '{name}' for '${name}'"))
+                })?;
+                for (k, e) in expand(other, find, depth + 1)?.entries() {
+                    out.insert(k, e.clone());
+                }
+            }
+            None => out.insert(key, entry.clone()),
+        }
+    }
+    Ok(out)
 }
 
 fn key_matches(pattern: &str, name: &str) -> bool {
