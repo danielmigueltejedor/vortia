@@ -33,7 +33,7 @@
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/hero.webp" width="920" alt="Vortia showing live run monitors in dark mode and a dimensioned nozzle sketch in light mode">
+  <img src="docs/screenshots/hero.webp" width="920" alt="Vortia: a nozzle sketch in light mode behind the speed field of a jet in dark mode">
 </p>
 
 ---
@@ -62,15 +62,15 @@ capability is listed with the evidence behind it in
 
 | | |
 |---|---|
-| <img src="docs/screenshots/geometry-dark.webp" alt="2D sketch of a nozzle with its dimensions and vertex table"> | <img src="docs/screenshots/calculation-dark.webp" alt="Run monitors: Courant number, mass imbalance, field variation and equation indicator"> |
-| Geometry: dimensioned 2D sketch of a nozzle | Calculation: live run monitors |
-| <img src="docs/screenshots/results-speed-dark.webp" alt="Speed field of a jet in the results view"> | <img src="docs/screenshots/physics-light.webp" alt="Physics models and material form, light mode"> |
-| Results: speed field of a jet | Physics: models and material, light mode |
+| <img src="docs/screenshots/geometry-dark.webp" alt="2D sketch of a nozzle with its vertex table"> | <img src="docs/screenshots/results-speed-dark.webp" alt="Speed field of a jet in the results view"> |
+| Geometry: a nozzle drawn with the sketch's generator | Results: speed field of a jet |
+| <img src="docs/screenshots/menu-dark.webp" alt="The main menu open at the top of the side bar"> | <img src="docs/screenshots/preferences-dark.webp" alt="Preferences: appearance, language, theme and window controls"> |
+| Main menu: Preferences, Keyboard Shortcuts, About | Preferences, with Nodalia or desktop window controls |
 
-The results view shows the `examples/nozzle-practice-2026` case; the sketch and
-the monitors come from a working project. In the monitors capture the line with
-the local path of the run log is covered. These are interface captures, not
-validation: see [`docs/VALIDATION.md`](docs/VALIDATION.md).
+The results view shows the `examples/nozzle-practice-2026` case; the sketch is a
+nozzle made with the sketch's generator. `geometry-light.webp` and
+`results-speed-light.webp` are the same views in light mode. These are interface
+captures, not validation: see [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
 ## What it does
 
