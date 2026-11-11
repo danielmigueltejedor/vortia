@@ -60,6 +60,9 @@ pub struct Tokenizer<'a> {
     pos: usize,
     line: u32,
     peeked: Option<Token>,
+    /// Values uniform lists (`N{v}`) have expanded to so far, across the
+    /// whole input: each list is bounded on its own, and so is their sum.
+    expanded: usize,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -69,6 +72,19 @@ impl<'a> Tokenizer<'a> {
             pos: 0,
             line: 1,
             peeked: None,
+            expanded: 0,
+        }
+    }
+
+    /// Counts `n` more expanded values against the input's budget; `false`
+    /// once the total would pass `limit`.
+    pub fn spend_expansion(&mut self, n: usize, limit: usize) -> bool {
+        match self.expanded.checked_add(n).filter(|&t| t <= limit) {
+            Some(t) => {
+                self.expanded = t;
+                true
+            }
+            None => false,
         }
     }
 

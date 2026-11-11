@@ -167,3 +167,29 @@ fn directives_a_solver_would_need_evaluated_are_named() {
     let top = with("#include \"initialConditions\"\nboundaryField { }");
     assert_eq!(top.unevaluated_directive().as_deref(), Some("#include"));
 }
+
+#[test]
+fn what_is_written_reads_back_and_stays_in_the_case() {
+    let mut field = scalar_from(
+        "FoamFile { version 2.0; format ascii; class volScalarField; object T; }\n\
+         dimensions [0 0 0 1 0 0 0]; internalField uniform 1;\n\
+         boundaryField { \"inlet one\" { type zeroGradient; } }",
+    )
+    .unwrap();
+    let back = scalar_from(&field.to_text("0")).unwrap();
+    assert_eq!(back.boundary[0].key, "inlet one");
+
+    let dir = tempfile::tempdir().unwrap();
+    assert!(field.write(dir.path(), "0\"x").is_err());
+    field.name = "p field".into();
+    assert!(field.write(dir.path(), "0").is_err());
+    field.name = "T".into();
+    #[cfg(unix)]
+    {
+        let elsewhere = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(elsewhere.path(), dir.path().join("1")).unwrap();
+        assert!(field.write(dir.path(), "1").is_err());
+        assert!(!elsewhere.path().join("T").exists());
+    }
+    field.write(dir.path(), "0").unwrap();
+}

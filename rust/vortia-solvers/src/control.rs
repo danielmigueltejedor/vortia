@@ -30,10 +30,17 @@ pub struct RunControl {
 impl RunControl {
     pub fn read(case: &Case) -> Result<Self> {
         let times = vortia_fields::times(&case.dir)?;
+        let on_disk = |t: Option<&vortia_fields::Time>| {
+            t.map_or_else(|| (0.0, time_name(0.0)), |t| (t.value, t.name.clone()))
+        };
         let (start_time, start_name) = match case.control.word("startFrom") {
-            Some("latestTime") => times
-                .last()
-                .map_or_else(|| (0.0, time_name(0.0)), |t| (t.value, t.name.clone())),
+            Some("latestTime") => on_disk(times.last()),
+            Some("firstTime") => on_disk(times.first()),
+            Some(other) if other != "startTime" => {
+                return Err(SolverError::Setup(format!(
+                    "startFrom '{other}' is not one of firstTime, startTime, latestTime"
+                )));
+            }
             _ => {
                 let start = case.control.scalar("startTime").unwrap_or(0.0);
                 // `0.123456789` is not the six-digit name the engine would

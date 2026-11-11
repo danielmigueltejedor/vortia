@@ -7,6 +7,7 @@
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::dict::{Dictionary, Entry, Value};
 use crate::error::{FoamError, Result};
@@ -132,15 +133,35 @@ fn join(out: &mut String, items: &[Value], level: usize) {
     }
 }
 
+/// A dictionary key as written: bare when the tokenizer reads it back as
+/// the same word, quoted otherwise. Patterns (`|`, `*`) are quoted, as
+/// OpenFOAM writes them.
+pub fn key_text(key: &str) -> String {
+    let mut depth = 0i64;
+    let balanced = key.chars().all(|c| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        depth >= 0
+    }) && depth == 0;
+    let bare = !key.is_empty()
+        && balanced
+        && !key.starts_with('(')
+        && !key.contains("//")
+        && !key.contains("/*")
+        && !key
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || "\"{};[]|*".contains(c));
+    if bare { key.to_owned() } else { quote(key) }
+}
+
 /// Writes the entries of a dictionary at `level`.
 pub fn dictionary(out: &mut String, d: &Dictionary, level: usize) {
     for (key, entry) in d.entries() {
         indent(out, level);
-        let key = if key.chars().any(|c| c.is_whitespace() || "|*\"".contains(c)) {
-            quote(key)
-        } else {
-            key.to_owned()
-        };
+        let key = key_text(key);
         match entry {
             Entry::Dict(sub) => {
                 out.push_str(&key);
@@ -182,12 +203,22 @@ pub fn atomic(path: &Path, contents: &[u8]) -> Result<()> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-    let result = std::fs::File::create(&tmp)
-        .and_then(|mut f| {
-            f.write_all(contents)?;
-            f.sync_all()
-        })
+    // Unique per write and created exclusively, so two writers of one file
+    // never share, or truncate, each other's pending copy.
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let tmp = dir.join(format!(
+        ".{name}.{}.{}.tmp",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(io)?;
+    let result = file
+        .write_all(contents)
+        .and_then(|()| file.sync_all())
         .and_then(|()| std::fs::rename(&tmp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -199,6 +230,46 @@ pub fn atomic(path: &Path, contents: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
     use crate::token::Tokenizer;
+
+    #[test]
+    fn concurrent_writes_of_one_file_each_land_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f");
+        std::thread::scope(|s| {
+            for i in 0..8u8 {
+                let path = &path;
+                s.spawn(move || atomic(path, &[i; 4096]).unwrap());
+            }
+        });
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(bytes.len(), 4096);
+        assert!(bytes.iter().all(|&b| b == bytes[0]));
+        let left: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+        assert_eq!(left.len(), 1, "temporary files left behind");
+    }
+
+    #[test]
+    fn keys_read_back_as_themselves() {
+        for key in [
+            "div(phi,U)",
+            "a;b",
+            "inlet one",
+            "(U|k)",
+            ".*",
+            "a{b",
+            "x//y",
+            "a)b",
+        ] {
+            let mut d = Dictionary::new();
+            d.insert(key, Entry::Values(vec![Value::Label(1)]));
+            let mut text = String::new();
+            dictionary(&mut text, &d, 0);
+            let mut tok = Tokenizer::new(text.as_bytes());
+            let back = Dictionary::parse(&mut tok, false, 0).unwrap();
+            assert_eq!(back.entries().next().map(|(k, _)| k), Some(key), "{text}");
+        }
+        assert_eq!(key_text("div(phi,U)"), "div(phi,U)");
+    }
 
     #[test]
     fn scalars_read_back_exactly() {

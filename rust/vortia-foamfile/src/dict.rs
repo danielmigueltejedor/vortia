@@ -13,6 +13,8 @@ pub const MAX_DEPTH: u32 = 64;
 
 /// The longest uniform list (`N{v}`) expanded when a value is read.
 const MAX_UNIFORM: usize = 1 << 20;
+/// The most values all the uniform lists of one input may expand to.
+const MAX_EXPANDED: usize = 1 << 24;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -263,7 +265,8 @@ pub fn parse_value(first: Token, tok: &mut Tokenizer<'_>, depth: u32) -> Result<
                 let v = parse_value(t, tok, depth + 1)?;
                 tok.expect_punct(b'}')?;
                 // The budget is on the expanded size: `N{M{0}}` holds N×M values.
-                if count.saturating_mul(v.weight()) > MAX_UNIFORM {
+                let cost = count.saturating_mul(v.weight());
+                if cost > MAX_UNIFORM || !tok.spend_expansion(cost, MAX_EXPANDED) {
                     return Err(FoamError::parse(
                         first.line,
                         format!("uniform list of {n} items expands too far"),
@@ -390,6 +393,11 @@ mod tests {
         }
         // Text counts by its bytes: a million copies of a kilobyte is a
         // gigabyte however few values it is.
+        // Each list within its own limit, but sixty-four of them are not.
+        let many: String = (0..64).map(|i| format!("a{i} 1000000{{0}};")).collect();
+        assert!(Dictionary::parse(&mut Tokenizer::new(many.as_bytes()), false, 0).is_err());
+        let few: String = (0..8).map(|i| format!("a{i} 1000000{{0}};")).collect();
+        assert!(Dictionary::parse(&mut Tokenizer::new(few.as_bytes()), false, 0).is_ok());
         let big = format!("a 1000{{1000{{\"{}\"}}}};", "x".repeat(1024));
         assert!(Dictionary::parse(&mut Tokenizer::new(big.as_bytes()), false, 0).is_err());
         let keyed = |k: &str| format!("a 100{{100{{{{{k} 1;}}}}}};");

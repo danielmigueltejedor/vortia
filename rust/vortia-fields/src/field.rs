@@ -188,11 +188,7 @@ impl<T: FieldValue> Field<T> {
             out.push('\n');
         }
         for p in &self.boundary {
-            let key = if p.key.contains(['|', '*', '(']) {
-                format!("\"{}\"", p.key)
-            } else {
-                p.key.clone()
-            };
+            let key = write::key_text(&p.key);
             out.push_str(&format!(
                 "    {key}\n    {{\n        type            {};\n",
                 p.kind
@@ -220,7 +216,24 @@ impl<T: FieldValue> Field<T> {
                 )));
             }
         }
-        let path = case.as_ref().join(time).join(&self.name);
+        // The header holds both: the name bare, the time quoted.
+        if !is_word(&self.name) || time.contains(['"', '\\']) {
+            return Err(FieldError::Invalid(format!(
+                "field {:?} at time {time:?} would not read back",
+                self.name
+            )));
+        }
+        let dir = case.as_ref().join(time);
+        // A time directory that is a link would take the write elsewhere.
+        if dir
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+        {
+            return Err(FieldError::Invalid(format!(
+                "time directory {time:?} is a link; not writing through it"
+            )));
+        }
+        let path = dir.join(&self.name);
         write::atomic(&path, self.to_text(time).as_bytes())?;
         Ok(())
     }

@@ -187,6 +187,13 @@ fn a_restart_reads_the_directory_it_chose() {
     .unwrap();
     let run = RunControl::read(&Case::open(dir.path()).unwrap()).unwrap();
     assert_eq!(run.start_name, "2.0000000000001e-06");
+    let text = std::fs::read_to_string(&control).unwrap();
+    let from = |word: &str| {
+        std::fs::write(&control, text.replace("latestTime", word)).unwrap();
+        RunControl::read(&Case::open(dir.path()).unwrap())
+    };
+    assert_eq!(from("firstTime").unwrap().start_name, "0");
+    assert!(from("lastTime").is_err());
 }
 
 #[test]

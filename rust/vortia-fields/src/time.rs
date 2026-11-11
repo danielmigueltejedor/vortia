@@ -19,15 +19,21 @@ pub fn times(case: impl AsRef<Path>) -> Result<Vec<Time>> {
         path: case.to_owned(),
         source,
     })?;
-    let mut out: Vec<Time> = entries
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let value = name.parse::<f64>().ok().filter(|v| v.is_finite())?;
-            Some(Time { value, name })
-        })
-        .collect();
+    let mut out = Vec::new();
+    for entry in entries {
+        // A directory that cannot be listed whole could hide the latest time.
+        let entry = entry.map_err(|source| vortia_foamfile::FoamError::Io {
+            path: case.to_owned(),
+            source,
+        })?;
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(value) = name.parse::<f64>().ok().filter(|v| v.is_finite()) {
+            out.push(Time { value, name });
+        }
+    }
     out.sort_by(|a, b| a.value.total_cmp(&b.value));
     Ok(out)
 }

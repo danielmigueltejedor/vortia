@@ -185,11 +185,16 @@ fn fields(case: &Path, time: Option<&str>) -> ExitCode {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         let name = shown(name.strip_suffix(".gz").unwrap_or(&name));
-        let class = FoamFile::open(&path)
-            .and_then(|f| f.tokens().map(|(h, _)| h.map(|h| h.class)))
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+        // A file without a header is not a field; one whose header does
+        // not read is a field that was not checked, which is a failure.
+        let class = match FoamFile::open(&path).and_then(|f| f.tokens().map(|(h, _)| h)) {
+            Ok(header) => header.map(|h| h.class).unwrap_or_default(),
+            Err(e) => {
+                failed = true;
+                out!("    {name:<12} error: {}", shown(&e.to_string()));
+                continue;
+            }
+        };
         let line = match class.as_str() {
             "volScalarField" | "surfaceScalarField" => summary::<f64>(&path, &mesh, |v| v),
             "volVectorField" => summary::<Vec3>(&path, &mesh, Vec3::norm),

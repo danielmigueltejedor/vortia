@@ -298,15 +298,16 @@ pub fn time_name_with(t: f64, precision: u32) -> String {
         return "0".into();
     }
     let p = precision.clamp(1, MAX_TIME_PRECISION) as i32;
-    let exp = t.abs().log10().floor() as i32;
+    // `%g` picks its style by the exponent after rounding to `p` digits:
+    // 999999.7 is `1e+06`, not `1000000`.
+    let digits = usize::try_from(p - 1).unwrap_or(0);
+    let sci = format!("{t:.digits$e}");
+    let (mant, e) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let exp: i32 = e.parse().unwrap_or(0);
     if !(-4..p).contains(&exp) {
-        let digits = usize::try_from(p - 1).unwrap_or(0);
-        let s = format!("{t:.digits$e}");
-        let (mant, e) = s.split_once('e').unwrap_or((&s, "0"));
         let mant = trim(mant);
-        let e: i32 = e.parse().unwrap_or(0);
-        let sign = if e < 0 { '-' } else { '+' };
-        return format!("{mant}e{sign}{:02}", e.abs());
+        let sign = if exp < 0 { '-' } else { '+' };
+        return format!("{mant}e{sign}{:02}", exp.abs());
     }
     let decimals = usize::try_from(p - 1 - exp).unwrap_or(0);
     trim(&format!("{t:.decimals$}"))
@@ -362,5 +363,8 @@ mod tests {
         assert_eq!(time_name_with(50000.01, 6), "50000");
         assert_eq!(time_name_with(50000.01, 7), "50000.01");
         assert_eq!(time_name_with(1234567.0, 8), "1234567");
+        // The style follows the rounded value, as C's `%g` does.
+        assert_eq!(time_name(999999.7), "1e+06");
+        assert_eq!(time_name(0.00009999996), "0.0001");
     }
 }
