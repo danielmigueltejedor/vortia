@@ -6,6 +6,7 @@
 #include <cmath>
 #include <utility>
 
+#include <QAbstractButton>
 #include <QApplication>
 #include <QBoxLayout>
 #include <QDialog>
@@ -458,6 +459,8 @@ public:
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override {
+        if (event->type() == QEvent::ToolTip)
+            return repeatsVisibleText(qobject_cast<QAbstractButton*>(watched));
         if (event->type() != QEvent::Polish)
             return false;
         roundPopup(qobject_cast<QWidget*>(watched));
@@ -501,6 +504,15 @@ protected:
     }
 
 private:
+    /// A button that shows its name needs no tooltip saying it again; one that shows only an
+    /// icon keeps its tooltip, which is then the only place its name appears.
+    static bool repeatsVisibleText(QAbstractButton* button) {
+        if (!button || button->text().isEmpty())
+            return false;
+        auto* tool = qobject_cast<QToolButton*>(button);
+        return !tool || tool->toolButtonStyle() != Qt::ToolButtonIconOnly;
+    }
+
     /// Menus, combo lists and tooltips are islands with NDL's radius: their window has to be
     /// see-through for the corners to show, and that is only possible before it exists.
     static void roundPopup(QWidget* widget) {

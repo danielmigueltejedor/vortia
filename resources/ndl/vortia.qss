@@ -103,6 +103,16 @@ QPushButton[ndlVariant="neutral"]:hover {background:{{color.controlBgHover}};bor
 QPushButton[ndlVariant="danger"]:hover {background:{{color.windowClose}};border-color:{{color.windowClose}};}
 QLabel#ndl-dialog-header-title {font-family:"Sora";font-size:{{font.body}}px;font-weight:700;color:{{color.textPrimary}};}
 
+/* A number field's steppers sit inside its pill: small rounded targets with NDL chevrons, a
+   soft disc under the pointer, never a square that cuts the field's corners. */
+QAbstractSpinBox::up-button,QAbstractSpinBox::down-button {width:18px;margin-right:8px;border:0;border-radius:6px;background:transparent;}
+QAbstractSpinBox::up-button {margin-top:4px;}
+QAbstractSpinBox::down-button {margin-bottom:4px;}
+QAbstractSpinBox::up-button:hover,QAbstractSpinBox::down-button:hover {background:{{color.controlBgPressed}};}
+QAbstractSpinBox::up-arrow {image:url(:/vortia/icons/chevron-up.svg);width:10px;height:10px;}
+QAbstractSpinBox::down-arrow {image:url(:/vortia/icons/chevron-down.svg);width:10px;height:10px;}
+QAbstractSpinBox::up-arrow:disabled,QAbstractSpinBox::down-arrow:disabled,QAbstractSpinBox::up-arrow:off,QAbstractSpinBox::down-arrow:off {image:none;}
+
 /* A combo's list is the island; the window around it stays see-through for its corners. */
 QComboBoxPrivateContainer {background:transparent;border:0;}
 QComboBox QAbstractItemView {border-radius:{{component.panelRadius}}px;}

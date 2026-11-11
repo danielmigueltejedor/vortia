@@ -205,7 +205,8 @@ VtkViewport::VtkViewport(QWidget* parent) : QVTKOpenGLNativeWidget(parent) {
     }
 
     setFocusPolicy(Qt::StrongFocus);
-    setToolTip(tr("Pinch to zoom · two fingers to pan · drag to orbit · Shift/Space + drag to pan · F to fit"));
+    // Gesture help for screen readers; a tooltip over the view only got in the way.
+    setAccessibleDescription(tr("Pinch to zoom · two fingers to pan · drag to orbit · Shift/Space + drag to pan · F to fit"));
     setMinimumSize(320, 240);
     reconstructionNotice_=new QLabel(this);reconstructionNotice_->setObjectName("vortia-axisymmetric-notice");reconstructionNotice_->setAttribute(Qt::WA_TransparentForMouseEvents);reconstructionNotice_->setStyleSheet("QLabel { color: #e5f4ff; background: rgba(18,34,45,210); padding: 6px 9px; border-radius: 5px; }");reconstructionNotice_->move(10,10);reconstructionNotice_->hide();
     cameraRenderTimer_ = new QTimer(this);

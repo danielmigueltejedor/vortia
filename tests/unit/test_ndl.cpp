@@ -8,9 +8,11 @@
 #include <QDockWidget>
 #include <QLabel>
 #include <QMainWindow>
+#include <QHelpEvent>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QToolButton>
+#include <QToolTip>
 #include <QJsonDocument>
 #include <QRegularExpression>
 
@@ -184,4 +186,31 @@ TEST(NdlPopups, MenusGetASeeThroughWindow) {
     menu.addAction(QStringLiteral("One"));
     menu.ensurePolished();
     EXPECT_TRUE(menu.testAttribute(Qt::WA_TranslucentBackground));
+}
+
+// A button that shows its name does not repeat it in a tooltip; an icon-only one keeps it.
+TEST(NdlTooltips, OnlyIconButtonsShowTheirName) {
+    qputenv("VORTIA_NATIVE_TITLEBAR", "1");
+    vortia::ndl::installDialogChrome(qApp);
+    qunsetenv("VORTIA_NATIVE_TITLEBAR");
+    QWidget host;
+    auto* labelled = new QToolButton(&host);
+    labelled->setText(QStringLiteral("Malla"));
+    labelled->setToolTip(QStringLiteral("Malla"));
+    labelled->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    auto* iconOnly = new QToolButton(&host);
+    iconOnly->setText(QStringLiteral("Cerrar"));
+    iconOnly->setToolTip(QStringLiteral("Cerrar"));
+    iconOnly->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    host.show();
+    const auto shown = [](QWidget* widget) {
+        QToolTip::hideText();
+        QHelpEvent event(QEvent::ToolTip, QPoint(1, 1), widget->mapToGlobal(QPoint(1, 1)));
+        QApplication::sendEvent(widget, &event);
+        const bool visible = QToolTip::isVisible();
+        QToolTip::hideText();
+        return visible;
+    };
+    EXPECT_FALSE(shown(labelled));
+    EXPECT_TRUE(shown(iconOnly));
 }
