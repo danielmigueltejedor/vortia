@@ -25,4 +25,4 @@ cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
 
 Every pull request runs `cargo fmt --check`, `cargo clippy -D warnings` and the
 tests on Linux and macOS (the `Rust` workflow). The engine crates forbid
-`unsafe` and denies `unwrap`, `expect`, `panic!` and unchecked indexing.
+`unsafe` and deny `unwrap`, `expect`, `panic!` and unchecked indexing.
