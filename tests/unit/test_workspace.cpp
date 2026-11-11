@@ -517,7 +517,7 @@ TEST(Workspace, CancelClosingDirtyTabKeepsDrawing) {
     QObject::connect(&answer, &QTimer::timeout, [&asked] {
         auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
         ASSERT_NE(box, nullptr);
-        const bool yesNo = box->button(QMessageBox::No) != nullptr;
+        const bool yesNo = box->button(QMessageBox::Yes) != nullptr || box->button(QMessageBox::No) != nullptr;
         QAbstractButton* cancel = box->button(QMessageBox::Cancel);
         if (yesNo || !cancel) {
             box->reject();
