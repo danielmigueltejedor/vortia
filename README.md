@@ -45,9 +45,12 @@ workflow: geometry → mesh → physics → supervised run → interactive 3D
 post-processing, without touching the terminal. The published installers are
 self-contained: OpenFOAM, MPI and the mesher ship inside them.
 
-Vortia is a front-end to OpenFOAM maintained by one person. It does not have
-parity with commercial CFD suites, and it says so: every capability is listed
-with the evidence behind it in [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
+Vortia is a Nodalia app maintained by one person. Today it computes with
+OpenFOAM; the direction is an application written entirely in Rust and a fluid
+dynamics engine of its own, built from OpenFOAM ([`docs/ROADMAP.md`](docs/ROADMAP.md)).
+It does not have parity with commercial CFD suites, and it says so: every
+capability is listed with the evidence behind it in
+[`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
 
 > [!IMPORTANT]
 > **Vortia is experimental.** Always check convergence, mass balance and mesh
