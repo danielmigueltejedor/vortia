@@ -212,7 +212,7 @@ impl Nearest {
             return true;
         }
         let diff = self.dist2 - dist2;
-        if diff < 0.0 || diff < SMALL || (self.dist2 > SMALL && diff / self.dist2 < 0.01) {
+        if diff < SMALL || (self.dist2 > SMALL && diff / self.dist2 < 0.01) {
             return false;
         }
         *self = Self {
