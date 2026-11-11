@@ -143,7 +143,23 @@ impl PolyMesh {
             return invalid(format!("point {p} is not a finite position"));
         }
 
-        let n_cells = owner.iter().chain(&neighbour).max().map_or(0, |&m| m + 1);
+        // A closed cell has at least four faces and a face has at most two
+        // cells, so a label as large as the face count cannot be real; the
+        // check also bounds every per-cell allocation by the input's size.
+        let n_cells = match owner.iter().chain(&neighbour).max() {
+            None => 0,
+            Some(&m) if m < n_faces => m + 1,
+            Some(&m) => return invalid(format!("cell {m} in a mesh of {n_faces} faces")),
+        };
+        let mut seen = vec![false; n_cells];
+        for &c in owner.iter().chain(&neighbour) {
+            if let Some(s) = seen.get_mut(c) {
+                *s = true;
+            }
+        }
+        if let Some(c) = seen.iter().position(|&s| !s) {
+            return invalid(format!("cell {c} has no faces"));
+        }
         for (i, (&o, &n)) in owner.iter().zip(&neighbour).enumerate() {
             if o == n {
                 return invalid(format!("internal face {i} has cell {o} on both sides"));
@@ -167,6 +183,9 @@ impl PolyMesh {
                 .ok_or_else(|| {
                     MeshError::Invalid(format!("patch '{}' runs past the last face", p.name))
                 })?;
+            if out.iter().any(|q: &Patch| q.name == p.name) {
+                return invalid(format!("two patches are named '{}'", p.name));
+            }
             out.push(Patch {
                 kind: PatchKind::from_name(&p.kind),
                 name: p.name,

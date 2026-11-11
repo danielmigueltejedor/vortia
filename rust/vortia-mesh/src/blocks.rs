@@ -14,8 +14,26 @@ use crate::polymesh::PolyMesh;
 /// The most cells one box may have, so a typo cannot ask for terabytes.
 pub const MAX_CELLS: usize = 1 << 27;
 
+/// The most memory one box's mesh may take. A thin box (`[MAX_CELLS, 1, 1]`)
+/// has four times as many points as a cubic one, so cells alone do not bound it.
+pub const MAX_BYTES: usize = 1 << 32;
+
 /// The six patches, in the order they are written.
 pub const PATCH_NAMES: [&str; 6] = ["xMin", "xMax", "yMin", "yMax", "zMin", "zMax"];
+
+/// Roughly what the mesh of a `nx × ny × nz` box holds: points, then four
+/// point labels, an owner and a neighbour per face.
+fn mesh_bytes(nx: usize, ny: usize, nz: usize) -> Option<usize> {
+    let mul3 = |a: usize, b: usize, c: usize| a.checked_mul(b)?.checked_mul(c);
+    let points = mul3(nx + 1, ny + 1, nz + 1)?;
+    let faces = mul3(nx + 1, ny, nz)?
+        .checked_add(mul3(nx, ny + 1, nz)?)?
+        .checked_add(mul3(nx, ny, nz + 1)?)?;
+    let word = std::mem::size_of::<usize>();
+    points
+        .checked_mul(std::mem::size_of::<Vec3>())?
+        .checked_add(faces.checked_mul(7 * word)?)
+}
 
 /// A box split into `cells[0] × cells[1] × cells[2]` equal hexahedra.
 pub fn structured_box(bounds: Aabb, cells: [usize; 3]) -> Result<PolyMesh> {
@@ -32,6 +50,13 @@ pub fn structured_box(bounds: Aabb, cells: [usize; 3]) -> Result<PolyMesh> {
         .ok_or_else(|| {
             MeshError::Invalid(format!("{nx}×{ny}×{nz} cells is more than {MAX_CELLS}"))
         })?;
+    let bytes = mesh_bytes(nx, ny, nz).filter(|&b| b <= MAX_BYTES);
+    if bytes.is_none() {
+        return Err(MeshError::Invalid(format!(
+            "{nx}×{ny}×{nz} cells needs more than {} GiB",
+            MAX_BYTES >> 30
+        )));
+    }
     let size = bounds.size();
     if !(size.x > 0.0 && size.y > 0.0 && size.z > 0.0) {
         return Err(MeshError::Invalid("the box has no volume".into()));

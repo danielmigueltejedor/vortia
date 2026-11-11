@@ -278,6 +278,7 @@ name = "vortia-foamfile"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "tempfile",
  "thiserror",
  "vortia-core",
 ]

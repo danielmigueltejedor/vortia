@@ -49,10 +49,11 @@ fn capacity(n: usize, tok: &Tokenizer<'_>, min_bytes_per_item: usize) -> usize {
     n.min(tok.remaining() / min_bytes_per_item.max(1) + 1)
 }
 
-/// A uniform list longer than the input is a lie or a bomb; refuse it.
-fn uniform_len(n: usize, line: u32) -> Result<usize> {
-    const MAX: usize = 1 << 28;
-    if n > MAX {
+/// A uniform list is a few bytes on disk however long it claims to be, so its
+/// expanded size is bounded rather than trusted.
+fn uniform_len<T>(n: usize, line: u32) -> Result<usize> {
+    const MAX_BYTES: usize = 1 << 30;
+    if n.saturating_mul(std::mem::size_of::<T>().max(1)) > MAX_BYTES {
         return Err(FoamError::parse(line, format!("uniform list of {n} items")));
     }
     Ok(n)
@@ -65,7 +66,7 @@ pub fn read_labels(tok: &mut Tokenizer<'_>) -> Result<Vec<usize>> {
     if uniform {
         let v = label(&tok.expect_any("a label")?)?;
         tok.expect_punct(b'}')?;
-        return Ok(vec![v; uniform_len(n, line)?]);
+        return Ok(vec![v; uniform_len::<usize>(n, line)?]);
     }
     let mut out = Vec::with_capacity(capacity(n, tok, 2));
     for _ in 0..n {
@@ -140,7 +141,7 @@ pub fn read_vectors(tok: &mut Tokenizer<'_>) -> Result<Vec<Vec3>> {
     if uniform {
         let v = read_one(tok)?;
         tok.expect_punct(b'}')?;
-        return Ok(vec![v; uniform_len(n, line)?]);
+        return Ok(vec![v; uniform_len::<Vec3>(n, line)?]);
     }
     let mut out = Vec::with_capacity(capacity(n, tok, 8));
     for _ in 0..n {
@@ -157,7 +158,7 @@ pub fn read_scalars(tok: &mut Tokenizer<'_>) -> Result<Vec<f64>> {
     if uniform {
         let v = scalar(&tok.expect_any("a number")?)?;
         tok.expect_punct(b'}')?;
-        return Ok(vec![v; uniform_len(n, line)?]);
+        return Ok(vec![v; uniform_len::<f64>(n, line)?]);
     }
     let mut out = Vec::with_capacity(capacity(n, tok, 2));
     for _ in 0..n {
@@ -192,6 +193,9 @@ mod tests {
         assert!(read_labels(&mut t).is_err());
         let mut t = Tokenizer::new(b"4000000000000{1}");
         assert!(read_labels(&mut t).is_err());
+        // A few bytes that would expand to 6 GiB of points.
+        let mut t = Tokenizer::new(b"268435456{(1 1 1)}");
+        assert!(read_vectors(&mut t).is_err());
     }
 
     #[test]

@@ -66,6 +66,9 @@ pub struct MeshReport {
     pub zero_area_faces: usize,
     pub severely_non_orthogonal: usize,
     pub highly_skew: usize,
+    /// Cells and faces whose computed geometry overflowed to NaN or infinity:
+    /// every comparison against them is false, so they are counted apart.
+    pub non_finite_geometry: usize,
     /// Faces whose normal points into their owner or out of their neighbour.
     pub wrongly_oriented: usize,
     /// Internal faces not in upper-triangular order (owner ascending, then
@@ -95,6 +98,10 @@ impl MeshReport {
             "severely non-orthogonal faces",
         );
         fail(self.highly_skew, "highly skew faces");
+        fail(
+            self.non_finite_geometry,
+            "cells or faces with non-finite geometry",
+        );
         if !self.upper_triangular {
             out.push("internal faces not in upper-triangular order".into());
         }
@@ -216,6 +223,7 @@ pub fn check(mesh: &PolyMesh, geo: &MeshGeometry) -> MeshReport {
         zero_area_faces: geo.face_areas.iter().filter(|a| a.norm() <= VSMALL).count(),
         severely_non_orthogonal: non_orth.iter().filter(|&&a| a > NON_ORTH_THRESHOLD).count(),
         highly_skew: skew.iter().filter(|&&s| s > SKEW_THRESHOLD).count(),
+        non_finite_geometry: non_finite_geometry(geo, &non_orth, &skew),
         non_orthogonality: Stat::of(non_orth.iter().copied()).map(|s| Stat {
             mean: mean_angle_by_cosine(&non_orth),
             ..s
@@ -224,6 +232,28 @@ pub fn check(mesh: &PolyMesh, geo: &MeshGeometry) -> MeshReport {
         wrongly_oriented,
         upper_triangular,
     }
+}
+
+fn non_finite_geometry(geo: &MeshGeometry, non_orth: &[f64], skew: &[f64]) -> usize {
+    let finite = |v: Vec3| v.x.is_finite() && v.y.is_finite() && v.z.is_finite();
+    let cells = geo
+        .cell_centres
+        .iter()
+        .zip(&geo.cell_volumes)
+        .filter(|&(c, v)| !(finite(*c) && v.is_finite()))
+        .count();
+    let faces = geo
+        .face_centres
+        .iter()
+        .zip(&geo.face_areas)
+        .filter(|&(c, a)| !(finite(*c) && finite(*a) && a.norm().is_finite()))
+        .count();
+    let quality = non_orth
+        .iter()
+        .chain(skew)
+        .filter(|q| !q.is_finite())
+        .count();
+    cells + faces + quality
 }
 
 fn mean_angle_by_cosine(degrees: &[f64]) -> f64 {

@@ -29,6 +29,18 @@ pub enum Value {
 }
 
 impl Value {
+    /// How many values this holds once expanded, itself included: what a
+    /// uniform list of it costs per copy.
+    fn weight(&self) -> usize {
+        match self {
+            Value::List(items) | Value::Dimensions(items) => items
+                .iter()
+                .fold(1usize, |acc, v| acc.saturating_add(v.weight())),
+            Value::Dict(d) | Value::Keyed(_, d) => d.weight(),
+            _ => 1,
+        }
+    }
+
     pub fn as_word(&self) -> Option<&str> {
         match self {
             Value::Word(w) | Value::Str(w) => Some(w),
@@ -74,6 +86,18 @@ pub struct Dictionary {
 }
 
 impl Dictionary {
+    fn weight(&self) -> usize {
+        self.entries.iter().fold(1usize, |acc, (_, e)| {
+            let w = match e {
+                Entry::Dict(d) => d.weight(),
+                Entry::Values(vs) | Entry::Directive(vs) => {
+                    vs.iter().fold(1usize, |a, v| a.saturating_add(v.weight()))
+                }
+            };
+            acc.saturating_add(w)
+        })
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -230,6 +254,13 @@ pub fn parse_value(first: Token, tok: &mut Tokenizer<'_>, depth: u32) -> Result<
                 let t = tok.expect_any("a value")?;
                 let v = parse_value(t, tok, depth + 1)?;
                 tok.expect_punct(b'}')?;
+                // The budget is on the expanded size: `N{M{0}}` holds N×M values.
+                if count.saturating_mul(v.weight()) > MAX_UNIFORM {
+                    return Err(FoamError::parse(
+                        first.line,
+                        format!("uniform list of {n} items expands too far"),
+                    ));
+                }
                 Ok(Value::List(vec![v; count]))
             } else {
                 Ok(Value::Label(n))
@@ -315,6 +346,11 @@ mod tests {
     }
 
     #[test]
+    fn a_comment_after_a_number_keeps_it_a_number() {
+        assert_eq!(parse("endTime 1/*comment*/;").label("endTime"), Some(1));
+    }
+
+    #[test]
     fn a_later_entry_overrides_an_earlier_one() {
         assert_eq!(parse("a 1; a 2;").label("a"), Some(2));
     }
@@ -335,6 +371,9 @@ mod tests {
             "a 99999999999{1};",
             "} x",
             "a [1 2",
+            "a 1048576{1048576{0}};",
+            "a 2{1048576{0}};",
+            "a 1048576{(1 2)};",
         ] {
             assert!(
                 Dictionary::parse(&mut Tokenizer::new(src.as_bytes()), false, 0).is_err(),

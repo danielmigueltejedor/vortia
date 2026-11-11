@@ -56,9 +56,10 @@ impl FoamFile {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if path.is_file() {
+            let gzipped = path.extension().is_some_and(|e| e == "gz");
             return Ok(Self {
                 path: path.to_owned(),
-                bytes: read_capped(path, false)?,
+                bytes: read_capped(path, gzipped)?,
             });
         }
         let mut gz = path.as_os_str().to_owned();
@@ -141,4 +142,26 @@ fn read_capped(path: &Path, gz: bool) -> Result<Vec<u8>> {
         )));
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+
+    #[test]
+    fn a_gz_path_is_decompressed_whether_named_or_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gz.write_all(b"endTime 2;").unwrap();
+        std::fs::write(dir.path().join("controlDict.gz"), gz.finish().unwrap()).unwrap();
+        for name in ["controlDict", "controlDict.gz"] {
+            let (_, d) = FoamFile::open(dir.path().join(name))
+                .unwrap()
+                .dictionary()
+                .unwrap();
+            assert_eq!(d.label("endTime"), Some(2), "{name}");
+        }
+    }
 }

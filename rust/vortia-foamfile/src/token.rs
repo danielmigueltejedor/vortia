@@ -211,10 +211,19 @@ impl<'a> Tokenizer<'a> {
         Ok(String::from_utf8_lossy(&out).into_owned())
     }
 
+    /// Whether a `//` or `/*` comment begins at `pos`: it ends the token before it.
+    fn comment_at(&self, pos: usize) -> bool {
+        self.byte(pos) == Some(b'/') && matches!(self.byte(pos + 1), Some(b'/' | b'*'))
+    }
+
     fn read_number(&mut self) -> TokenKind {
         let start = self.pos;
         while let Some(c) = self.byte(self.pos) {
-            if c.is_ascii_whitespace() || PUNCT.contains(&c) || c == b'"' {
+            if c.is_ascii_whitespace()
+                || PUNCT.contains(&c)
+                || c == b'"'
+                || self.comment_at(self.pos)
+            {
                 break;
             }
             self.pos += 1;
@@ -233,7 +242,10 @@ impl<'a> Tokenizer<'a> {
         let start = self.pos;
         let mut depth = 0u32;
         while let Some(c) = self.byte(self.pos) {
-            if c.is_ascii_whitespace() || c == b'"' || matches!(c, b'{' | b'}' | b';' | b'[' | b']')
+            if c.is_ascii_whitespace()
+                || c == b'"'
+                || matches!(c, b'{' | b'}' | b';' | b'[' | b']')
+                || self.comment_at(self.pos)
             {
                 break;
             }
@@ -308,6 +320,20 @@ mod tests {
         let tok = t.next().unwrap().unwrap();
         assert_eq!(tok.kind, TokenKind::Word("word".into()));
         assert_eq!(tok.line, 3);
+    }
+
+    #[test]
+    fn a_comment_right_after_a_token_ends_it() {
+        assert_eq!(
+            kinds("1/*c*/ 0// note\n2.5/*x*/word/*y*/;"),
+            vec![
+                TokenKind::Label(1),
+                TokenKind::Label(0),
+                TokenKind::Scalar(2.5),
+                TokenKind::Word("word".into()),
+                TokenKind::Punct(b';'),
+            ]
+        );
     }
 
     #[test]

@@ -63,7 +63,7 @@ fn check_mesh(case: &Path) -> ExitCode {
     let mesh = match PolyMesh::read_case(case) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("vortia: {e}");
+            eprintln!("vortia: {}", shown(&e.to_string()));
             return ExitCode::FAILURE;
         }
     };
@@ -80,8 +80,8 @@ fn check_mesh(case: &Path) -> ExitCode {
     for p in mesh.patches() {
         println!(
             "    {:<20} {:<14} {:>8} faces",
-            p.name,
-            p.kind.name(),
+            shown(&p.name),
+            shown(p.kind.name()),
             p.size
         );
     }
@@ -133,7 +133,7 @@ fn fields(case: &Path, time: Option<&str>) -> ExitCode {
     let mesh = match PolyMesh::read_case(case) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("vortia: {e}");
+            eprintln!("vortia: {}", shown(&e.to_string()));
             return ExitCode::FAILURE;
         }
     };
@@ -146,7 +146,7 @@ fn fields(case: &Path, time: Option<&str>) -> ExitCode {
                 return ExitCode::FAILURE;
             }
             Err(e) => {
-                eprintln!("vortia: {e}");
+                eprintln!("vortia: {}", shown(&e.to_string()));
                 return ExitCode::FAILURE;
             }
         },
@@ -159,18 +159,19 @@ fn fields(case: &Path, time: Option<&str>) -> ExitCode {
             .filter(|p| p.is_file())
             .collect(),
         Err(e) => {
-            eprintln!("vortia: {}: {e}", dir.display());
+            eprintln!("vortia: {}: {e}", shown(&dir.display().to_string()));
             return ExitCode::FAILURE;
         }
     };
     entries.sort();
-    println!("Time {time}");
+    println!("Time {}", shown(&time));
     let mut failed = false;
     for path in entries {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
+        let name = shown(name.strip_suffix(".gz").unwrap_or(&name));
         let class = FoamFile::open(&path)
             .and_then(|f| f.tokens().map(|(h, _)| h.map(|h| h.class)))
             .ok()
@@ -185,7 +186,10 @@ fn fields(case: &Path, time: Option<&str>) -> ExitCode {
             Ok(text) => println!("    {name:<12} {class:<20} {text}"),
             Err(e) => {
                 failed = true;
-                println!("    {name:<12} {class:<20} error: {e}");
+                println!(
+                    "    {name:<12} {class:<20} error: {}",
+                    shown(&e.to_string())
+                );
             }
         }
     }
@@ -222,14 +226,41 @@ fn solve(case: &Path) -> ExitCode {
         let mut out = std::io::stdout().lock();
         // A closed pipe (`| head`) is not a reason to stop the run.
         vortia_solvers::run(&c, |line| {
-            let _ = out.write_all(line.as_bytes());
+            let _ = out.write_all(shown(line).as_bytes());
         })
     });
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("vortia: {e}");
+            eprintln!("vortia: {}", shown(&e.to_string()));
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Case-derived text with control characters escaped, so a crafted case
+/// cannot drive the terminal (move the cursor, print a fake "Mesh OK.").
+fn shown(text: &str) -> String {
+    text.chars()
+        .flat_map(|c| {
+            let escaped: Vec<char> = if c.is_control() && c != '\n' {
+                c.escape_default().collect()
+            } else {
+                vec![c]
+            };
+            escaped
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shown;
+
+    #[test]
+    fn control_characters_are_escaped() {
+        assert_eq!(shown("inlet"), "inlet");
+        assert_eq!(shown("a\u{1b}[2Jb"), "a\\u{1b}[2Jb");
+        assert_eq!(shown("line\n"), "line\n");
     }
 }

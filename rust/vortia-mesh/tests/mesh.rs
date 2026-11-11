@@ -52,6 +52,8 @@ fn a_box_rejects_nonsense_sizes() {
     assert!(blocks::structured_box(unit, [0, 1, 1]).is_err());
     assert!(blocks::structured_box(unit, [usize::MAX, 2, 2]).is_err());
     assert!(blocks::structured_box(Aabb::default(), [1, 1, 1]).is_err());
+    // Within the cell limit, but its points alone would take 12 GiB.
+    assert!(blocks::structured_box(unit, [blocks::MAX_CELLS, 1, 1]).is_err());
 }
 
 #[test]
@@ -74,6 +76,18 @@ fn a_flipped_face_is_reported() {
     let flipped = PolyMesh::from_raw(raw).unwrap();
     let report = check(&flipped, &MeshGeometry::compute(&flipped));
     assert!(report.wrongly_oriented > 0);
+    assert!(!report.is_ok());
+}
+
+#[test]
+fn geometry_that_overflows_fails_the_check() {
+    let huge = Aabb {
+        min: Vec3::new(1e160, 1e160, 1e160),
+        max: Vec3::new(3e160, 3e160, 3e160),
+    };
+    let mesh = blocks::structured_box(huge, [1, 1, 1]).unwrap();
+    let report = check(&mesh, &MeshGeometry::compute(&mesh));
+    assert!(report.non_finite_geometry > 0);
     assert!(!report.is_ok());
 }
 
@@ -128,6 +142,22 @@ fn inconsistent_parts_are_refused_not_panicked_on() {
     let mut bad = base.clone();
     bad.patches.clear();
     assert!(PolyMesh::from_raw(bad).is_err(), "faces in no patch");
+
+    let mut bad = base.clone();
+    bad.owner = vec![1_000_000_000];
+    assert!(
+        PolyMesh::from_raw(bad).is_err(),
+        "cell label sizes the mesh"
+    );
+
+    let mut bad = base.clone();
+    bad.owner = vec![usize::MAX];
+    assert!(PolyMesh::from_raw(bad).is_err(), "cell label overflow");
+
+    let mut bad = base.clone();
+    bad.patches.push(bad.patches[0].clone());
+    bad.patches[0].n_faces = 0;
+    assert!(PolyMesh::from_raw(bad).is_err(), "two patches, one name");
 
     let mut bad = base;
     bad.points[0].x = f64::NAN;

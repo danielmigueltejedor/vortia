@@ -60,7 +60,15 @@ fn read_with<T>(path: &Path, read: impl FnOnce(&mut Tokenizer<'_>) -> Result<T>)
     if header.is_some_and(|h| h.class == "faceCompactList") {
         return Err(FoamError::Unsupported("compact face lists".into()).in_file(&file.path));
     }
-    read(&mut tok).map_err(|e| e.in_file(&file.path))
+    let value = read(&mut tok).map_err(|e| e.in_file(&file.path))?;
+    if let Some(t) = tok.next().map_err(|e| e.in_file(&file.path))? {
+        return Err(FoamError::parse(
+            t.line,
+            format!("unexpected {} after the list", t.describe()),
+        )
+        .in_file(&file.path));
+    }
+    Ok(value)
 }
 
 /// The `boundary` file: `N( name { type …; nFaces …; startFace …; } … )`.
@@ -94,7 +102,10 @@ pub fn read_boundary(tok: &mut Tokenizer<'_>) -> Result<Vec<RawPatch>> {
             })
             .unwrap_or_default();
         patches.push(RawPatch {
-            kind: dict.word("type").unwrap_or("patch").to_owned(),
+            kind: dict
+                .word("type")
+                .ok_or_else(|| FoamError::Invalid(format!("patch '{name}' has no 'type'")))?
+                .to_owned(),
             start_face: count("startFace")?,
             n_faces: count("nFaces")?,
             groups,
@@ -126,5 +137,17 @@ mod tests {
     fn a_patch_without_counts_is_an_error() {
         assert!(read_boundary(&mut Tokenizer::new(b"1( inlet { type patch; } )")).is_err());
         assert!(read_boundary(&mut Tokenizer::new(b"1( inlet )")).is_err());
+        let untyped = b"1( inlet { nFaces 3; startFace 10; } )";
+        assert!(read_boundary(&mut Tokenizer::new(untyped)).is_err());
+    }
+
+    #[test]
+    fn a_file_is_its_list_and_nothing_more() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("owner");
+        std::fs::write(&path, "2(0 1) // the end\n").unwrap();
+        assert_eq!(read_with(&path, lists::read_labels).unwrap(), vec![0, 1]);
+        std::fs::write(&path, "2(0 1) 7").unwrap();
+        assert!(read_with(&path, lists::read_labels).is_err());
     }
 }

@@ -9,3 +9,6 @@ description = "Reader for the OpenFOAM case file format (dictionaries, lists, po
 flate2 = "1"
 thiserror = "2"
 vortia-core = { path = "../vortia-core" }
+
+[dev-dependencies]
+tempfile = "3"

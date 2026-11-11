@@ -25,6 +25,7 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
 - `vortia-cli`: the `vortia` command.
 
 ```bash
+cd rust
 cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
 cargo run -p vortia-cli -- fields ../examples/nozzle-practice-2026
 cargo run -p vortia-cli -- solve path/to/a/laplacianFoam/case
