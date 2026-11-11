@@ -40,19 +40,12 @@ bool waitFor(const std::function<bool()>& done) {
 
 }  // namespace
 
-TEST(HeaderMenus, StartsWhereTheShellPutsMenus) {
+TEST(HeaderMenus, WithoutAGlobalMenuTheMenusSitInTheHeader) {
     Window w;
     HeaderMenus menus(&w.source, &w.root, kService);
-#if defined(Q_OS_MACOS)
-    // macOS always has the global menu bar.
-    EXPECT_TRUE(HeaderMenus::shellHasGlobalMenu(kService));
-    EXPECT_TRUE(menus.inlineMenus()->isHidden());
-    EXPECT_FALSE(menus.menuButton()->isHidden());
-#else
     EXPECT_FALSE(HeaderMenus::shellHasGlobalMenu(kService));
     EXPECT_FALSE(menus.inlineMenus()->isHidden());
     EXPECT_TRUE(menus.menuButton()->isHidden());
-#endif
     EXPECT_FALSE(menus.inlineMenus()->isNativeMenuBar());
     EXPECT_EQ(menus.inlineMenus()->actions(), w.source.actions());
 }

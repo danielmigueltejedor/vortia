@@ -3,6 +3,7 @@
 <TS version="2.1" language="es_ES">
 <context>
     <name>vortia::MainWindow</name>
+    <message><source>Main menu</source><translation>Menú principal</translation></message>
     <message><source>There are unsaved projects. Save or close them, then update again: installing the update restarts Vortia.</source><translation>Hay proyectos sin guardar. Guárdalos o ciérralos y vuelve a actualizar: instalar la actualización reinicia Vortia.</translation></message>
     <message><source>Sketch files</source><translation>Archivos de croquis</translation></message>
     <message><source>Sketch</source><translation>Croquis</translation></message>
@@ -2109,9 +2110,5 @@ Detalles: %2</translation></message>
     <message><source>Maximize</source><translation>Maximizar</translation></message>
     <message><source>Restore</source><translation>Restaurar</translation></message>
     <message><source>Close</source><translation>Cerrar</translation></message>
-</context>
-<context>
-    <name>vortia::ndl::HeaderMenus</name>
-    <message><source>Main menu</source><translation>Menú principal</translation></message>
 </context>
 </TS>
