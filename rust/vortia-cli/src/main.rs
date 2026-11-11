@@ -14,6 +14,7 @@
     clippy::unreachable
 )]
 
+use std::io::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -24,11 +25,13 @@ use vortia_mesh::check::{NON_ORTH_THRESHOLD, SKEW_THRESHOLD, Stat};
 use vortia_mesh::{MeshGeometry, PolyMesh, check};
 
 const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
-    \x20      vortia fields [CASE [TIME]]\n\n\
+    \x20      vortia fields [CASE [TIME]]\n\
+    \x20      vortia solve [CASE]\n\n\
     check-mesh   read CASE/constant/polyMesh (default: the current directory)\n\
     \x20            and report its size, geometry and quality\n\
     fields       read every field of TIME (default: the latest), check it\n\
-    \x20            fits the mesh and print its range";
+    \x20            fits the mesh and print its range\n\
+    solve        run the solver controlDict names (laplacianFoam today)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -40,6 +43,8 @@ fn main() -> ExitCode {
     {
         ["check-mesh"] => check_mesh(Path::new(".")),
         ["check-mesh", case] => check_mesh(Path::new(case)),
+        ["solve"] => solve(Path::new(".")),
+        ["solve", case] => solve(Path::new(case)),
         ["fields"] => fields(Path::new("."), None),
         ["fields", case] => fields(Path::new(case), None),
         ["fields", case, time] => fields(Path::new(case), Some(time)),
@@ -210,4 +215,21 @@ fn summary<T: FieldValue>(
         "min {:e}  max {:e}  mean {:e}",
         stat.min, stat.max, stat.mean
     ))
+}
+
+fn solve(case: &Path) -> ExitCode {
+    let result = vortia_solvers::Case::open(case).and_then(|c| {
+        let mut out = std::io::stdout().lock();
+        // A closed pipe (`| head`) is not a reason to stop the run.
+        vortia_solvers::run(&c, |line| {
+            let _ = out.write_all(line.as_bytes());
+        })
+    });
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("vortia: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }

@@ -250,6 +250,7 @@ dependencies = [
  "vortia-fields",
  "vortia-foamfile",
  "vortia-mesh",
+ "vortia-solvers",
 ]
 
 [[package]]
@@ -282,12 +283,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortia-fv"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "vortia-core",
+ "vortia-fields",
+ "vortia-foamfile",
+ "vortia-mesh",
+]
+
+[[package]]
 name = "vortia-mesh"
 version = "0.1.0"
 dependencies = [
  "thiserror",
  "vortia-core",
  "vortia-foamfile",
+]
+
+[[package]]
+name = "vortia-solvers"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror",
+ "vortia-core",
+ "vortia-fields",
+ "vortia-foamfile",
+ "vortia-fv",
+ "vortia-mesh",
 ]
 
 [[package]]

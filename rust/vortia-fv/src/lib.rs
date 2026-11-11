@@ -1,0 +1,31 @@
+//! Finite-volume discretisation and linear solvers of Vortia's CFD engine.
+//!
+//! - [`LduMatrix`]: sparse matrices addressed by the mesh's faces.
+//! - [`solve`]: iterative solvers with OpenFOAM's residual definition.
+//! - [`FvGeometry`]: interpolation weights and face-gradient coefficients.
+//! - [`bc`]: scalar boundary conditions, evaluated.
+//! - [`ops`]: gradient, diffusion and time-derivative operators.
+
+#![forbid(unsafe_code)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::todo,
+    clippy::unreachable,
+    clippy::indexing_slicing
+)]
+
+pub mod bc;
+pub mod error;
+pub mod fvgeom;
+pub mod ldu;
+pub mod ops;
+pub mod solve;
+
+pub use bc::{Boundary, ScalarBc};
+pub use error::{FvError, Result};
+pub use fvgeom::FvGeometry;
+pub use ldu::LduMatrix;
+pub use solve::{Controls, Performance, pcg_dic};

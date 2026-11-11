@@ -78,7 +78,7 @@ impl Dictionary {
         Self::default()
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = (&str, &Entry)> {
+    pub fn entries(&self) -> impl DoubleEndedIterator<Item = (&str, &Entry)> {
         self.entries.iter().map(|(k, e)| (k.as_str(), e))
     }
 

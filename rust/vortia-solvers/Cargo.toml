@@ -1,0 +1,17 @@
+[package]
+name = "vortia-solvers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Solvers of the Vortia engine, run on a case directory"
+
+[dependencies]
+thiserror = "2"
+vortia-core = { path = "../vortia-core" }
+vortia-fields = { path = "../vortia-fields" }
+vortia-foamfile = { path = "../vortia-foamfile" }
+vortia-fv = { path = "../vortia-fv" }
+vortia-mesh = { path = "../vortia-mesh" }
+
+[dev-dependencies]
+tempfile = "3"

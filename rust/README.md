@@ -17,11 +17,17 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
   geometry, the quality report `checkMesh` gives, and structured boxes.
 - `vortia-fields`: volume and surface fields with their boundary conditions,
   read, checked against the mesh and written back as OpenFOAM writes them.
+- `vortia-fv`: the finite-volume discretisation (gradient, diffusion with
+  non-orthogonal correction, Euler time derivative) and linear solvers (PCG
+  with DIC), with OpenFOAM's residual definition.
+- `vortia-solvers`: solvers run on a case directory; diffusion
+  (`laplacianFoam`) today.
 - `vortia-cli`: the `vortia` command.
 
 ```bash
 cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
 cargo run -p vortia-cli -- fields ../examples/nozzle-practice-2026
+cargo run -p vortia-cli -- solve path/to/a/laplacianFoam/case
 ```
 
 ## Checks

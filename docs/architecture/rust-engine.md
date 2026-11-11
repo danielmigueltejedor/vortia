@@ -44,9 +44,9 @@ All under [`rust/`](../../rust), one workspace:
 | `vortia-foamfile` | Case format: dictionaries, lists, `polyMesh`; ASCII and `.gz` | Done (binary: next) |
 | `vortia-mesh` | Polyhedral mesh, geometry, quality report, structured boxes | Done |
 | `vortia-fields` | Volume and surface fields, boundary conditions, time directories | Read and write done; evaluating conditions comes with E3 |
-| `vortia-fv` | Finite-volume operators (`fvc`, `fvm`), LDU matrices, linear solvers | Planned |
-| `vortia-solvers` | Laplacian, PISO/SIMPLE incompressible, k-ω SST, compressible | Planned |
-| `vortia-cli` | `vortia` command: one subcommand per stage | `check-mesh`, `fields` |
+| `vortia-fv` | Finite-volume operators, LDU matrices, linear solvers | Diffusion, Euler time derivative, Gauss gradient, PCG/DIC |
+| `vortia-solvers` | Laplacian, PISO/SIMPLE incompressible, k-ω SST, compressible | Diffusion (`laplacianFoam`) |
+| `vortia-cli` | `vortia` command: one subcommand per stage | `check-mesh`, `fields`, `solve` |
 | app | Interface over the crates | Planned (toolkit below) |
 
 ## Stages
@@ -55,9 +55,9 @@ All under [`rust/`](../../rust), one workspace:
 |---|---|---|
 | E1 | Case format reader, mesh, geometry, `checkMesh` | The nozzle wedge reads with OpenFOAM's counts, its analytic volume to 1e-9, and `checkMesh`'s volumes, areas, non-orthogonality and skewness to the digits it prints ✅ |
 | E2 | Fields and boundary conditions; writing time directories | Every nozzle field round-trips unchanged, and OpenFOAM (`foamToVTK`) reads what the engine wrote. Read/write ✅; evaluating conditions moves to E3 |
-| E3 | Operators: gradient, divergence, Laplacian with non-orthogonal correction, interpolation schemes | Each operator matches its analytic result on boxes and skewed meshes |
-| E4 | LDU matrix and linear solvers: PCG/DIC, PBiCGStab/DILU, Gauss–Seidel, then GAMG | Same iterations and residuals as OpenFOAM on the same system |
-| E5 | First solver: steady diffusion (`laplacianFoam`) | Matches OpenFOAM and the analytic profile |
+| E3 | Operators: gradient, divergence, Laplacian with non-orthogonal correction, interpolation schemes | Each operator matches OpenFOAM on the same mesh. Gradient, corrected Laplacian and Euler ✅; divergence and convection schemes next |
+| E4 | LDU matrix and linear solvers: PCG/DIC, PBiCGStab/DILU, Gauss–Seidel, then GAMG | Same iterations and residuals as OpenFOAM on the same system. PCG/DIC ✅ |
+| E5 | First solver: diffusion (`laplacianFoam`), steady and transient | On the nozzle wedge with non-orthogonal correction, every solve takes OpenFOAM v1912's iteration count and the temperatures agree to 1e-13 ✅ |
 | E6 | Incompressible: PISO transient, SIMPLE steady | Ghia cavity and Poiseuille, the existing native cases |
 | E7 | Turbulence: k-ω SST with wall functions | Flat plate against the correlation already used |
 | E8 | Compressible nozzle (the current in-house central scheme) | The nozzle cases in `examples/` |
@@ -71,6 +71,7 @@ VTK has no Rust equivalent.
 
 ## Interface toolkit
 
-To be confirmed. Both follow Nodalia Design: egui with `nodalia-theme`, or
-GTK 4 with `nodalia-gtk` as Vinilo does. On Linux the window must export its
-menus over D-Bus to the shell's global menu, which GTK does natively.
+egui, styled with `nodalia-theme` from Nodalia Design (decided 2026-11-11).
+The 3D viewer renders with wgpu inside the egui window. On Linux the menus
+must also be exported over D-Bus to the shell's global menu; egui does not do
+that by itself, so the app carries a small exporter of its own.

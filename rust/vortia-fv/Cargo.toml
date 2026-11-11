@@ -1,0 +1,13 @@
+[package]
+name = "vortia-fv"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Finite-volume discretisation and linear solvers of the Vortia engine"
+
+[dependencies]
+thiserror = "2"
+vortia-core = { path = "../vortia-core" }
+vortia-fields = { path = "../vortia-fields" }
+vortia-foamfile = { path = "../vortia-foamfile" }
+vortia-mesh = { path = "../vortia-mesh" }
