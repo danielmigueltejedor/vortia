@@ -44,6 +44,7 @@
 #include <QPointingDevice>
 #include <QSurfaceFormat>
 #include <QWheelEvent>
+#include <QAbstractButton>
 #include <QMessageBox>
 #include <QDockWidget>
 #include <QPushButton>
@@ -509,13 +510,42 @@ TEST(Workspace, CancelClosingDirtyTabKeepsDrawing) {
     MainWindow window;
     const auto shape = makeCircleSketch(55).value();
     WorkspaceTestAccess::edit(window, shape, {});
-    QTimer::singleShot(0, [] {
-        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) box->button(QMessageBox::No)->click();
+    // The prompt names its action and offers Cancel; it no longer asks Yes/No.
+    bool asked = false;
+    QTimer::singleShot(0, [&asked] {
+        auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        ASSERT_NE(box, nullptr);
+        ASSERT_EQ(box->button(QMessageBox::No), nullptr);
+        ASSERT_NE(box->button(QMessageBox::Cancel), nullptr);
+        asked = true;
+        box->button(QMessageBox::Cancel)->click();
     });
     WorkspaceTestAccess::close(window, 0);
+    EXPECT_TRUE(asked);
     EXPECT_EQ(WorkspaceTestAccess::count(window), 1U);
     EXPECT_TRUE(WorkspaceTestAccess::dirty(window));
     expectShape(WorkspaceTestAccess::editor(window).sketch(), shape);
+}
+
+TEST(Workspace, DiscardClosingDirtyTabClosesIt) {
+    MainWindow window;
+    WorkspaceTestAccess::add(window, "second");
+    WorkspaceTestAccess::edit(window, makeCircleSketch(55).value(), {});
+    const int active = WorkspaceTestAccess::active(window);
+    QTimer::singleShot(0, [] {
+        auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        ASSERT_NE(box, nullptr);
+        for (QAbstractButton* button : box->buttons()) {
+            if (box->buttonRole(button) == QMessageBox::DestructiveRole) {
+                button->click();
+                return;
+            }
+        }
+        ADD_FAILURE() << "no Discard button";
+        box->reject();
+    });
+    WorkspaceTestAccess::close(window, active);
+    EXPECT_EQ(WorkspaceTestAccess::count(window), 1U);
 }
 
 TEST(Workspace, InvalidSavedSketchDoesNotOpenOrOverwriteCurrentDocument) {
@@ -797,11 +827,12 @@ TEST(WorkspaceResources, RealTranslationContextsAndExplorerIcons) {
     ASSERT_TRUE(translator.load(QStringLiteral(VORTIA_TEST_QM)));
     qApp->installTranslator(&translator);
     EXPECT_EQ(MainWindow::tr("File"), QStringLiteral("Archivo"));
-    RunMonitor monitor;ASSERT_NE(monitor.findChild<QWidget*>("monitor-detail-plot"),nullptr);EXPECT_TRUE(monitor.findChild<QWidget*>("monitor-detail-plot")->toolTip().contains(QString::fromUtf8("Pellizca")));
+    RunMonitor monitor;ASSERT_NE(monitor.findChild<QWidget*>("monitor-detail-plot"),nullptr);EXPECT_TRUE(monitor.findChild<QWidget*>("monitor-detail-plot")->accessibleDescription().contains(QString::fromUtf8("Pellizca")));
     EXPECT_EQ(SketchEditorDialog::tr("Nozzle dimensions"), QStringLiteral("Cotas de la tobera"));
     QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-    EXPECT_EQ(buttons.button(QDialogButtonBox::Ok)->text(), QStringLiteral("Aceptar"));
-    EXPECT_EQ(buttons.button(QDialogButtonBox::Cancel)->text(), QStringLiteral("Cancelar"));
+    // GNOME's platform theme labels these with an accelerator ("&Aceptar"); others do not.
+    EXPECT_EQ(buttons.button(QDialogButtonBox::Ok)->text().remove('&'), QStringLiteral("Aceptar"));
+    EXPECT_EQ(buttons.button(QDialogButtonBox::Cancel)->text().remove('&'), QStringLiteral("Cancelar"));
     QMessageBox confirm(QMessageBox::Question, "Confirm", "Test", QMessageBox::Yes | QMessageBox::No);
     EXPECT_EQ(confirm.button(QMessageBox::Yes)->text().remove('&'), QStringLiteral("Sí"));
     ProjectExplorerPanel explorer;
@@ -1317,7 +1348,7 @@ TEST(EngineeringUi, RenderComponentsWhenExplicitlyRequested){
     const auto output=qEnvironmentVariable("VORTIA_UI_ARTIFACT_DIR"),source=qEnvironmentVariable("VORTIA_HISTORY_REPLAY_CASE");if(output.isEmpty()||source.isEmpty())GTEST_SKIP()<<"Optional component render QA";
     QTranslator translator;ASSERT_TRUE(translator.load(QStringLiteral(VORTIA_TEST_QM)));QApplication::installTranslator(&translator);
     ASSERT_TRUE(QDir().mkpath(output));ThemeManager::apply(*qobject_cast<QApplication*>(QApplication::instance()),ThemeManager::Theme::Dark);
-    RunMonitor monitor;ASSERT_NE(monitor.findChild<QWidget*>("monitor-detail-plot"),nullptr);EXPECT_TRUE(monitor.findChild<QWidget*>("monitor-detail-plot")->toolTip().contains(QString::fromUtf8("Pellizca")));monitor.resize(1200,740);monitor.show();monitor.setCase(source);QElapsedTimer timer;timer.start();while(monitor.loading()&&timer.elapsed()<30000){QApplication::processEvents();QThread::msleep(1);}ASSERT_FALSE(monitor.loading());QApplication::processEvents();EXPECT_TRUE(monitor.grab().save(output+"/Seguimiento-componentes.png"));
+    RunMonitor monitor;ASSERT_NE(monitor.findChild<QWidget*>("monitor-detail-plot"),nullptr);EXPECT_TRUE(monitor.findChild<QWidget*>("monitor-detail-plot")->accessibleDescription().contains(QString::fromUtf8("Pellizca")));monitor.resize(1200,740);monitor.show();monitor.setCase(source);QElapsedTimer timer;timer.start();while(monitor.loading()&&timer.elapsed()<30000){QApplication::processEvents();QThread::msleep(1);}ASSERT_FALSE(monitor.loading());QApplication::processEvents();EXPECT_TRUE(monitor.grab().save(output+"/Seguimiento-componentes.png"));
     const auto original=boundaryExample();auto rounded=original;ASSERT_TRUE(rounded.filletVertex(2,1));auto cfg=assignedExample();cfg.insert("boundaryGeometry",boundaryGeometry(original));QTimer::singleShot(0,[&](){auto* d=qobject_cast<QDialog*>(QApplication::activeModalWidget());ASSERT_NE(d,nullptr);QApplication::processEvents();EXPECT_TRUE(d->grab().save(output+"/Contornos-componentes.png"));auto* preview=dynamic_cast<BoundaryPreview*>(d->findChild<QWidget*>("flow-boundary-preview"));ASSERT_NE(preview,nullptr);const auto v=rounded.segmentPoint(2,.5);const auto anchor=preview->viewTransform().map(QPointF(v.xMm,v.yMm));for(int i=0;i<3;++i){QNativeGestureEvent pinch(Qt::ZoomNativeGesture,QPointingDevice::primaryPointingDevice(),2,anchor,anchor,anchor,1,{});QApplication::sendEvent(preview,&pinch);}QApplication::processEvents();EXPECT_TRUE(d->grab().save(output+"/Contornos-ampliados-componentes.png"));d->reject();});editFlowSetup(nullptr,rounded,cfg,2);
     SketchEditorDialog editor;editor.resize(1120,750);editor.setSketch(rounded);editor.show();QApplication::processEvents();EXPECT_TRUE(editor.grab().save(output+"/Croquis-componentes.png"));QApplication::removeTranslator(&translator);
 }

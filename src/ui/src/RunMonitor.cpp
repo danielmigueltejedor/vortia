@@ -86,7 +86,7 @@ bool MonitorHistory::writeCsv(const QString& path)const{
 }
 class RunPlot final:public QWidget {
 public:
-    explicit RunPlot(QWidget* parent=nullptr):QWidget(parent){setMinimumSize(270,210);setMouseTracking(true);setFocusPolicy(Qt::StrongFocus);setToolTip(monitorText("Pinch or wheel to zoom horizontally · drag or swipe to pan · double click or F to fit"));}
+    explicit RunPlot(QWidget* parent=nullptr):QWidget(parent){setMinimumSize(270,210);setMouseTracking(true);setFocusPolicy(Qt::StrongFocus);setAccessibleDescription(monitorText("Pinch or wheel to zoom horizontally · drag or swipe to pan · double click or F to fit"));}
     const MonitorHistory* data=nullptr;std::vector<std::string> keys;QString title,axis;
     bool logarithmic=true,compact=false;int session=-1;double lastWindow=0;
     void fit(){manual_=false;update();}

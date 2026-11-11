@@ -16,9 +16,8 @@ remains the one used for the 2026-10 practice and production builds.
 
 ## Roadmap for the Rust port
 
-Decided on 2026-11-10: the interface will be built with **egui**, the toolkit of the
-other Nodalia apps based on the Craft engines, so interface components and styles can
-be shared across the suite.
+Decided on 2026-11-10: the interface will be built with **egui**, the toolkit other
+Nodalia apps use, so interface components and styles can be shared across the suite.
 
 1. Finish `vortia-core`: host environment and logging.
 2. Geometry, mesh and physics (mirroring `src/geometry`, `src/mesh`, `src/physics`).

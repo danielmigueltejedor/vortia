@@ -1,5 +1,6 @@
 #include "vortia/ui/MainWindow.hpp"
 #include "vortia/ui/ThemeManager.hpp"
+#include "vortia/ui/WindowChrome.hpp"
 #include "vortia/ui/OpenFoamRuntime.hpp"
 #include "vortia/ui/MesherRuntime.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
@@ -219,6 +220,9 @@ int main(int argc, char* argv[]) {
     app.setApplicationVersion(QStringLiteral(VORTIA_VERSION));
     app.setOrganizationName(QStringLiteral("Vortia"));
     app.setOrganizationDomain(QStringLiteral("vortia.dev"));
+    // The Wayland app id names Vortia.desktop. Without it Qt sends "dev.vortia.vortia", which no
+    // launcher matches, so the shell shows that string instead of the app's name and icon.
+    QGuiApplication::setDesktopFileName(QStringLiteral("Vortia"));
 
     // Qt has resolved its plugin directories by now; child processes get the
     // user's own Qt settings back.
@@ -262,6 +266,7 @@ int main(int argc, char* argv[]) {
     QSettings settings(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
     const QString theme = settings.value(QStringLiteral("theme"), QStringLiteral("light")).toString();
     vortia::ThemeManager::apply(app, vortia::ThemeManager::resolve(theme));
+    vortia::ndl::installDialogChrome(&app);
 
     // Explicit preference takes precedence over the system locale. English
     // uses the source strings; Spanish comes from a compiled, bundled .qm.

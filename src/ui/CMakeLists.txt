@@ -36,6 +36,8 @@ add_library(vortia_ui STATIC
     src/ThemeManager.cpp
     include/vortia/ui/WindowChrome.hpp
     src/WindowChrome.cpp
+    include/vortia/ui/GlobalMenu.hpp
+    src/GlobalMenu.cpp
     src/SketchEditorDialog.cpp)
 
 add_library(vortia::ui ALIAS vortia_ui)
@@ -61,6 +63,12 @@ target_link_libraries(vortia_ui
 set_target_properties(vortia_ui PROPERTIES
     AUTOMOC ON AUTOUIC ON AUTORCC ON)
 target_compile_features(vortia_ui PUBLIC cxx_std_20)
+
+# The top-bar menu on Linux goes over D-Bus.
+if(UNIX AND NOT APPLE)
+    find_package(Qt6 REQUIRED COMPONENTS DBus)
+    target_link_libraries(vortia_ui PRIVATE Qt6::DBus)
+endif()
 
 if(APPLE)
     enable_language(OBJCXX)
