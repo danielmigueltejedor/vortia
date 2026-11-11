@@ -45,7 +45,7 @@ All under [`rust/`](../../rust), one workspace:
 | `vortia-mesh` | Polyhedral mesh, geometry, quality report, structured boxes | Done |
 | `vortia-fields` | Volume and surface fields, boundary conditions, time directories | Read and write done; evaluating conditions comes with E3 |
 | `vortia-fv` | Finite-volume operators, LDU matrices, linear solvers | Diffusion, Euler time derivative, Gauss gradient, PCG/DIC |
-| `vortia-solvers` | Laplacian, PISO/SIMPLE incompressible, k-ω SST, compressible | Diffusion (`laplacianFoam`), transport (`scalarTransportFoam`), PISO (`icoFoam`), laminar SIMPLE (`simpleFoam`) |
+| `vortia-solvers` | Laplacian, PISO/SIMPLE incompressible, k-ω SST, compressible | Diffusion (`laplacianFoam`), transport (`scalarTransportFoam`), PISO (`icoFoam`), SIMPLE with k-ε and k-ω SST (`simpleFoam`), laminar compressible SIMPLE/SIMPLEC (`rhoSimpleFoam`) |
 | `vortia-cli` | `vortia` command: one subcommand per stage | `check-mesh`, `fields`, `solve` |
 | app | Interface over the crates | Planned (toolkit below) |
 
@@ -60,7 +60,7 @@ All under [`rust/`](../../rust), one workspace:
 | E5 | First solver: diffusion (`laplacianFoam`), steady and transient | On the nozzle wedge with non-orthogonal correction, every solve takes OpenFOAM v1912's iteration count and the temperatures agree to 1e-13 ✅. Convection–diffusion (`scalarTransportFoam`) in the nozzle's own flow, with its `phi` or one built from `U`: same iteration counts, agreement to 1e-14 ✅ |
 | E6 | Incompressible: PISO transient, SIMPLE steady | Ghia cavity and Poiseuille, the existing native cases. PISO (`icoFoam`) on the lid-driven cavity, meshed by the engine and run by OpenFOAM v1912 on the same files: all 400 solves of the tutorial's 100 steps take OpenFOAM's iteration count, and `U`, `p` and `phi` agree to 1e-14 ✅. SIMPLE (`simpleFoam`, laminar) on the same cavity run to steady state: it stops on the residual control after the same 114 iterations as OpenFOAM, all 456 solves take its iteration count, and the fields agree to 1e-14 ✅ |
 | E7 | Turbulence: k-ω SST with wall functions | Flat plate against the correlation already used |
-| E8 | Compressible nozzle (the current in-house central scheme) | The nozzle cases in `examples/` |
+| E8 | Compressible nozzle (`rhoSimpleFoam`, as the cases in `examples/` run) | The nozzle cases in `examples/`. First step: laminar `rhoSimpleFoam` with a perfect gas (`hePsiThermo`, `hConst`, `const`), internal energy or enthalpy, SIMPLE or SIMPLEC, on a heated channel meshed by the engine and run by OpenFOAM v1912 on the same files: with internal energy and SIMPLEC it converges after the same 166 iterations as OpenFOAM, with enthalpy and plain SIMPLE the 40 iterations run match, every solve before the pressure reaches its rounding floor takes OpenFOAM's iteration count, and `U`, `T`, `p` and `ρ` agree to 1e-9 or better ✅. Next: the nozzle's conditions (total pressure and temperature, wedge), `linearUpwind` and limited gradients, compressible k-ω SST |
 | E9 | Meshing: multi-block `blockMesh` with grading and wedges, Gmsh and Fluent import | Same meshes as today's pipeline |
 | E10 | Parallel assembly and solves (threads first, decomposition later) | Speed-up measured on the nozzle |
 

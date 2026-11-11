@@ -107,8 +107,14 @@ fn flux(mesh: &PolyMesh, fv: &FvGeometry, start: &std::path::Path) -> Result<(Ve
 }
 
 pub(crate) fn face_values(mesh: &PolyMesh, phi: &ScalarField) -> Result<Vec<f64>> {
+    flux_values(mesh, phi, VOLUME_FLUX)
+}
+
+/// The face values of a flux field whose dimensions must be `dims`: a volume
+/// flux for the incompressible solvers, a mass flux for the compressible.
+pub(crate) fn flux_values(mesh: &PolyMesh, phi: &ScalarField, dims: [i32; 7]) -> Result<Vec<f64>> {
     phi.check_against(mesh)?;
-    check_dimensions("phi", &phi.dimensions, VOLUME_FLUX)?;
+    check_dimensions("phi", &phi.dimensions, dims)?;
     let mut out = phi
         .internal
         .expand(mesh.n_internal_faces())

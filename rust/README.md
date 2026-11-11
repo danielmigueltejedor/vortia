@@ -28,14 +28,15 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
 - `vortia-solvers`: solvers run on a case directory: diffusion
   (`laplacianFoam`), convection–diffusion by a given flow
   (`scalarTransportFoam`), transient incompressible flow with PISO
-  (`icoFoam`) and steady laminar flow with SIMPLE (`simpleFoam`).
+  (`icoFoam`), steady flow with SIMPLE (`simpleFoam`, laminar, k-ε or
+  k-ω SST) and steady laminar flow of a perfect gas (`rhoSimpleFoam`).
 - `vortia-cli`: the `vortia` command.
 
 ```bash
 cd rust
 cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
 cargo run -p vortia-cli -- fields ../examples/nozzle-practice-2026
-cargo run -p vortia-cli -- solve path/to/a/case   # laplacianFoam, scalarTransportFoam, icoFoam or simpleFoam
+cargo run -p vortia-cli -- solve path/to/a/case   # laplacianFoam, scalarTransportFoam, icoFoam, simpleFoam or rhoSimpleFoam
 ```
 
 The interface will be built with **egui**, the toolkit other Nodalia apps use

@@ -176,6 +176,20 @@ impl Case {
         Ok(s)
     }
 
+    /// The `snGradSchemes` entry for `key`, refusing a non-orthogonal
+    /// correction, which the solvers do not have yet.
+    pub fn uncorrected_face_sn_grad(&self, key: &str) -> Result<SnGrad> {
+        let w = self.scheme("snGradSchemes", key)?;
+        match w.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+            ["orthogonal"] => Ok(SnGrad::Orthogonal),
+            ["uncorrected"] => Ok(SnGrad::Uncorrected),
+            _ => Err(SolverError::Setup(format!(
+                "snGrad scheme '{}' for {key} is not supported yet; use orthogonal or uncorrected",
+                w.join(" ")
+            ))),
+        }
+    }
+
     /// Refuses a `gradSchemes` entry for `grad(field)` other than
     /// `Gauss linear`, the gradient the engine has.
     pub fn require_gauss_linear_grad(&self, field: &str) -> Result<()> {
