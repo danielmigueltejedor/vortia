@@ -88,6 +88,9 @@ QComboBox {padding-right:{{size.targetMin}}px;}
 /* Dock panels: their own title bar, the title in Sora and bold NDL buttons shaped like the rest. */
 /* The inspector's forms need their width: below it labels and fields were cut, not wrapped. */
 QDockWidget#vortia-dock-properties {min-width:{{size.inspector}}px;}
+/* One island: the title bar is its top, the panel's content its bottom, with no seam. */
+QWidget#ndl-dock-title {background:{{color.surfacePanel}};border:0;border-top-left-radius:{{component.panelRadius}}px;border-top-right-radius:{{component.panelRadius}}px;border-bottom-left-radius:0;border-bottom-right-radius:0;}
+QDockWidget > QWidget[ndl-dock-body="true"] {border-top-left-radius:0;border-top-right-radius:0;}
 QLabel#ndl-dock-title-label {font-family:"Sora";font-size:{{font.body}}px;font-weight:700;color:{{color.textPrimary}};}
 QToolButton#ndl-dock-button {min-width:28px;max-width:28px;min-height:28px;max-height:28px;padding:0;border:0;border-radius:14px;background:{{color.controlBg}};}
 QToolButton#ndl-dock-button:hover {background:{{color.controlBgHover}};}

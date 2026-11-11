@@ -102,12 +102,21 @@ protected:
         case WindowButton::Minimize:
             painter.drawLine(QPointF(c.x() - h, c.y()), QPointF(c.x() + h, c.y()));
             break;
-        case WindowButton::Maximize:
-            // A rounded square; solid while the window is maximised.
-            if (restore_)
-                painter.setBrush(ink);
-            painter.drawRoundedRect(QRectF(c.x() - h, c.y() - h, 2 * h, 2 * h), 2.0, 2.0);
+        case WindowButton::Maximize: {
+            // NDL's two corners on a diagonal: open outwards to maximise, turned to the centre
+            // to restore (window-maximize / window-restore in @nodalia/icons).
+            const auto corner = [&](QPointF a, QPointF b, QPointF d) {
+                painter.drawPolyline(QPolygonF{c + a, c + b, c + d});
+            };
+            if (restore_) {
+                corner({2, -5}, {2, -2}, {5, -2});
+                corner({-2, 5}, {-2, 2}, {-5, 2});
+            } else {
+                corner({0, -5}, {5, -5}, {5, 0});
+                corner({0, 5}, {-5, 5}, {-5, 0});
+            }
             break;
+        }
         case WindowButton::Close:
             painter.drawLine(QPointF(c.x() - h, c.y() - h), QPointF(c.x() + h, c.y() + h));
             painter.drawLine(QPointF(c.x() + h, c.y() - h), QPointF(c.x() - h, c.y() + h));
@@ -483,6 +492,51 @@ protected:
     }
 };
 
+/// Moves a floating dock by its title bar. Qt moves it by setting its position, which Wayland
+/// does not allow; the compositor has to move it. A docked panel keeps Qt's own dragging.
+class DockDrag final : public QObject {
+public:
+    DockDrag(QDockWidget* dock, QObject* parent) : QObject(parent), dock_(dock) {}
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        auto* bar = qobject_cast<QWidget*>(watched);
+        if (!dock_->isFloating() || !bar)
+            return false;
+        switch (event->type()) {
+        case QEvent::MouseButtonPress: {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() != Qt::LeftButton || bar->childAt(mouse->position().toPoint()))
+                return false;
+            origin_ = mouse->globalPosition().toPoint();
+            return true;
+        }
+        case QEvent::MouseMove: {
+            auto* mouse = static_cast<QMouseEvent*>(event);
+            if (!origin_ || !(mouse->buttons() & Qt::LeftButton))
+                return false;
+            if ((mouse->globalPosition().toPoint() - *origin_).manhattanLength() < QApplication::startDragDistance())
+                return true;
+            origin_.reset();
+            if (QWindow* window = dock_->windowHandle())
+                window->startSystemMove();
+            return true;
+        }
+        case QEvent::MouseButtonRelease:
+            if (!origin_)
+                return false;
+            origin_.reset();
+            return true;
+        default:
+            return false;
+        }
+    }
+
+private:
+    QDockWidget* dock_;
+    std::optional<QPoint> origin_;
+};
+
 class NoticeFollower final : public QObject {
 public:
     NoticeFollower(QWidget* notice, QLabel* icon, QString kind)
@@ -524,6 +578,11 @@ void installDialogChrome(QApplication* app) {
 void installDockTitleBar(QDockWidget* dock) {
     auto* bar = new QWidget(dock);
     bar->setObjectName(QStringLiteral("ndl-dock-title"));
+    // Title and body are one island: the bar paints the island's top, the body its bottom.
+    bar->setAttribute(Qt::WA_StyledBackground, true);
+    if (QWidget* body = dock->widget())
+        body->setProperty("ndl-dock-body", true);
+    bar->installEventFilter(new DockDrag(dock, bar));
     auto* row = new QHBoxLayout(bar);
     row->setContentsMargins(16, 10, 10, 2);
     row->setSpacing(4);
