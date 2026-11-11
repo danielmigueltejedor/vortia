@@ -84,3 +84,13 @@ QPlainTextEdit {border:0;font-family:Menlo,"DejaVu Sans Mono",monospace;font-siz
 QLabel#vortia-update-notice,QLabel#vortia-nozzle-validation-notice,QLabel#vortia-flow-assessment {background:{{color.statusInfoBg}};color:{{color.textPrimary}};border:0;border-radius:{{radius.md}}px;padding:{{space.sm}}px {{space.md}}px;}
 QLabel#vortia-nozzle-validation-notice {background:{{color.statusWarningBg}};border:{{border.thin}}px solid {{color.statusWarningFg}};}
 QComboBox {padding-right:{{size.targetMin}}px;}
+
+/* Dialogs: a title in Sora, heavy, like the view titles of every NDL app. */
+QLabel#ndl-dialog-title {font-family:"Sora";font-size:26px;font-weight:800;padding:{{space.xs}}px 0 {{space.sm}}px 0;}
+/* About: the same layout as every NDL app's. */
+QLabel#ndl-about-title {font-family:"Sora";font-size:32px;font-weight:800;}
+QLabel#ndl-about-tagline {color:{{color.textSecondary}};}
+QLabel#ndl-about-developer {color:{{color.textSecondary}};}
+QLabel#ndl-version-pill {background:{{color.accentSubtle}};color:{{color.accentText}};border-radius:{{component.controlRadius}}px;padding:{{space.xxs}}px {{space.md}}px;font-weight:700;}
+QLabel#ndl-about-notice {color:{{color.textTertiary}};font-size:{{font.small}}px;}
+

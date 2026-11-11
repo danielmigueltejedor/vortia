@@ -84,7 +84,7 @@ QJsonObject ApplicationPreferences::flowDefaults() const {
 std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent,const ApplicationPreferences& previous,bool running) {
     QDialog dialog(parent);dialog.setObjectName("vortia-preferences");dialog.setWindowTitle(tr("Vortia preferences"));dialog.resize(980,740);
 
-    auto* layout=new QVBoxLayout(&dialog);auto* title=new QLabel(tr("Make Vortia yours"),&dialog);title->setStyleSheet("font-size:20px; font-weight:500;");layout->addWidget(title);
+    auto* layout=new QVBoxLayout(&dialog);auto* title=new QLabel(tr("Make Vortia yours"),&dialog);title->setObjectName("ndl-dialog-title");layout->addWidget(title);
     auto* body=new QHBoxLayout;layout->addLayout(body,1);
     auto* pages=new QStackedWidget(&dialog);pages->setObjectName("preferences-pages");
     auto* nav=new SettingsNavigation(&dialog,pages,"preferences-navigation");body->addWidget(nav);body->addWidget(pages,1);

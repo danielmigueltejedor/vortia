@@ -3,6 +3,12 @@
 <TS version="2.1" language="es_ES">
 <context>
     <name>vortia::MainWindow</name>
+    <message><source>Open-source CFD desktop application powered by OpenFOAM.</source><translation>Aplicación de escritorio CFD de código abierto basada en OpenFOAM.</translation></message>
+    <message><source>Original implementation. Vortia is not affiliated with ANSYS, Inc.</source><translation>Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></message>
+    <message><source>Website</source><translation>Sitio web</translation></message>
+    <message><source>Source code</source><translation>Código fuente</translation></message>
+    <message><source>License</source><translation>Licencia</translation></message>
+    <message><source>Close</source><translation>Cerrar</translation></message>
     <message><source>Main menu</source><translation>Menú principal</translation></message>
     <message><source>There are unsaved projects. Save or close them, then update again: installing the update restarts Vortia.</source><translation>Hay proyectos sin guardar. Guárdalos o ciérralos y vuelve a actualizar: instalar la actualización reinicia Vortia.</translation></message>
     <message><source>Sketch files</source><translation>Archivos de croquis</translation></message>

@@ -90,6 +90,8 @@
 #include <QStatusBar>
 #include <QToolBar>
 #include <QLabel>
+#include <QUrl>
+#include <QIcon>
 
 #include <filesystem>
 #include <fstream>
@@ -2204,12 +2206,66 @@ void MainWindow::ensureOpenFoamInstallation() {
 }
 
 void MainWindow::onAbout() {
-    QMessageBox::about(this, tr("About Vortia"),
-                       tr("Vortia — Engineering the Flow\n\n"
-                          "Open-source CFD desktop application powered by OpenFOAM.\n"
-                          "Version %1\n\n"
-                          "Original implementation. Vortia is not affiliated with ANSYS, Inc.")
-                           .arg(QCoreApplication::applicationVersion()));
+    // The same About every Nodalia app has: the icon, the name in Sora, who makes it, the version
+    // as a pill, what it is, and where to find more.
+    QDialog about(this);
+    about.setObjectName("ndl-about");
+    about.setWindowTitle(tr("About Vortia"));
+    about.setMinimumWidth(440);
+    auto* column = new QVBoxLayout(&about);
+    column->setContentsMargins(40, 32, 40, 24);
+    column->setSpacing(6);
+    const auto centred = [&](QLabel* label, const char* name) {
+        label->setObjectName(QString::fromLatin1(name));
+        label->setAlignment(Qt::AlignCenter);
+        label->setWordWrap(true);
+        column->addWidget(label);
+        return label;
+    };
+    auto* icon = new QLabel(&about);
+    icon->setPixmap(QIcon(QStringLiteral(":/vortia/app-icon.png")).pixmap(96, 96));
+    centred(icon, "ndl-about-icon");
+    column->addSpacing(8);
+    centred(new QLabel(QStringLiteral("Vortia"), &about), "ndl-about-title");
+    centred(new QLabel(QStringLiteral("Engineering the Flow"), &about), "ndl-about-tagline");
+    centred(new QLabel(QStringLiteral("Daniel Miguel Tejedor"), &about), "ndl-about-developer");
+    auto* versionRow = new QHBoxLayout;
+    auto* version = new QLabel(QCoreApplication::applicationVersion(), &about);
+    version->setObjectName("ndl-version-pill");
+    versionRow->addStretch();
+    versionRow->addWidget(version);
+    versionRow->addStretch();
+    column->addLayout(versionRow);
+    column->addSpacing(12);
+    centred(new QLabel(tr("Open-source CFD desktop application powered by OpenFOAM."), &about), "ndl-about-text");
+    centred(new QLabel(tr("Original implementation. Vortia is not affiliated with ANSYS, Inc."), &about),
+            "ndl-about-notice");
+    column->addSpacing(16);
+    auto* links = new QHBoxLayout;
+    links->setSpacing(8);
+    const auto link = [&](const QString& text, const char* url) {
+        auto* button = new QPushButton(text, &about);
+        button->setProperty("ndlVariant", "subtle");
+        QObject::connect(button, &QPushButton::clicked, &about,
+                         [url] { QDesktopServices::openUrl(QUrl(QString::fromLatin1(url))); });
+        links->addWidget(button);
+    };
+    links->addStretch();
+    link(tr("Website"), "https://vortia.getnodalia.com");
+    link(tr("Source code"), "https://github.com/danielmigueltejedor/vortia");
+    link(tr("License"), "https://github.com/danielmigueltejedor/vortia/blob/main/LICENSE");
+    links->addStretch();
+    column->addLayout(links);
+    column->addSpacing(8);
+    auto* close = new QPushButton(tr("Close"), &about);
+    close->setDefault(true);
+    QObject::connect(close, &QPushButton::clicked, &about, &QDialog::accept);
+    auto* closeRow = new QHBoxLayout;
+    closeRow->addStretch();
+    closeRow->addWidget(close);
+    closeRow->addStretch();
+    column->addLayout(closeRow);
+    about.exec();
 }
 
 void MainWindow::onCheckForUpdates() {

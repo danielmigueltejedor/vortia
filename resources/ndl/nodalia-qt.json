@@ -926,21 +926,24 @@
       "controlPaddingX": 8,
       "rowHeight": 24,
       "gap": 4,
-      "panelPadding": 8
+      "panelPadding": 8,
+      "pillRadius": 12
     },
     "regular": {
       "controlHeight": 32,
       "controlPaddingX": 12,
       "rowHeight": 32,
       "gap": 8,
-      "panelPadding": 12
+      "panelPadding": 12,
+      "pillRadius": 16
     },
     "comfortable": {
       "controlHeight": 40,
       "controlPaddingX": 16,
       "rowHeight": 40,
       "gap": 12,
-      "panelPadding": 16
+      "panelPadding": 16,
+      "pillRadius": 20
     }
   },
   "space": {
