@@ -14,4 +14,8 @@ namespace vortia::ndl {
 /// truth: the exported layout is read from it on every request.
 void exportGlobalMenu(QMenuBar* menuBar);
 
+/// Whether exportGlobalMenu will put the menus in the desktop's top bar: Linux under Wayland with
+/// an AppMenu registrar running. The window then needs no menu button of its own.
+[[nodiscard]] bool globalMenuAvailable();
+
 } // namespace vortia::ndl

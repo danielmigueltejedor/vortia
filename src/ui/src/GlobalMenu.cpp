@@ -324,6 +324,14 @@ void registerWithRegistrar() {
 
 namespace vortia::ndl {
 
+bool globalMenuAvailable() {
+    if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
+        return false;
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    return bus.isConnected() && bus.interface()
+           && bus.interface()->isServiceRegistered(QString::fromLatin1(kRegistrar));
+}
+
 void exportGlobalMenu(QMenuBar* menuBar) {
     // On X11 Qt registers the menu bar by itself; elsewhere there is no top bar to hand it to.
     if (!menuBar || !QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
@@ -366,6 +374,10 @@ void exportGlobalMenu(QMenuBar* menuBar) {
 namespace vortia::ndl {
 
 void exportGlobalMenu(QMenuBar*) {}
+
+bool globalMenuAvailable() {
+    return false;
+}
 
 } // namespace vortia::ndl
 

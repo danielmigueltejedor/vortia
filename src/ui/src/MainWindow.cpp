@@ -398,7 +398,7 @@ void MainWindow::buildMenusAndToolbar() {
     navigator->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
     auto* navLayout = new QVBoxLayout(navigator); navLayout->setContentsMargins(16,12,16,10); // 8 px of it is the side margin the style sheet gives the bar
     navLayout->setSpacing(5);
-    auto* brand = new QLabel(navigator); brand->setPixmap(QPixmap(":/vortia/app-icon.png").scaled(32,32,Qt::KeepAspectRatio,Qt::SmoothTransformation));
+    auto* brand = new QLabel(navigator); brand->setObjectName("vortia-sidebar-brand"); brand->setPixmap(QPixmap(":/vortia/app-icon.png").scaled(32,32,Qt::KeepAspectRatio,Qt::SmoothTransformation));
     brand->setAccessibleName(tr("Vortia")); navLayout->addWidget(brand); navLayout->addSpacing(12);
     auto* stages = new QButtonGroup(workflow); stages->setObjectName("vortia-workflow-stages");
     const QStringList names{tr("Project"),tr("Geometry"),tr("Mesh"),tr("Physics"),tr("Calculation"),tr("Results")};
@@ -848,8 +848,16 @@ void MainWindow::buildDocks() {
             auto* trafficSpace=new QWidget(header);trafficSpace->setObjectName("vortia-native-window-controls-space");
             trafficSpace->setFixedWidth(84);row->addWidget(trafficSpace);
             trafficSpace->installEventFilter(this);
+        } else if(ndl::globalMenuAvailable()) {
+            // The menus live in the desktop's top bar: the header opens with the app's icon where
+            // the menu button would be, and the side bar no longer needs its own.
+            auto* icon=new QLabel(header);icon->setObjectName("vortia-header-icon");
+            icon->setPixmap(QIcon(QStringLiteral(":/vortia/app-icon.png")).pixmap(24,24));
+            icon->setAccessibleName(tr("Vortia"));
+            row->addSpacing(12);row->addWidget(icon);row->addSpacing(10);
+            if(auto* brand=findChild<QLabel*>("vortia-sidebar-brand"))brand->hide();
         } else {
-            // The menus of the hidden menu bar live behind one button.
+            // No top bar to hand the menus to: they live behind one button.
             auto* appMenu=new QToolButton(header);appMenu->setObjectName("ndl-app-menu");
             appMenu->setText(QStringLiteral("\u2261"));appMenu->setToolTip(tr("Main menu"));
             appMenu->setPopupMode(QToolButton::InstantPopup);appMenu->setFocusPolicy(Qt::NoFocus);
