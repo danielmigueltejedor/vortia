@@ -589,7 +589,7 @@ SketchEditorDialog::SketchEditorDialog(QWidget* parent) : QDialog(parent) {
     pasteAction_=editCommand("Paste geometry…","paste",QKeySequence::Paste,QStyle::SP_DialogOpenButton,[this](){pasteGeometry();});
     deleteAction_=editCommand("Delete selected vertex","delete",{},QStyle::SP_TrashIcon,[this](){deleteSelectedPoint();});
     tools->addLayout(editRow);
-    auto* references=new QToolButton(sidebar);references->setObjectName("vortia-sketch-references");references->setText(tr("Drawing references"));references->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);references->setIcon(uiIcon(":/vortia/icons/probe.svg"));references->setPopupMode(QToolButton::InstantPopup);
+    auto* references=new QToolButton(sidebar);references->setObjectName("vortia-sketch-references");references->setText(tr("Drawing references"));references->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);references->setIcon(uiIcon(":/vortia/icons/osnap.svg"));references->setPopupMode(QToolButton::InstantPopup);
     auto* referenceMenu=new QMenu(references);references->setMenu(referenceMenu);QSettings preferences("Vortia","Vortia");
     const auto option=[&](const char* text,const char* key,bool SketchSnapOptions::*member,bool initial,const QKeySequence& shortcut=QKeySequence{}){
         auto* action=referenceMenu->addAction(tr(text));action->setObjectName(QString("vortia-snap-%1").arg(key));action->setCheckable(true);action->setChecked(preferences.value(QString("sketch/assistance/%1").arg(key),initial).toBool());canvas_->assistance.*member=action->isChecked();

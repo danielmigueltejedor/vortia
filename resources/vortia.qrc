@@ -57,6 +57,7 @@
     <file alias="surface.svg">icons/ui/surface.svg</file>
     <file alias="export-image.svg">icons/ui/export-image.svg</file>
     <file alias="probe.svg">icons/ui/probe.svg</file>
+    <file alias="osnap.svg">icons/ui/osnap.svg</file>
     <file alias="slice.svg">icons/ui/slice.svg</file>
     <file alias="fit.svg">icons/ui/fit.svg</file>
     <file alias="zoom.svg">icons/ui/zoom.svg</file>
