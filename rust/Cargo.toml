@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["vortia-core"]
+members = ["vortia-cli", "vortia-core", "vortia-foamfile", "vortia-mesh"]
 
 [workspace.package]
 version = "0.1.0"

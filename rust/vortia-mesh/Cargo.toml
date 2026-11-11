@@ -1,0 +1,11 @@
+[package]
+name = "vortia-mesh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Polyhedral finite-volume mesh of the Vortia engine: topology, geometry and quality checks"
+
+[dependencies]
+thiserror = "2"
+vortia-core = { path = "../vortia-core" }
+vortia-foamfile = { path = "../vortia-foamfile" }

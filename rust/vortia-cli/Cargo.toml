@@ -1,0 +1,13 @@
+[package]
+name = "vortia-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Command-line front end of the Vortia engine"
+
+[[bin]]
+name = "vortia"
+path = "src/main.rs"
+
+[dependencies]
+vortia-mesh = { path = "../vortia-mesh" }
