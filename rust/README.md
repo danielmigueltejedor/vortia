@@ -38,6 +38,10 @@ cargo run -p vortia-cli -- fields ../examples/nozzle-practice-2026
 cargo run -p vortia-cli -- solve path/to/a/case   # laplacianFoam, scalarTransportFoam, icoFoam or simpleFoam
 ```
 
+The interface will be built with **egui**, the toolkit other Nodalia apps use
+(decided on 2026-11-10), so interface components and styles can be shared across
+the suite.
+
 ## Checks
 
 Every pull request runs `cargo fmt --check`, `cargo clippy -D warnings` and the

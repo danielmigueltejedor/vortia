@@ -11,7 +11,7 @@
   <p><strong>A free desktop application for CFD simulation with OpenFOAM, from geometry to 3D post-processing.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-0.5.0-3D9BFF" alt="Version 0.5.0">
+    <img src="https://img.shields.io/badge/version-0.6.0-3D9BFF" alt="Version 0.6.0">
     <img src="https://img.shields.io/badge/status-experimental-orange" alt="Experimental">
     <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Linux%20x86__64-5E81AC" alt="macOS arm64 and Linux x86_64">
     <img src="https://img.shields.io/badge/Qt-6-41CD52?logo=qt&logoColor=white" alt="Qt 6">
@@ -33,7 +33,7 @@
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/hero.webp" width="920" alt="Vortia showing live run monitors in dark mode and a dimensioned nozzle sketch in light mode">
+  <img src="docs/screenshots/hero.webp" width="920" alt="Vortia: a nozzle sketch in light mode behind the speed field of a jet in dark mode">
 </p>
 
 ---
@@ -45,9 +45,12 @@ workflow: geometry → mesh → physics → supervised run → interactive 3D
 post-processing, without touching the terminal. The published installers are
 self-contained: OpenFOAM, MPI and the mesher ship inside them.
 
-Vortia is a front-end to OpenFOAM maintained by one person. It does not have
-parity with commercial CFD suites, and it says so: every capability is listed
-with the evidence behind it in [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
+Vortia is a Nodalia app maintained by one person. Today it computes with
+OpenFOAM; the direction is an application written entirely in Rust and a fluid
+dynamics engine of its own, built from OpenFOAM ([`docs/ROADMAP.md`](docs/ROADMAP.md)).
+It does not have parity with commercial CFD suites, and it says so: every
+capability is listed with the evidence behind it in
+[`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md).
 
 > [!IMPORTANT]
 > **Vortia is experimental.** Always check convergence, mass balance and mesh
@@ -59,19 +62,19 @@ with the evidence behind it in [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MAT
 
 | | |
 |---|---|
-| <img src="docs/screenshots/geometry-dark.webp" alt="2D sketch of a nozzle with its dimensions and vertex table"> | <img src="docs/screenshots/calculation-dark.webp" alt="Run monitors: Courant number, mass imbalance, field variation and equation indicator"> |
-| Geometry: dimensioned 2D sketch of a nozzle | Calculation: live run monitors |
-| <img src="docs/screenshots/results-speed-dark.webp" alt="Speed field of a jet in the results view"> | <img src="docs/screenshots/physics-light.webp" alt="Physics models and material form, light mode"> |
-| Results: speed field of a jet | Physics: models and material, light mode |
+| <img src="docs/screenshots/geometry-dark.webp" alt="2D sketch of a nozzle with its vertex table"> | <img src="docs/screenshots/results-speed-dark.webp" alt="Speed field of a jet in the results view"> |
+| Geometry: a nozzle drawn with the sketch's generator | Results: speed field of a jet |
+| <img src="docs/screenshots/menu-dark.webp" alt="The main menu open at the top of the side bar"> | <img src="docs/screenshots/preferences-dark.webp" alt="Preferences: appearance, language, theme and window controls"> |
+| Main menu: Preferences, Keyboard Shortcuts, About | Preferences, with Nodalia or desktop window controls |
 
-The results view shows the `examples/nozzle-practice-2026` case; the sketch and
-the monitors come from a working project. In the monitors capture the line with
-the local path of the run log is covered. These are interface captures, not
-validation: see [`docs/VALIDATION.md`](docs/VALIDATION.md).
+The results view shows the `examples/nozzle-practice-2026` case; the sketch is a
+nozzle made with the sketch's generator. `geometry-light.webp` and
+`results-speed-light.webp` are the same views in light mode. These are interface
+captures, not validation: see [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
 ## What it does
 
-| Area | Vortia 0.5.0 | Evidence |
+| Area | Vortia 0.6.0 | Evidence |
 |---|---|---|
 | Geometry | Rectangular domains, 2D sketches with dimensions, lines and arcs, axisymmetric wedges, STL import for viewing | Software tests |
 | Meshing | Structured `blockMesh` with grading; Gmsh 2D and axisymmetric meshes from sketches; ASCII Fluent `.msh` import | Native runs |
@@ -170,7 +173,9 @@ and applies an ad-hoc signature; the published DMG is built by the
 
 `resources/icons/vortia.png` (512 px) is embedded through the Qt resource
 system (`:/vortia/app-icon.png`), so the window and the Dock use the same
-design. `resources/icons/vortia-macos.png` is the same artwork at full bleed
+design. It sits on the Nodalix app grid, like the Colloid icons around it: a
+tile of 224/256 with a 16 px margin, a 51.5 px radius and a soft shadow, made
+by `tools/nodalia-app-icon.py` in nodalix-icon-theme. `resources/icons/vortia-macos.png` is the same artwork at full bleed
 for the macOS bundle, where the system applies its own icon mask.
 
 The icon is a black-and-white portrait of Daniel Bernoulli over blue, part of
@@ -206,7 +211,7 @@ turbulent fields.
 
 ## Project status
 
-Version **0.5.0**, experimental. What works, with which evidence, and what
+Version **0.6.0**, experimental. What works, with which evidence, and what
 does not:
 
 - [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) — capabilities by area

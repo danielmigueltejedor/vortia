@@ -7,6 +7,8 @@
 #include <QColor>
 #include <QDir>
 #include <QFile>
+#include <QFont>
+#include <QFontDatabase>
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QPalette>
@@ -150,9 +152,32 @@ QString tintStyleSheetIcons(QString sheet, const QString& scheme, const QColor& 
 
 } // namespace
 
+namespace {
+
+/// Sora (titles) and Inter (everything else), the typefaces NDL names. They ship in the resources
+/// (OFL-1.1, licences beside them) so Vortia looks the same where neither is installed.
+void useBundledFonts(QApplication& app) {
+    static const bool registered = [] {
+        bool ok = true;
+        for (const char* file : {":/fonts/sora/Sora[wght].ttf", ":/fonts/inter/Inter[opsz,wght].ttf"})
+            ok = QFontDatabase::addApplicationFont(QString::fromLatin1(file)) >= 0 && ok;
+        return ok;
+    }();
+    if (registered) {
+        QFont font = app.font();
+        font.setFamilies({QStringLiteral("Inter")});
+        app.setFont(font);
+    }
+}
+
+} // namespace
+
 void ThemeManager::apply(QApplication& app, Theme theme, const QString& density) {
     app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    useBundledFonts(app);
     const QString scheme = toName(theme);
+    // Widgets that paint in token colours themselves (the window buttons) read the mode here.
+    app.setProperty("ndl-scheme", scheme);
     const QJsonObject tokens = ndl::bundledTokens();
     const auto color = [&](const char* name) {
         return QColor(ndl::tokenValue(tokens, scheme, QStringLiteral("color.") + QLatin1String(name)));

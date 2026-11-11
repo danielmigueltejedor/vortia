@@ -7,8 +7,10 @@
 
 #include <optional>
 
+class QApplication;
 class QBoxLayout;
-class QMainWindow;
+class QDockWidget;
+class QLabel;
 class QToolButton;
 class QWidget;
 
@@ -41,8 +43,8 @@ struct WindowButtonLayout {
 /// set, else GNOME-family settings or KWin's configuration, else the default.
 [[nodiscard]] WindowButtonLayout systemButtonLayout();
 
-/// True when Vortia should draw its own window controls: Linux desktops,
-/// unless `VORTIA_NATIVE_TITLEBAR=1` asks for the system title bar.
+/// True when Vortia should draw its own window controls: Linux desktops, unless Preferences ›
+/// Window controls is "System" or `VORTIA_NATIVE_TITLEBAR=1` asks for the desktop's title bar.
 [[nodiscard]] bool usesClientSideDecorations();
 
 /// Turns `header` into the title bar of a frameless `window`: window buttons
@@ -53,7 +55,7 @@ class WindowChrome final : public QObject {
 public:
     /// Must be called before the window is first shown. `headerRow` is the
     /// header's horizontal layout; buttons are inserted at both ends.
-    WindowChrome(QMainWindow* window, QWidget* header, QBoxLayout* headerRow,
+    WindowChrome(QWidget* window, QWidget* header, QBoxLayout* headerRow,
                  const WindowButtonLayout& layout);
 
     /// Additional widgets whose empty area drags the window (e.g. a tab bar).
@@ -66,12 +68,32 @@ private:
     void placeResizeHandles();
     void syncMaximizeButtons();
 
-    QMainWindow* window_;
+    QWidget* window_;
     QWidget* header_;
     QList<QWidget*> dragAreas_;
     QList<QWidget*> resizeHandles_;
     QList<QToolButton*> maximizeButtons_;
     std::optional<QPoint> dragOrigin_; ///< Press position of a possible window drag.
 };
+
+/// Gives every dialog the NDL frame from then on: no system title bar, a header with the dialog's
+/// title in Sora (left out when the dialog shows its own big title) and only the coral close
+/// button, dragged like the main window's. Message boxes also get NDL's bold notice icons.
+/// File dialogs stay the desktop's own. Does nothing without client-side decorations.
+void installDialogChrome(QApplication* app);
+
+/// Replaces a dock's title bar with an NDL one: its title, then bold float and close buttons with
+/// the same shape and hover as the rest of the window.
+void installDockTitleBar(QDockWidget* dock);
+
+/// Puts `label` in an NDL notice: a rounded island in the soft colour of `kind` ("info",
+/// "warning") with its bold icon. Returns the notice to place in a layout; it shows and hides
+/// with the label, so code that toggles the label keeps working.
+[[nodiscard]] QWidget* wrapNotice(QLabel* label, const QString& kind);
+
+/// Rounds the corners of a canvas that fills an island (an OpenGL viewport cannot be clipped
+/// by its parent): paints what lies outside the rounded corners in the window's colour, on top
+/// of the canvas, without taking its clicks.
+void roundCanvasCorners(QWidget* canvas, int radius);
 
 } // namespace vortia::ndl

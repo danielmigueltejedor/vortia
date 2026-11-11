@@ -3,6 +3,12 @@
 <TS version="2.1" language="es_ES">
 <context>
     <name>vortia::MainWindow</name>
+    <message><source>Open-source CFD desktop application powered by OpenFOAM.</source><translation>Aplicación de escritorio CFD de código abierto basada en OpenFOAM.</translation></message>
+    <message><source>Original implementation. Vortia is not affiliated with ANSYS, Inc.</source><translation>Implementación original. Vortia no está afiliada a ANSYS, Inc.</translation></message>
+    <message><source>Website</source><translation>Sitio web</translation></message>
+    <message><source>Source code</source><translation>Código fuente</translation></message>
+    <message><source>License</source><translation>Licencia</translation></message>
+    <message><source>Close</source><translation>Cerrar</translation></message>
     <message><source>Main menu</source><translation>Menú principal</translation></message>
     <message><source>There are unsaved projects. Save or close them, then update again: installing the update restarts Vortia.</source><translation>Hay proyectos sin guardar. Guárdalos o ciérralos y vuelve a actualizar: instalar la actualización reinicia Vortia.</translation></message>
     <message><source>Sketch files</source><translation>Archivos de croquis</translation></message>
@@ -193,6 +199,9 @@
     <message><source>Untitled %1</source><translation>Sin título %1</translation></message>
     <message><source>Unsaved project</source><translation>Proyecto sin guardar</translation></message>
     <message><source>Unsaved projects</source><translation>Proyectos sin guardar</translation></message>
+    <message><source>Discard</source><translation>Descartar</translation></message>
+    <message><source>Keyboard Shortcuts</source><translation>Atajos de teclado</translation></message>
+    <message><source>Exit without saving</source><translation>Salir sin guardar</translation></message>
     <message><source>Discard unsaved changes in %1?</source><translation>¿Descartar los cambios sin guardar en %1?</translation></message>
     <message><source>Some projects have unsaved changes. Exit without saving?</source><translation>Hay proyectos con cambios sin guardar. ¿Salir sin guardar?</translation></message>
     <message><source>Active project: %1</source><translation>Proyecto activo: %1</translation></message>
@@ -845,7 +854,7 @@ Caso fallido conservado: %2
     <message><source>Polar tracking · 15° (F10)</source><translation>Rastreo polar · 15° (F10)</translation></message>
     <message><source>Case geometry: select to inspect; drag empty space to pan.</source><translation>Geometría del caso: selecciona para consultar; arrastra el fondo para desplazar.</translation></message>
     <message><source>OpenFOAM case geometry: pinch to zoom, pan and inspect dimensions. To change the mesh, prepare a new nozzle case with the desired dimensions.</source><translation>Geometría del caso OpenFOAM: amplía con dos dedos, desplaza y consulta cotas. Para cambiar la malla, prepara un nuevo caso de tobera con las dimensiones que quieras.</translation></message>
-    <message><source>Pinch to zoom; swipe with two fingers to pan. Drag empty space, or hold Space to pan. Esc selects; L draws; F fits the sketch.</source><translation>Pellizca para ampliar; desliza dos dedos para desplazar. Arrastra el fondo o mantén Espacio para mover la vista. Esc selecciona; L dibuja; F encuadra el croquis.</translation></message>
+    <message><source>Pinch to zoom; swipe with two fingers to pan. In select mode drag empty space to pan; in any mode hold Space and drag. Esc selects; L draws; F fits the sketch.</source><translation>Pellizca para ampliar; desliza dos dedos para desplazar. En modo selección, arrastra el fondo para desplazar; en cualquier modo, mantén Espacio y arrastra. Esc selecciona; L dibuja; F encuadra el croquis.</translation></message>
     <message><source>Select (Esc / V)</source><translation>Seleccionar (Esc / V)</translation></message>
     <message><source>Draw polyline (L)</source><translation>Dibujar polilínea (L)</translation></message>
     <message><source>Pan (H / hold Space)</source><translation>Desplazar (H / mantener Espacio)</translation></message>
@@ -966,12 +975,25 @@ Caso fallido conservado: %2
 </context>
 <context>
     <name>QObject</name>
+    <message><source>Float</source><translation>Ventana flotante</translation></message>
+    <message><source>Dock</source><translation>Acoplar</translation></message>
+    <message><source>Close</source><translation>Cerrar</translation></message>
     <message><source>Structured grid preview (XY). Not a computed mesh.</source><translation>Vista previa de la cuadrícula estructurada (XY). No es una malla calculada.</translation></message>
+</context>
+<context>
+    <name>QGnomeTheme</name>
+    <message><source>&amp;OK</source><translation>&amp;Aceptar</translation></message>
+    <message><source>&amp;Save</source><translation>&amp;Guardar</translation></message>
+    <message><source>&amp;Cancel</source><translation>&amp;Cancelar</translation></message>
+    <message><source>&amp;Close</source><translation>&amp;Cerrar</translation></message>
+    <message><source>Close without Saving</source><translation>Cerrar sin guardar</translation></message>
 </context>
 <context>
     <name>QPlatformTheme</name>
     <message><source>OK</source><translation>Aceptar</translation></message>
     <message><source>Cancel</source><translation>Cancelar</translation></message>
+    <message><source>&amp;Cancel</source><translation>&amp;Cancelar</translation></message>
+    <message><source>&amp;OK</source><translation>&amp;Aceptar</translation></message>
     <message><source>Yes</source><translation>Sí</translation></message>
     <message><source>&amp;Yes</source><translation>&amp;Sí</translation></message>
     <message><source>&amp;No</source><translation>&amp;No</translation></message>
@@ -1447,7 +1469,10 @@ Caso fallido conservado: %2
     <message><source>Calculation</source><translation>Cálculo</translation></message>
     <message><source>Engine and storage</source><translation>Motor y archivos</translation></message>
 
-    <message><source>Appearance and navigation changes apply immediately. Language changes apply after restarting.</source><translation>Los cambios de apariencia y navegación se aplican al momento. El idioma cambia al reiniciar.</translation></message>
+    <message><source>Appearance and navigation changes apply immediately. Language and window controls change after restarting.</source><translation>Los cambios de apariencia y navegación se aplican al momento. El idioma y los controles de ventana cambian al reiniciar.</translation></message>
+    <message><source>Window controls</source><translation>Controles de ventana</translation></message>
+    <message><source>Nodalia</source><translation>Nodalia</translation></message>
+    <message><source>System</source><translation>Del sistema</translation></message>
     <message><source>Appearance and workspace</source><translation>Apariencia y espacio de trabajo</translation></message>
     <message><source>Automatic</source><translation>Automático</translation></message>
     <message><source>Automatic (recommended)</source><translation>Automático (recomendado)</translation></message>
@@ -2105,7 +2130,7 @@ Detalles: %2</translation></message>
     <message><source>In-place updates are not supported on this platform.</source><translation>Las actualizaciones en el sitio no están disponibles en esta plataforma.</translation></message>
 </context>
 <context>
-    <name>vortia::lienzo::WindowChrome</name>
+    <name>vortia::ndl::WindowChrome</name>
     <message><source>Minimize</source><translation>Minimizar</translation></message>
     <message><source>Maximize</source><translation>Maximizar</translation></message>
     <message><source>Restore</source><translation>Restaurar</translation></message>

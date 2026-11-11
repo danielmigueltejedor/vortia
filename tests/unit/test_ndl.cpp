@@ -3,7 +3,16 @@
 #include "vortia/ui/ThemeManager.hpp"
 #include "vortia/ui/WindowChrome.hpp"
 
+#include <QApplication>
 #include <QColor>
+#include <QDockWidget>
+#include <QLabel>
+#include <QMainWindow>
+#include <QHelpEvent>
+#include <QMenu>
+#include <QMouseEvent>
+#include <QToolButton>
+#include <QToolTip>
 #include <QJsonDocument>
 #include <QRegularExpression>
 
@@ -130,4 +139,97 @@ TEST(NdlTheme, EnvironmentOverridesTheSavedThemeForOneRun) {
     qputenv("VORTIA_THEME", "neon");
     EXPECT_EQ(ThemeManager::resolve("dark"), ThemeManager::Theme::Dark);
     qunsetenv("VORTIA_THEME");
+}
+
+namespace {
+/// The app-wide filter for popups and tooltips, without dialog frames, leaving
+/// VORTIA_NATIVE_TITLEBAR as the test process had it.
+void installChromeWithoutFrames() {
+    const bool had = qEnvironmentVariableIsSet("VORTIA_NATIVE_TITLEBAR");
+    const QByteArray previous = qgetenv("VORTIA_NATIVE_TITLEBAR");
+    qputenv("VORTIA_NATIVE_TITLEBAR", "1");
+    vortia::ndl::installDialogChrome(qApp);
+    if (had)
+        qputenv("VORTIA_NATIVE_TITLEBAR", previous);
+    else
+        qunsetenv("VORTIA_NATIVE_TITLEBAR");
+}
+
+void sendMouse(QWidget* target, QEvent::Type type, QPointF at, Qt::MouseButtons buttons) {
+    QMouseEvent event(type, at, target->mapToGlobal(at), Qt::LeftButton, buttons, Qt::NoModifier);
+    QApplication::sendEvent(target, &event);
+}
+} // namespace
+
+// Docked, the title bar does not move the panel (Qt's drag to undock hung under Wayland); only
+// the window-mode button floats it.
+TEST(NdlDock, OnlyTheWindowModeButtonFloatsAPanel) {
+    QMainWindow window;
+    auto* dock = new QDockWidget(QStringLiteral("Inspector"), &window);
+    dock->setWidget(new QLabel(QStringLiteral("content")));
+    vortia::ndl::installDockTitleBar(dock);
+    window.addDockWidget(Qt::RightDockWidgetArea, dock);
+    window.resize(800, 600);
+    window.show();
+    auto* bar = dock->titleBarWidget();
+    ASSERT_NE(bar, nullptr);
+    const QPointF grip(4, bar->height() / 2.0);
+    sendMouse(bar, QEvent::MouseButtonPress, grip, Qt::LeftButton);
+    sendMouse(bar, QEvent::MouseMove, grip + QPointF(-200, 120), Qt::LeftButton);
+    sendMouse(bar, QEvent::MouseButtonRelease, grip + QPointF(-200, 120), Qt::NoButton);
+    EXPECT_FALSE(dock->isFloating());
+    const auto buttons = bar->findChildren<QToolButton*>();
+    ASSERT_EQ(buttons.size(), 2);
+    buttons.front()->click();
+    EXPECT_TRUE(dock->isFloating());
+}
+
+// Menus are islands with NDL's radius: their window must be see-through for the corners to show,
+// which has to be decided before the window exists.
+TEST(NdlPopups, MenusGetASeeThroughWindow) {
+    static bool installed = false;
+    if (!installed) {
+        // Popups only: other tests' dialogs keep their plain frame.
+        installChromeWithoutFrames();
+        installed = true;
+    }
+    QMenu menu;
+    menu.addAction(QStringLiteral("One"));
+    menu.ensurePolished();
+    EXPECT_TRUE(menu.testAttribute(Qt::WA_TranslucentBackground));
+}
+
+// A button that shows its name does not repeat it in a tooltip; an icon-only one keeps it.
+TEST(NdlTooltips, OnlyIconButtonsShowTheirName) {
+    installChromeWithoutFrames();
+    QWidget host;
+    auto* labelled = new QToolButton(&host);
+    labelled->setText(QStringLiteral("Malla"));
+    labelled->setToolTip(QStringLiteral("Malla"));
+    labelled->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    auto* iconOnly = new QToolButton(&host);
+    iconOnly->setText(QStringLiteral("Cerrar"));
+    iconOnly->setToolTip(QStringLiteral("Cerrar"));
+    iconOnly->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    host.show();
+    const auto shown = [](QWidget* widget) {
+        QToolTip::hideText();
+        QHelpEvent event(QEvent::ToolTip, QPoint(1, 1), widget->mapToGlobal(QPoint(1, 1)));
+        QApplication::sendEvent(widget, &event);
+        const bool visible = QToolTip::isVisible();
+        QToolTip::hideText();
+        return visible;
+    };
+    auto* explained = new QToolButton(&host);
+    explained->setText(QStringLiteral("Preparar reinicio limpio"));
+    explained->setToolTip(QStringLiteral("Guarda el diagnóstico y vuelve a empezar desde la última malla"));
+    explained->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    auto* withShortcut = new QToolButton(&host);
+    withShortcut->setText(QStringLiteral("Geometría"));
+    withShortcut->setToolTip(QStringLiteral("Geometría · Alt+2"));
+    withShortcut->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    EXPECT_FALSE(shown(labelled));
+    EXPECT_FALSE(shown(withShortcut));
+    EXPECT_TRUE(shown(explained));
+    EXPECT_TRUE(shown(iconOnly));
 }

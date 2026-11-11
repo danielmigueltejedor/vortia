@@ -16,9 +16,6 @@ QCheckBox::indicator:checked {image:url(:/vortia/icons/check.svg?on-accent);}
 QMenu::right-arrow {image:url(:/vortia/icons/chevron-right.svg);width:{{size.iconSmall}}px;height:{{size.iconSmall}}px;}
 QTabBar::close-button {image:url(:/vortia/icons/close.svg);width:{{size.iconSmall}}px;height:{{size.iconSmall}}px;padding:{{space.xxs}}px;border-radius:{{radius.sm}}px;}
 QTabBar::close-button:hover {background:{{color.controlBgHover}};}
-QDockWidget::close-button {image:url(:/vortia/icons/close.svg);border:0;background:transparent;width:{{size.iconMedium}}px;height:{{size.iconMedium}}px;}
-QDockWidget::float-button {image:url(:/vortia/icons/undock.svg);border:0;background:transparent;width:{{size.iconMedium}}px;height:{{size.iconMedium}}px;}
-QDockWidget::close-button:hover,QDockWidget::float-button:hover {background:{{color.controlBgHover}};border-radius:{{radius.sm}}px;}
 
 /* A value field is as wide as a value, not as wide as the panel it sits in. */
 QAbstractSpinBox,QComboBox {max-width:{{size.toast}}px;}
@@ -35,10 +32,16 @@ QStatusBar QLabel {padding:{{space.xxs}}px {{space.sm}}px;color:{{color.textSeco
 QToolBar,QToolBar#vortia-main-toolbar {background:{{color.surfaceWindow}};border:0;padding:0;}
 QWidget#vortia-top-bar,QWidget#vortia-document-header {background:{{color.surfaceWindow}};}
 QTabBar#vortia-project-tabs::tab {min-width:96px;margin:{{space.xs}}px {{space.xxs}}px 0 {{space.xxs}}px;color:{{color.textSecondary}};}
-QTabBar#vortia-project-tabs::tab:selected {color:{{color.textPrimary}};border-bottom-color:{{color.accentDefault}};}
-QToolButton#ndl-window-button,QToolButton#ndl-app-menu {background:transparent;border:0;border-radius:{{radius.md}}px;min-width:{{size.targetMin}}px;max-width:{{size.targetMin}}px;min-height:{{size.targetMin}}px;max-height:{{size.targetMin}}px;padding:0;margin:0 {{space.xxs}}px;}
-QToolButton#ndl-window-button:hover,QToolButton#ndl-app-menu:hover {background:{{color.controlBgHover}};}
-QToolButton#ndl-window-button[role="close"]:hover {background:{{color.statusDangerFg}};}
+QTabBar#vortia-project-tabs::tab:selected {color:{{color.textPrimary}};border-bottom-color:{{color.accentDefault}};font-weight:700;}
+QTabBar#vortia-project-tabs::tab {font-family:"Sora";}
+/* Window controls: three round 28 px buttons (Qt draws no radius past half the side), a flat raised
+   disc at rest; under the pointer minimise tints amber, maximise cyan, close turns coral (white X). */
+QToolButton#ndl-window-button {background:{{color.controlBg}};border:0;border-radius:14px;min-width:28px;max-width:28px;min-height:28px;max-height:28px;padding:0;margin:0 {{space.xxs}}px;color:{{color.textSecondary}};}
+QToolButton#ndl-window-button:hover {background:{{color.windowMinimizeTint}};color:{{color.windowMinimize}};}
+QToolButton#ndl-window-button[role="maximize"]:hover {background:{{color.windowMaximizeTint}};color:{{color.windowMaximize}};}
+QToolButton#ndl-window-button[role="close"]:hover {background:{{color.windowClose}};}
+QToolButton#ndl-app-menu {background:transparent;border:0;border-radius:{{space.lg}}px;min-width:{{space.xxl}}px;max-width:{{space.xxl}}px;min-height:{{space.xxl}}px;max-height:{{space.xxl}}px;padding:0;margin:0 {{space.xxs}}px;}
+QToolButton#ndl-app-menu:hover {background:{{color.controlBgHover}};}
 QToolButton#ndl-app-menu::menu-indicator {image:none;}
 
 /* Ribbon: the action row under the document tabs. */
@@ -52,19 +55,21 @@ QTabWidget#vortia-ribbon QScrollArea,QTabWidget#vortia-ribbon QScrollArea > QWid
 /* Workflow navigation: a sunken side bar with one row per stage. */
 QToolBar#vortia-workflow-toolbar {background:{{color.surfaceWindow}};border:0;padding:0;spacing:0;}
 /* The side bar spans exactly the height of the panels beside it; its side gaps are its own margin. */
-QWidget#vortia-workflow-navigation {margin:0 {{space.sm}}px;background:{{color.surfaceSunken}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;}
-QWidget#vortia-workflow-navigation QToolButton {text-align:left;min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;border-radius:{{radius.md}}px;color:{{color.textPrimary}};border-color:transparent;}
-QWidget#vortia-workflow-navigation QToolButton:hover {background:{{color.controlBgHover}};}
-QWidget#vortia-workflow-navigation QToolButton:checked {background:{{color.selectionBg}};color:{{color.accentText}};font-weight:{{weight.medium}};border-color:transparent;}
+/* The side bar is an island. The stage you are on is inverted, not tinted: the strongest mark the
+   palette has, kept for the one thing that is current. */
+QWidget#vortia-workflow-navigation {margin:0 {{space.sm}}px;background:{{color.surfacePanel}};border:0;border-radius:{{component.panelRadius}}px;}
+QWidget#vortia-workflow-navigation QToolButton {text-align:left;min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;border-radius:{{component.controlRadius}}px;color:{{color.textSecondary}};font-weight:{{weight.medium}};border-color:transparent;}
+QWidget#vortia-workflow-navigation QToolButton:hover {background:{{color.controlBgHover}};color:{{color.textPrimary}};}
+QWidget#vortia-workflow-navigation QToolButton:checked {background:{{color.textPrimary}};color:{{color.surfaceWindow}};font-weight:700;border-color:transparent;}
 QWidget#flow-navigation-sidebar QPushButton,QWidget#preferences-navigation-sidebar QPushButton {text-align:left;background:transparent;border:{{border.thin}}px solid transparent;border-radius:{{radius.md}}px;min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;color:{{color.textPrimary}};font-weight:{{weight.regular}};}
 QWidget#flow-navigation-sidebar QPushButton:hover,QWidget#preferences-navigation-sidebar QPushButton:hover {background:{{color.controlBgHover}};}
-QWidget#flow-navigation-sidebar QPushButton:checked,QWidget#preferences-navigation-sidebar QPushButton:checked {background:{{color.selectionBg}};color:{{color.accentText}};font-weight:{{weight.medium}};}
+QWidget#flow-navigation-sidebar QPushButton:checked,QWidget#preferences-navigation-sidebar QPushButton:checked {background:{{color.textPrimary}};color:{{color.surfaceWindow}};font-weight:700;border-color:transparent;}
 
 /* Content panels. */
-QWidget#vortia-central-card {background:{{color.surfacePanel}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;}
+QWidget#vortia-central-card {background:{{color.surfacePanel}};border:0;border-radius:{{component.panelRadius}}px;}
 QTabWidget#vortia-editor-tabs::pane {border:0;background:transparent;}
 QTabWidget#vortia-editor-tabs QDialog,QWidget#vortia-mesh-workspace,QWidget#vortia-physics-workspace {background:transparent;}
-QDockWidget > QWidget {background:{{color.surfacePanel}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;}
+QDockWidget > QWidget {background:{{color.surfacePanel}};border:0;border-radius:{{component.panelRadius}}px;}
 QDockWidget::title {background:transparent;border-bottom:0;padding:{{space.sm}}px {{space.md}}px;}
 /* Scroll areas are layout, not surfaces: they show the panel they sit on. */
 QScrollArea {background:transparent;border:0;}
@@ -73,6 +78,58 @@ QTreeWidget {border:0;}
 QPlainTextEdit {border:0;font-family:Menlo,"DejaVu Sans Mono",monospace;font-size:{{font.small}}px;padding:{{space.sm}}px;background:{{color.surfacePanel}};}
 
 /* Notices. */
-QLabel#vortia-update-notice,QLabel#vortia-nozzle-validation-notice,QLabel#vortia-flow-assessment {background:{{color.statusInfoBg}};color:{{color.textPrimary}};border:0;border-radius:{{radius.md}}px;padding:{{space.sm}}px {{space.md}}px;}
-QLabel#vortia-nozzle-validation-notice {background:{{color.statusWarningBg}};border:{{border.thin}}px solid {{color.statusWarningFg}};}
+QLabel#vortia-flow-assessment {background:{{color.statusInfoBg}};color:{{color.textPrimary}};border:0;border-radius:{{radius.md}}px;padding:{{space.sm}}px {{space.md}}px;}
+/* An NDL notice: a rounded island in the soft status colour with its bold icon. No box line. */
+QFrame#ndl-notice {background:{{color.statusInfoBg}};border:0;border-radius:{{component.controlRadius}}px;margin:{{space.sm}}px {{space.sm}}px 0 {{space.sm}}px;}
+QFrame#ndl-notice[kind="warning"] {background:{{color.statusWarningBg}};}
+QFrame#ndl-notice QLabel {background:transparent;border:0;padding:0;margin:0;color:{{color.textPrimary}};}
 QComboBox {padding-right:{{size.targetMin}}px;}
+
+/* Dock panels: their own title bar, the title in Sora and bold NDL buttons shaped like the rest. */
+/* The inspector's forms need their width: below it labels and fields were cut, not wrapped. */
+QDockWidget#vortia-dock-properties {min-width:{{size.inspector}}px;}
+/* One island: the title bar is its top, the panel's content its bottom, with no seam. */
+QWidget#ndl-dock-title {background:{{color.surfacePanel}};border:0;border-top-left-radius:{{component.panelRadius}}px;border-top-right-radius:{{component.panelRadius}}px;border-bottom-left-radius:0;border-bottom-right-radius:0;}
+QDockWidget > QWidget[ndl-dock-body="true"] {border-top-left-radius:0;border-top-right-radius:0;}
+QLabel#ndl-dock-title-label {font-family:"Sora";font-size:{{font.body}}px;font-weight:700;color:{{color.textPrimary}};}
+QToolButton#ndl-dock-button {min-width:28px;max-width:28px;min-height:28px;max-height:28px;padding:0;border:0;border-radius:14px;background:{{color.controlBg}};}
+QToolButton#ndl-dock-button:hover {background:{{color.controlBgHover}};}
+QToolButton#ndl-dock-button:pressed {background:{{color.controlBgPressed}};}
+
+/* Dialogs: no system bar. Their header carries the title in Sora and the coral close button. */
+QDialog[ndl-chrome="true"] {border:{{border.thin}}px solid {{color.borderDefault}};}
+QPushButton[ndlVariant="neutral"] {background:{{color.controlBg}};color:{{color.textPrimary}};border-color:transparent;}
+QPushButton[ndlVariant="neutral"]:hover {background:{{color.controlBgHover}};border-color:transparent;}
+QPushButton[ndlVariant="danger"]:hover {background:{{color.windowClose}};border-color:{{color.windowClose}};}
+QLabel#ndl-dialog-header-title {font-family:"Sora";font-size:{{font.body}}px;font-weight:700;color:{{color.textPrimary}};}
+
+/* A number field's steppers sit inside its pill: small rounded targets with NDL chevrons, a
+   soft disc under the pointer, never a square that cuts the field's corners. */
+QAbstractSpinBox::up-button,QAbstractSpinBox::down-button {width:18px;margin-right:8px;border:0;border-radius:6px;background:transparent;}
+QAbstractSpinBox::up-button {margin-top:4px;}
+QAbstractSpinBox::down-button {margin-bottom:4px;}
+QAbstractSpinBox::up-button:hover,QAbstractSpinBox::down-button:hover {background:{{color.controlBgPressed}};}
+QAbstractSpinBox::up-arrow {image:url(:/vortia/icons/chevron-up.svg);width:10px;height:10px;}
+QAbstractSpinBox::down-arrow {image:url(:/vortia/icons/chevron-down.svg);width:10px;height:10px;}
+QAbstractSpinBox::up-arrow:disabled,QAbstractSpinBox::down-arrow:disabled,QAbstractSpinBox::up-arrow:off,QAbstractSpinBox::down-arrow:off {image:none;}
+
+/* A combo's list is the island; the window around it stays see-through for its corners. */
+QComboBoxPrivateContainer {background:transparent;border:0;}
+QComboBox QAbstractItemView {border-radius:{{component.panelRadius}}px;}
+
+/* The side bar's head: the app's icon and name, the main menu at its right. */
+QLabel#vortia-sidebar-title {font-family:"Sora";font-size:{{font.large}}px;font-weight:800;color:{{color.textPrimary}};}
+QWidget#vortia-workflow-navigation QToolButton#ndl-app-menu {min-width:28px;max-width:28px;min-height:28px;max-height:28px;padding:0;border:0;border-radius:14px;background:transparent;}
+QWidget#vortia-workflow-navigation QToolButton#ndl-app-menu:hover,QWidget#vortia-workflow-navigation QToolButton#ndl-app-menu:open {background:{{color.controlBgHover}};}
+QToolButton#ndl-app-menu::menu-indicator {image:none;width:0;}
+/* A shortcut's keys on a pill, as Vinilo shows them. */
+QLabel#ndl-key {background:{{color.controlBg}};color:{{color.textSecondary}};border-radius:{{component.controlRadius}}px;padding:{{space.xxs}}px {{space.sm}}px;font-weight:600;}
+
+/* Dialogs: a title in Sora, heavy, like the view titles of every NDL app. */
+QLabel#ndl-dialog-title {font-family:"Sora";font-size:26px;font-weight:800;padding:{{space.xs}}px 0 {{space.sm}}px 0;}
+/* About: the same layout as every NDL app's. */
+QLabel#ndl-about-title {font-family:"Sora";font-size:32px;font-weight:800;}
+QLabel#ndl-about-tagline {color:{{color.textSecondary}};}
+QLabel#ndl-about-developer {color:{{color.textSecondary}};}
+QLabel#ndl-version-pill {background:{{color.accentSubtle}};color:{{color.accentText}};border-radius:{{component.controlRadius}}px;padding:{{space.xxs}}px {{space.md}}px;font-weight:700;}
+QLabel#ndl-about-notice {color:{{color.textTertiary}};font-size:{{font.small}}px;}

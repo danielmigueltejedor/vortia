@@ -4,6 +4,14 @@ Leyenda: ✅ completado · 🟡 en curso · ⬜ pendiente · 🧪 validado con b
 
 **Versión publicada:** 0.3.0 (instaladores autónomos con OpenFOAM integrado, verificación nativa, k-ω SST, fuerzas). Estado por áreas: `docs/CAPABILITY_MATRIX.md`.
 
+## Dirección
+
+Vortia va hacia una aplicación escrita entera en Rust ([`rust/README.md`](../rust/README.md))
+y hacia un motor de dinámica de fluidos propio, construido a partir de OpenFOAM, que
+sustituya al OpenFOAM integrado. Es una dirección, no algo hecho: hoy la aplicación que se
+publica es la de C++/Qt y calcula con OpenFOAM, y cada paso del motor propio tendrá que
+reproducir los casos de verificación actuales antes de reemplazar nada.
+
 ## Fase 0 — Investigación y fundamentos
 - ✅ Investigación de dependencias, versiones y licencias
 - ✅ Arquitectura y ADRs

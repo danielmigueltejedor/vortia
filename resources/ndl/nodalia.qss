@@ -5,13 +5,16 @@
    Arrow images are not set: NDL ships no icons, so the app points ::down-arrow and friends at its own. */
 
 QWidget {font-size:{{font.body}}px;}
-QMainWindow,QDialog {background:{{color.surfaceWindow}};color:{{color.textPrimary}};}
+QMainWindow {background:{{color.surfaceWindow}};color:{{color.textPrimary}};}
+/* A dialog is an island: the panel surface, never the window's frame. */
+QDialog {background:{{color.surfacePanel}};color:{{color.textPrimary}};}
+QDialogButtonBox {dialogbuttonbox-buttons-have-icons:0;}
 QMainWindow::separator {background:{{color.borderSubtle}};width:{{border.thin}}px;height:{{border.thin}}px;}
 QLabel {color:{{color.textPrimary}};}
 QLabel:disabled {color:{{color.textDisabled}};}
 
 /* Buttons: a filled control; the default action takes the accent. */
-QPushButton {background:{{color.controlBg}};color:{{color.textPrimary}};border:{{component.buttonBorderWidth}}px solid {{color.borderDefault}};border-radius:{{component.buttonRadius}}px;min-height:{{density.controlHeight}}px;padding:0 {{density.controlPaddingX}}px;font-weight:{{weight.medium}};}
+QPushButton {background:{{color.controlBg}};color:{{color.textPrimary}};border:{{component.buttonBorderWidth}}px solid transparent;border-radius:{{density.pillRadius}}px;min-height:{{density.controlHeight}}px;padding:0 {{density.controlPaddingX}}px;font-weight:{{weight.medium}};}
 QPushButton:hover {background:{{color.controlBgHover}};}
 QPushButton:pressed {background:{{color.controlBgPressed}};}
 QPushButton:checked {background:{{color.accentSubtle}};color:{{color.accentText}};border-color:{{color.accentText}};}
@@ -33,16 +36,16 @@ QToolButton:focus {border-color:{{color.borderFocus}};}
 QToolButton:disabled {color:{{color.textDisabled}};}
 
 /* Fields. */
-QLineEdit,QSpinBox,QDoubleSpinBox,QComboBox,QDateEdit,QTimeEdit {background:{{color.controlFieldBg}};color:{{color.textPrimary}};border:{{component.fieldBorderWidth}}px solid {{color.borderStrong}};border-radius:{{component.fieldRadius}}px;min-height:{{density.controlHeight}}px;padding:0 {{density.controlPaddingX}}px;selection-background-color:{{color.accentDefault}};selection-color:{{color.textOnAccent}};}
-QLineEdit:hover,QSpinBox:hover,QDoubleSpinBox:hover,QComboBox:hover {border-color:{{color.textPrimary}};}
+QLineEdit,QSpinBox,QDoubleSpinBox,QComboBox,QDateEdit,QTimeEdit {background:{{color.controlBg}};color:{{color.textPrimary}};border:{{component.fieldBorderWidth}}px solid transparent;border-radius:{{density.pillRadius}}px;min-height:{{density.controlHeight}}px;padding:0 {{density.controlPaddingX}}px;selection-background-color:{{color.accentDefault}};selection-color:{{color.textOnAccent}};}
+QLineEdit:hover,QSpinBox:hover,QDoubleSpinBox:hover,QComboBox:hover {background:{{color.controlBgHover}};}
 QLineEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus,QComboBox:focus {border:{{border.thick}}px solid {{color.borderFocus}};}
 QLineEdit:disabled,QAbstractSpinBox:disabled,QComboBox:disabled {background:{{color.controlBgDisabled}};color:{{color.textDisabled}};border-color:{{color.borderSubtle}};}
 /* The line edit inside a spin box or an editable combo box is part of that field, not a field of its own. */
 QAbstractSpinBox QLineEdit,QComboBox QLineEdit {background:transparent;border:0;min-height:0;padding:0;}
 QComboBox {combobox-popup:0;}
 QComboBox::drop-down {subcontrol-origin:padding;subcontrol-position:center right;width:{{size.targetMin}}px;border:0;}
-QComboBox QAbstractItemView {background:{{color.surfaceOverlay}};color:{{color.textPrimary}};border:{{border.thin}}px solid {{color.borderDefault}};border-radius:{{radius.md}}px;padding:{{space.xs}}px;outline:0;selection-background-color:{{color.selectionBg}};selection-color:{{color.textPrimary}};}
-QComboBox QAbstractItemView::item {min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;border-radius:{{radius.sm}}px;}
+QComboBox QAbstractItemView {background:{{color.surfaceOverlay}};color:{{color.textPrimary}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.controlRadius}}px;padding:{{space.xs}}px;outline:0;selection-background-color:{{color.selectionBg}};selection-color:{{color.textPrimary}};}
+QComboBox QAbstractItemView::item {min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;border-radius:{{component.controlRadius}}px;}
 QAbstractSpinBox::up-button,QAbstractSpinBox::down-button {width:{{size.iconLarge}}px;border:0;background:transparent;}
 QAbstractSpinBox::up-button {subcontrol-origin:border;subcontrol-position:top right;}
 QAbstractSpinBox::down-button {subcontrol-origin:border;subcontrol-position:bottom right;}
@@ -79,8 +82,12 @@ QHeaderView::section {background:{{color.surfacePanel}};color:{{color.textSecond
 QTableCornerButton::section {background:{{color.surfacePanel}};border:0;border-bottom:{{border.thin}}px solid {{color.borderDefault}};}
 
 /* Groups and panels. */
-QGroupBox {background:transparent;border:0;border-top:{{border.thin}}px solid {{color.borderSubtle}};margin-top:{{space.lg}}px;padding:{{density.panelPadding}}px 0 0 0;font-weight:{{weight.medium}};}
-QGroupBox::title {subcontrol-origin:margin;subcontrol-position:top left;padding:0 {{space.xs}}px 0 0;color:{{color.textSecondary}};}
+/* A group is an island of its own, its title above it in bold (the shape of an NDL preferences group). */
+QGroupBox {background:{{color.surfaceRaised}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;margin-top:{{space.xxl}}px;padding:{{density.panelPadding}}px;font-weight:700;}
+/* Inside a group the fields sit a step below it, so they read on both a light and a dark island. */
+QGroupBox QLineEdit,QGroupBox QAbstractSpinBox,QGroupBox QComboBox {background:{{color.surfaceSunken}};}
+QGroupBox QLineEdit:hover,QGroupBox QAbstractSpinBox:hover,QGroupBox QComboBox:hover {background:{{color.controlBgHover}};}
+QGroupBox::title {subcontrol-origin:margin;subcontrol-position:top left;left:{{space.xs}}px;padding:0 0 {{space.sm}}px 0;color:{{color.textPrimary}};}
 QDockWidget {color:{{color.textSecondary}};font-weight:{{weight.medium}};}
 QDockWidget::title {background:{{color.surfacePanel}};text-align:left;padding:{{space.sm}}px {{density.panelPadding}}px;border-bottom:{{border.thin}}px solid {{color.borderSubtle}};}
 QSplitter::handle {background:{{color.borderSubtle}};}
@@ -97,21 +104,22 @@ QStatusBar {background:{{color.surfacePanel}};color:{{color.textSecondary}};bord
 QStatusBar::item {border:0;}
 
 /* Menus and tooltips. */
-QMenu {background:{{color.surfaceOverlay}};color:{{color.textPrimary}};border:{{border.thin}}px solid {{color.borderDefault}};border-radius:{{radius.lg}}px;padding:{{space.xs}}px;}
-QMenu::item {padding:{{space.xs}}px {{space.xl}}px;border-radius:{{radius.sm}}px;}
+QMenu {background:{{color.surfaceOverlay}};color:{{color.textPrimary}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;padding:{{space.xs}}px;}
+QMenu::item {min-height:{{density.rowHeight}}px;padding:0 {{space.xl}}px 0 {{space.sm}}px;border-radius:{{component.controlRadius}}px;}
+QMenu::icon {padding-left:{{space.sm}}px;}
 QMenu::item:selected {background:{{color.controlBgHover}};}
 QMenu::item:disabled {color:{{color.textDisabled}};}
 QMenu::separator {height:{{border.thin}}px;background:{{color.borderSubtle}};margin:{{space.xs}}px 0;}
-QToolTip {background:{{color.surfaceInverse}};color:{{color.textInverse}};border:0;border-radius:{{radius.sm}}px;padding:{{space.xs}}px {{space.sm}}px;font-size:{{font.small}}px;}
+QToolTip {background:{{color.surfaceInverse}};color:{{color.textInverse}};border:0;border-radius:{{component.controlRadius}}px;padding:{{space.xs}}px {{space.sm}}px;font-size:{{font.small}}px;}
 
 /* Scroll bars, sliders and progress. */
 QScrollBar {background:transparent;border:0;}
 QScrollBar:vertical {width:{{size.scrollbar}}px;margin:0;}
 QScrollBar:horizontal {height:{{size.scrollbar}}px;margin:0;}
-QScrollBar::handle {background:{{color.controlTrack}};border-radius:{{radius.sm}}px;margin:{{space.xxs}}px;}
+QScrollBar::handle {background:{{color.borderStrong}};border-radius:{{space.xxs}}px;margin:{{space.xxs}}px;}
 QScrollBar::handle:vertical {min-height:{{size.targetMin}}px;}
 QScrollBar::handle:horizontal {min-width:{{size.targetMin}}px;}
-QScrollBar::handle:hover {background:{{color.borderStrong}};}
+QScrollBar::handle:hover {background:{{color.textTertiary}};}
 QScrollBar::add-line,QScrollBar::sub-line {width:0;height:0;border:0;background:none;}
 QScrollBar::add-page,QScrollBar::sub-page {background:none;}
 QSlider::groove:horizontal {height:{{component.sliderTrackHeight}}px;background:{{color.controlTrack}};border-radius:{{space.xxs}}px;}

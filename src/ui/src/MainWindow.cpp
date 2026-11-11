@@ -36,6 +36,7 @@
 #include "vortia/solver/openfoam/Detector.hpp"
 #include "vortia/ui/OpenFoamRuntime.hpp"
 #include "vortia/ui/ThemeManager.hpp"
+#include "vortia/ui/GlobalMenu.hpp"
 #include "vortia/ui/WindowChrome.hpp"
 #include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/ui/ResultFiles.hpp"
@@ -64,6 +65,7 @@
 #include <QApplication>
 #include <QDockWidget>
 #include <QScrollArea>
+#include <QPointer>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QProgressDialog>
@@ -89,6 +91,8 @@
 #include <QStatusBar>
 #include <QToolBar>
 #include <QLabel>
+#include <QUrl>
+#include <QIcon>
 
 #include <filesystem>
 #include <fstream>
@@ -302,7 +306,8 @@ void MainWindow::buildMenusAndToolbar() {
     connect(generateMesh,&QAction::triggered,this,&MainWindow::onGenerateFlowMesh);
     openResults->setIcon(uiIcon(QStringLiteral(":/vortia/icons/view.svg")));
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
+    quitAction_ = fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
+    quitAction_->setIcon(uiIcon(QStringLiteral(":/vortia/icons/power.svg")));
 
     auto* simMenu = menuBar()->addMenu(tr("Simulation"));
     fileMenu->removeAction(flowSetup);simMenu->addAction(flowSetup);simMenu->addSeparator();
@@ -320,7 +325,8 @@ void MainWindow::buildMenusAndToolbar() {
     auto* searchTool=new QAction(tr("Find a tool…"),this);searchTool->setObjectName("vortia-find-tool");
     searchTool->setShortcut(QKeySequence("Ctrl+K"));searchTool->setIcon(uiIcon(":/vortia/icons/search.svg"));
     toolsMenu->addAction(searchTool);connect(searchTool,&QAction::triggered,this,&MainWindow::onFindTool);
-    preferences->setObjectName("vortia-preferences-action");preferences->setShortcut(QKeySequence::Preferences);
+    preferences->setObjectName("vortia-preferences-action");// QKeySequence::Preferences is empty on Linux; Ctrl+, is every Nodalia app's.
+    preferences->setShortcut(QKeySequence::keyBindings(QKeySequence::Preferences).value(0, QKeySequence(QStringLiteral("Ctrl+,"))));
     preferences->setIcon(uiIcon(":/vortia/icons/settings.svg"));
 
     auto* viewMenu = menuBar()->addMenu(tr("View"));
@@ -329,7 +335,11 @@ void MainWindow::buildMenusAndToolbar() {
 
     auto* helpMenu = menuBar()->addMenu(tr("Help"));
     helpMenu->addAction(tr("Check for updates…"), this, &MainWindow::onCheckForUpdates);
-    helpMenu->addAction(tr("About Vortia"), this, &MainWindow::onAbout);
+    shortcutsAction_ = helpMenu->addAction(tr("Keyboard Shortcuts"), this, &MainWindow::onShortcuts);
+    shortcutsAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+?")));
+    shortcutsAction_->setIcon(uiIcon(QStringLiteral(":/vortia/icons/key.svg")));
+    aboutAction_ = helpMenu->addAction(tr("About Vortia"), this, &MainWindow::onAbout);
+    aboutAction_->setIcon(uiIcon(QStringLiteral(":/vortia/icons/info.svg")));
 
     // Use Qt style icons so that no third-party icons/fonts or platform-specific
     // assets need bundling, and provide real actions rather than decorative tools.
@@ -395,8 +405,35 @@ void MainWindow::buildMenusAndToolbar() {
     navigator->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
     auto* navLayout = new QVBoxLayout(navigator); navLayout->setContentsMargins(16,12,16,10); // 8 px of it is the side margin the style sheet gives the bar
     navLayout->setSpacing(5);
-    auto* brand = new QLabel(navigator); brand->setPixmap(QPixmap(":/vortia/app-icon.png").scaled(32,32,Qt::KeepAspectRatio,Qt::SmoothTransformation));
-    brand->setAccessibleName(tr("Vortia")); navLayout->addWidget(brand); navLayout->addSpacing(12);
+    // The side bar opens like every Nodalia app's: the app's icon and name, and the main menu
+    // (Preferences, Keyboard Shortcuts, About, Exit) at its right.
+    auto* sidebarHeader = new QWidget(navigator); sidebarHeader->setObjectName("vortia-sidebar-header");
+    auto* headerRow = new QHBoxLayout(sidebarHeader); headerRow->setContentsMargins(4,0,0,0); headerRow->setSpacing(10);
+    auto* brand = new QLabel(sidebarHeader); brand->setObjectName("vortia-sidebar-brand");
+    brand->setPixmap(QIcon(QStringLiteral(":/vortia/app-icon.png")).pixmap(28,28)); brand->setAccessibleName(tr("Vortia"));
+    auto* appName = new QLabel(QStringLiteral("Vortia"), sidebarHeader); appName->setObjectName("vortia-sidebar-title");
+    auto* appMenu = new QToolButton(sidebarHeader); appMenu->setObjectName("ndl-app-menu");
+    appMenu->setIcon(uiIcon(QStringLiteral(":/vortia/icons/menu.svg"))); appMenu->setIconSize({18,18});
+    appMenu->setToolTip(tr("Main menu")); appMenu->setAccessibleName(tr("Main menu"));
+    // Reachable with Tab: with the menu bar hidden it is the keyboard's way into every menu.
+    appMenu->setPopupMode(QToolButton::InstantPopup); appMenu->setFocusPolicy(Qt::TabFocus);
+    auto* primaryMenu = new QMenu(appMenu); primaryMenu->setObjectName("ndl-primary-menu");
+    connect(primaryMenu, &QMenu::aboutToShow, this, [this, primaryMenu, preferences] {
+        primaryMenu->clear();
+        // Without a top bar to hand the menus to, they stay reachable here.
+        if (menuBar()->isHidden() && !ndl::globalMenuAvailable()) {
+            primaryMenu->addActions(menuBar()->actions());
+            primaryMenu->addSeparator();
+        }
+        primaryMenu->addAction(preferences);
+        primaryMenu->addAction(shortcutsAction_);
+        primaryMenu->addAction(aboutAction_);
+        primaryMenu->addSeparator();
+        primaryMenu->addAction(quitAction_);
+    });
+    appMenu->setMenu(primaryMenu);
+    headerRow->addWidget(brand); headerRow->addWidget(appName); headerRow->addStretch(1); headerRow->addWidget(appMenu);
+    navLayout->addWidget(sidebarHeader); navLayout->addSpacing(12);
     auto* stages = new QButtonGroup(workflow); stages->setObjectName("vortia-workflow-stages");
     const QStringList names{tr("Project"),tr("Geometry"),tr("Mesh"),tr("Physics"),tr("Calculation"),tr("Results")};
     const QStringList glyphs{"open","sketch","mesh","material","solver","chart"};
@@ -404,7 +441,9 @@ void MainWindow::buildMenusAndToolbar() {
         auto* button = new QToolButton(navigator); button->setObjectName("vortia-workflow-stage-"+QString::number(i));
         button->setProperty("stageTitle",names[i]); button->setProperty("stageIndex",i);
         button->setText(names[i]); button->setAccessibleName(names[i]); button->setCheckable(true);
-        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon); button->setIcon(toolIcon(glyphs[i],QStyle::SP_FileIcon));
+        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        // The current stage is inverted (text-coloured fill): its icon inverts with its label.
+        button->setIcon(uiIcon(QStringLiteral(":/vortia/icons/%1.svg").arg(glyphs[i]),true));
         button->setIconSize({20,20}); button->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
         button->setMinimumHeight(42); button->setShortcut(QKeySequence(QString("Alt+%1").arg(i+1)));
         button->setToolTip(names[i]+" · "+button->shortcut().toString(QKeySequence::NativeText));
@@ -415,9 +454,10 @@ void MainWindow::buildMenusAndToolbar() {
         connect(button,&QToolButton::clicked,this,[this,i](){activateWorkflowStage(i);});
     }
     navLayout->addStretch(1);
-    for(auto* action:{searchTool,preferences}) {
+    // Preferences moved to the main menu at the top of the side bar.
+    for(auto* action:{searchTool}) {
         auto* button=new QToolButton(navigator);button->setDefaultAction(action);
-        button->setText(action==searchTool?tr("Search"):tr("Preferences…"));
+        button->setText(tr("Search"));
         button->setAccessibleName(action->text());button->setToolTip(action->text());
         button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);button->setIconSize({18,18});
         button->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);navLayout->addWidget(button);
@@ -814,12 +854,15 @@ void MainWindow::updateWorkflowInspector() {
 void MainWindow::buildDocks() {
     setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowTabbedDocks
                    | QMainWindow::AllowNestedDocks);
+    // The islands keep the window gap on the right too; the left one is the side bar's own margin.
+    setContentsMargins(0, 0, 8, 0);
     auto* central = new QWidget(this);
     // The work area is a panel on the window surface.
     central->setObjectName(QStringLiteral("vortia-central-card"));
     central->setAttribute(Qt::WA_StyledBackground, true);
     auto* centralLayout = new QVBoxLayout(central);
-    centralLayout->setContentsMargins(1, 1, 1, 1);
+    // Pages fill the island; a canvas flush with it rounds its own corners (roundCanvasCorners).
+    centralLayout->setContentsMargins(0, 0, 0, 0);
     centralLayout->setSpacing(0);
     projectTabs_ = new QTabBar(central);
     projectTabs_->setObjectName(QStringLiteral("vortia-project-tabs"));
@@ -846,14 +889,8 @@ void MainWindow::buildDocks() {
             trafficSpace->setFixedWidth(84);row->addWidget(trafficSpace);
             trafficSpace->installEventFilter(this);
         } else {
-            // The menus of the hidden menu bar live behind one button.
-            auto* appMenu=new QToolButton(header);appMenu->setObjectName("ndl-app-menu");
-            appMenu->setText(QStringLiteral("\u2261"));appMenu->setToolTip(tr("Main menu"));
-            appMenu->setPopupMode(QToolButton::InstantPopup);appMenu->setFocusPolicy(Qt::NoFocus);
-            auto* menu=new QMenu(appMenu);
-            connect(menu,&QMenu::aboutToShow,this,[this,menu]{menu->clear();menu->addActions(menuBar()->actions());});
-            appMenu->setMenu(menu);
-            row->addSpacing(8);row->addWidget(appMenu);row->addSpacing(4);
+            // The app's icon and main menu head the side bar, as in every Nodalia app.
+            row->addSpacing(8);
         }
         projectTabs_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);row->addWidget(projectTabs_,1);
         qobject_cast<QVBoxLayout*>(topBar->layout())->insertWidget(0,header);
@@ -872,35 +909,52 @@ void MainWindow::buildDocks() {
                 }
             };
             keepShortcuts(menuBar()->actions());
+            // The menus also go to the desktop's top bar where there is one (Nodalix on Wayland).
+            ndl::exportGlobalMenu(menuBar());
             menuBar()->hide();
         }
     } else {
         centralLayout->addWidget(projectTabs_);
+#ifdef Q_OS_LINUX
+        // The desktop's own frame (Preferences › Window controls › System): the menus still go
+        // to a top bar that takes them; elsewhere the window keeps its menu bar.
+        // The menu bar goes away only once the bar has accepted the menus, and comes back if it
+        // refuses them later; its shortcuts stay on the window either way.
+        std::function<void(const QList<QAction*>&)> keepShortcuts=[&](const QList<QAction*>& actions) {
+            for(QAction* action:actions) {
+                if(action->menu())keepShortcuts(action->menu()->actions());
+                else if(!action->isSeparator())addAction(action);
+            }
+        };
+        keepShortcuts(menuBar()->actions());
+        // Guarded: the registrar can answer, or vanish, after the window has gone.
+        ndl::exportGlobalMenu(menuBar(),[window=QPointer<MainWindow>(this)](bool accepted){
+            if(window)window->menuBar()->setVisible(!accepted||!ndl::globalMenuAvailable());
+        });
+#endif
     }
     updateNotice_ = new QLabel(central);
     updateNotice_->setObjectName(QStringLiteral("vortia-update-notice"));
     updateNotice_->setWordWrap(true);
-    updateNotice_->setMargin(8);
     updateNotice_->setTextFormat(Qt::RichText);
     updateNotice_->setOpenExternalLinks(false);
     updateNotice_->setTextInteractionFlags(Qt::TextBrowserInteraction);
-    updateNotice_->setStyleSheet(QStringLiteral(
-        "QLabel { background:palette(alternate-base); color:palette(text); border-left:3px solid #3d7ea6; padding:5px 8px; }"));
     updateNotice_->hide();
     connect(updateNotice_, &QLabel::linkActivated, this, &MainWindow::onUpdateBannerLink);
-    centralLayout->addWidget(updateNotice_);
+    centralLayout->addWidget(ndl::wrapNotice(updateNotice_, QStringLiteral("info")));
     nozzleNotice_ = new QLabel(central);
     nozzleNotice_->setObjectName(QStringLiteral("vortia-nozzle-validation-notice"));
     nozzleNotice_->setWordWrap(true);
-    nozzleNotice_->setMargin(8);
-    nozzleNotice_->setStyleSheet(QStringLiteral("QLabel { background:palette(alternate-base); color:palette(text); border-left:3px solid #b39153; padding:5px 8px; }"));
     nozzleNotice_->hide();
-    centralLayout->addWidget(nozzleNotice_);
+    centralLayout->addWidget(ndl::wrapNotice(nozzleNotice_, QStringLiteral("warning")));
     workspaceTabs_ = new QTabWidget(central);
     workspaceTabs_->setDocumentMode(true);
     workspaceTabs_->setObjectName(QStringLiteral("vortia-editor-tabs"));
     workspaceTabs_->tabBar()->hide();
     viewport_ = new VtkViewport(workspaceTabs_);
+    // It fills the work island to its corners: rounded like the island, as an OpenGL view is
+    // not clipped by the panel it sits on.
+    ndl::roundCanvasCorners(viewport_, 16);
     connect(viewport_,&VtkViewport::fieldDataChanged,this,[this](){refreshFieldTools();});
     connect(viewport_,&VtkViewport::viewToolsChanged,this,[this](){refreshFieldTools();});
     workspaceTabs_->addTab(viewport_, tr("3D CFD"));
@@ -943,6 +997,7 @@ void MainWindow::buildDocks() {
     explorerDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     explorer_ = new ProjectExplorerPanel(this);
     explorerDock->setWidget(explorer_);
+    ndl::installDockTitleBar(explorerDock);
     addDockWidget(Qt::LeftDockWidgetArea, explorerDock);
     explorerDock->hide();
 
@@ -959,6 +1014,9 @@ void MainWindow::buildDocks() {
     flowAssessment_->setMinimumWidth(250);flowAssessment_->hide();
     propertiesTabs_=new QTabWidget(propertiesContainer);
     propertiesTabs_->setTabBarAutoHide(true);
+    // Both tab names are read whole; the bar scrolls before it cuts one.
+    propertiesTabs_->setElideMode(Qt::ElideNone);
+    propertiesTabs_->setUsesScrollButtons(true);
     inspectorStack_=new QStackedWidget(propertiesTabs_);inspectorStack_->addWidget(properties_);
     inspectorStack_->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred);
     workflowSummary_=new QLabel(inspectorStack_);workflowSummary_->setObjectName("vortia-workflow-summary");
@@ -999,6 +1057,7 @@ void MainWindow::buildDocks() {
     propertiesTabs_->addTab(assessmentPage,tr("Run assessment"));propertiesTabs_->setTabVisible(1,false);
     propertiesLayout->addWidget(propertiesTabs_,1);
     propsDock->setWidget(propertiesContainer);
+    ndl::installDockTitleBar(propsDock);
     addDockWidget(Qt::RightDockWidgetArea, propsDock);
     connect(workspaceTabs_,&QTabWidget::currentChanged,this,[this,propsDock](int){
         if(workspaceTabs_->currentWidget()==runMonitor_)if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(4);
@@ -1018,6 +1077,7 @@ void MainWindow::buildDocks() {
     console_ = new ConsolePanel(this);
     consoleDock->setWidget(console_);
     consoleDock->hide();
+    ndl::installDockTitleBar(consoleDock);
     addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
     resizeDocks({explorerDock, propsDock}, {230, 295}, Qt::Horizontal);
     resizeDocks({consoleDock}, {155}, Qt::Vertical);
@@ -1196,10 +1256,8 @@ void MainWindow::closeProjectTab(int index) {
         return;
     storeCurrentTab();
     const auto& tab = documents_[static_cast<std::size_t>(index)];
-    if (tab.modified && QMessageBox::question(
-            this, tr("Unsaved project"),
-            tr("Discard unsaved changes in %1?").arg(tab.name),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+    if (tab.modified && !confirmDiscard(tr("Unsaved project"),
+            tr("Discard unsaved changes in %1?").arg(tab.name), tr("Discard")))
         return;
     const int oldActive = activeProjectTab_;
     {
@@ -2200,13 +2258,140 @@ void MainWindow::ensureOpenFoamInstallation() {
     }
 }
 
+void MainWindow::onShortcuts() {
+    // Read from the actions themselves, so the list is the app's real one and never goes stale:
+    // one island per menu, each action with its key on a pill.
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Keyboard Shortcuts"));
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(24, 8, 24, 24);
+    auto* title = new QLabel(tr("Keyboard Shortcuts"), &dialog);
+    title->setObjectName(QStringLiteral("ndl-dialog-title"));
+    layout->addWidget(title);
+    auto* scroll = new QScrollArea(&dialog);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    auto* content = new QWidget(scroll);
+    auto* sections = new QVBoxLayout(content);
+    sections->setContentsMargins(0, 0, 0, 0);
+    sections->setSpacing(16);
+    std::function<void(const QList<QAction*>&, QList<QAction*>&)> collect =
+        [&](const QList<QAction*>& actions, QList<QAction*>& out) {
+            for (QAction* action : actions) {
+                if (action->menu())
+                    collect(action->menu()->actions(), out);
+                else if (!action->isSeparator() && !action->shortcut().isEmpty() && !out.contains(action))
+                    out.append(action);
+            }
+        };
+    for (QAction* top : menuBar()->actions()) {
+        if (!top->menu())
+            continue;
+        QList<QAction*> actions;
+        collect(top->menu()->actions(), actions);
+        if (actions.isEmpty())
+            continue;
+        auto* group = new QGroupBox(top->text().remove(QLatin1Char('&')), content);
+        auto* rows = new QGridLayout(group);
+        rows->setHorizontalSpacing(24);
+        rows->setVerticalSpacing(10);
+        int row = 0;
+        for (QAction* action : actions) {
+            auto* name = new QLabel(action->text().remove(QLatin1Char('&')), group);
+            auto* key = new QLabel(action->shortcut().toString(QKeySequence::NativeText), group);
+            key->setObjectName(QStringLiteral("ndl-key"));
+            rows->addWidget(name, row, 0);
+            rows->addWidget(key, row++, 1, Qt::AlignRight);
+        }
+        sections->addWidget(group);
+    }
+    // The workflow stages carry their keys on the side bar's buttons, not in a menu.
+    auto* stages = new QGroupBox(tr("Workflow"), content);
+    auto* stageRows = new QGridLayout(stages);
+    stageRows->setHorizontalSpacing(24);
+    stageRows->setVerticalSpacing(10);
+    int stageRow = 0;
+    for (int i = 0;; ++i) {
+        auto* button = findChild<QToolButton*>(QStringLiteral("vortia-workflow-stage-%1").arg(i));
+        if (!button)
+            break;
+        auto* key = new QLabel(button->shortcut().toString(QKeySequence::NativeText), stages);
+        key->setObjectName(QStringLiteral("ndl-key"));
+        stageRows->addWidget(new QLabel(button->property("stageTitle").toString(), stages), stageRow, 0);
+        stageRows->addWidget(key, stageRow++, 1, Qt::AlignRight);
+    }
+    if (stageRow > 0)
+        sections->insertWidget(0, stages);
+    else
+        delete stages;
+    sections->addStretch(1);
+    scroll->setWidget(content);
+    layout->addWidget(scroll, 1);
+    dialog.resize(520, 600);
+    dialog.exec();
+}
+
 void MainWindow::onAbout() {
-    QMessageBox::about(this, tr("About Vortia"),
-                       tr("Vortia — Engineering the Flow\n\n"
-                          "Open-source CFD desktop application powered by OpenFOAM.\n"
-                          "Version %1\n\n"
-                          "Original implementation. Vortia is not affiliated with ANSYS, Inc.")
-                           .arg(QCoreApplication::applicationVersion()));
+    // The same About every Nodalia app has: the icon, the name in Sora, who makes it, the version
+    // as a pill, what it is, and where to find more.
+    QDialog about(this);
+    about.setObjectName("ndl-about");
+    about.setWindowTitle(tr("About Vortia"));
+    about.setMinimumWidth(440);
+    auto* column = new QVBoxLayout(&about);
+    column->setContentsMargins(40, 32, 40, 24);
+    column->setSpacing(6);
+    const auto centred = [&](QLabel* label, const char* name) {
+        label->setObjectName(QString::fromLatin1(name));
+        label->setAlignment(Qt::AlignCenter);
+        label->setWordWrap(true);
+        column->addWidget(label);
+        return label;
+    };
+    auto* icon = new QLabel(&about);
+    icon->setPixmap(QIcon(QStringLiteral(":/vortia/app-icon.png")).pixmap(96, 96));
+    centred(icon, "ndl-about-icon");
+    column->addSpacing(8);
+    centred(new QLabel(QStringLiteral("Vortia"), &about), "ndl-about-title");
+    centred(new QLabel(QStringLiteral("Engineering the Flow"), &about), "ndl-about-tagline");
+    centred(new QLabel(QStringLiteral("Daniel Miguel Tejedor"), &about), "ndl-about-developer");
+    auto* versionRow = new QHBoxLayout;
+    auto* version = new QLabel(QCoreApplication::applicationVersion(), &about);
+    version->setObjectName("ndl-version-pill");
+    versionRow->addStretch();
+    versionRow->addWidget(version);
+    versionRow->addStretch();
+    column->addLayout(versionRow);
+    column->addSpacing(12);
+    centred(new QLabel(tr("Open-source CFD desktop application powered by OpenFOAM."), &about), "ndl-about-text");
+    centred(new QLabel(tr("Original implementation. Vortia is not affiliated with ANSYS, Inc."), &about),
+            "ndl-about-notice");
+    column->addSpacing(16);
+    auto* links = new QHBoxLayout;
+    links->setSpacing(8);
+    const auto link = [&](const QString& text, const char* url) {
+        auto* button = new QPushButton(text, &about);
+        button->setProperty("ndlVariant", "subtle");
+        QObject::connect(button, &QPushButton::clicked, &about,
+                         [url] { QDesktopServices::openUrl(QUrl(QString::fromLatin1(url))); });
+        links->addWidget(button);
+    };
+    links->addStretch();
+    link(tr("Website"), "https://vortia.getnodalia.com");
+    link(tr("Source code"), "https://github.com/danielmigueltejedor/vortia");
+    link(tr("License"), "https://github.com/danielmigueltejedor/vortia/blob/main/LICENSE");
+    links->addStretch();
+    column->addLayout(links);
+    column->addSpacing(8);
+    auto* close = new QPushButton(tr("Close"), &about);
+    close->setDefault(true);
+    QObject::connect(close, &QPushButton::clicked, &about, &QDialog::accept);
+    auto* closeRow = new QHBoxLayout;
+    closeRow->addStretch();
+    closeRow->addWidget(close);
+    closeRow->addStretch();
+    column->addLayout(closeRow);
+    about.exec();
 }
 
 void MainWindow::onCheckForUpdates() {
@@ -2291,14 +2476,22 @@ void MainWindow::setProjectState(const QString& statusText) {
     statusLabel_->setText(statusText);
 }
 
+bool MainWindow::confirmDiscard(const QString& title, const QString& text, const QString& discard) {
+    // The action is named, and drawn in the danger colour; Cancel is the safe default.
+    QMessageBox box(QMessageBox::Warning, title, text, QMessageBox::NoButton, this);
+    auto* discardButton = box.addButton(discard, QMessageBox::DestructiveRole);
+    box.setDefaultButton(box.addButton(QMessageBox::Cancel));
+    box.exec();
+    return box.clickedButton() == discardButton;
+}
+
 void MainWindow::closeEvent(QCloseEvent* event) {
     storeCurrentTab();
     bool pending = false;
     for (const auto& doc : documents_)
         pending = pending || doc.modified;
-    if (pending && QMessageBox::question(this, tr("Unsaved projects"),
-         tr("Some projects have unsaved changes. Exit without saving?"),
-         QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+    if (pending && !confirmDiscard(tr("Unsaved projects"),
+         tr("Some projects have unsaved changes. Exit without saving?"), tr("Exit without saving"))) {
         event->ignore();
         return;
     }
