@@ -134,6 +134,9 @@ impl KOmegaSst {
         (u_bc, u): (&VectorBoundary, &[Vec3]),
     ) -> Result<Self> {
         check_wall_dist(case)?;
+        // CDkω and F1 take these gradients, and only Gauss linear is built.
+        case.require_gauss_linear_grad("k")?;
+        case.require_gauss_linear_grad("omega")?;
         let k = read_k(mesh, dir)?;
         let omega = ModelField::read(mesh, dir, "omega", FREQUENCY, |pf| match pf.kind.as_str() {
             "fixedValue" => Some(Kind::Fixed(Vec::new())),

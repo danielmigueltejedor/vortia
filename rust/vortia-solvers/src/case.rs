@@ -263,7 +263,15 @@ impl Case {
         let d = find(field).ok_or_else(|| {
             SolverError::Setup(format!("fvSolution/solvers has no entry for '{field}'"))
         })?;
-        expand(d, &find, 0, &mut { MAX_EXPANDED_ENTRIES })
+        expand(
+            d,
+            &find,
+            0,
+            &mut Budget {
+                entries: MAX_EXPANDED_ENTRIES,
+                weight: MAX_EXPANDED_WEIGHT,
+            },
+        )
     }
 
     pub fn non_orthogonal_correctors(&self, algorithm: &str) -> usize {
@@ -276,16 +284,45 @@ impl Case {
     }
 }
 
-/// `d` with each `$name` entry replaced by the entries of `find(name)`.
 /// The most entries `$` references may expand to in one lookup: depth
 /// alone does not bound a dictionary that names another many times over.
 const MAX_EXPANDED_ENTRIES: usize = 10_000;
+/// The most the copies one lookup makes may weigh (see [`weight`]): a few
+/// references to one huge value would otherwise copy it into memory many
+/// times over while staying well under the entry count.
+const MAX_EXPANDED_WEIGHT: usize = 1 << 22;
 
+/// Roughly the bytes an entry holds: one per value plus its text.
+fn weight(entry: &Entry) -> usize {
+    fn value(v: &Value) -> usize {
+        match v {
+            Value::Word(s) | Value::Str(s) => 1 + s.len(),
+            Value::Label(_) | Value::Scalar(_) => 1,
+            Value::List(l) | Value::Dimensions(l) => 1 + l.iter().map(value).sum::<usize>(),
+            Value::Dict(d) => 1 + dict(d),
+            Value::Keyed(k, d) => 1 + k.len() + dict(d),
+        }
+    }
+    fn dict(d: &Dictionary) -> usize {
+        d.entries().map(|(k, e)| k.len() + weight(e)).sum()
+    }
+    match entry {
+        Entry::Dict(d) => 1 + dict(d),
+        Entry::Values(v) | Entry::Directive(v) => 1 + v.iter().map(value).sum::<usize>(),
+    }
+}
+
+struct Budget {
+    entries: usize,
+    weight: usize,
+}
+
+/// `d` with each `$name` entry replaced by the entries of `find(name)`.
 fn expand<'a>(
     d: &Dictionary,
     find: &impl Fn(&str) -> Option<&'a Dictionary>,
     depth: u32,
-    budget: &mut usize,
+    budget: &mut Budget,
 ) -> Result<Dictionary> {
     if depth > 8 {
         return Err(SolverError::Setup(
@@ -294,7 +331,7 @@ fn expand<'a>(
     }
     let mut out = Dictionary::new();
     for (key, entry) in d.entries() {
-        *budget = budget.checked_sub(1).ok_or_else(|| {
+        budget.entries = budget.entries.checked_sub(1).ok_or_else(|| {
             SolverError::Setup(format!(
                 "fvSolution: '$' references expand to more than {MAX_EXPANDED_ENTRIES} entries"
             ))
@@ -308,7 +345,12 @@ fn expand<'a>(
                     out.set(k, e.clone());
                 }
             }
-            None => out.set(key, entry.clone()),
+            None => {
+                budget.weight = budget.weight.checked_sub(weight(entry)).ok_or_else(|| {
+                    SolverError::Setup("fvSolution: '$' references copy too much data".into())
+                })?;
+                out.set(key, entry.clone());
+            }
         }
     }
     Ok(out)
@@ -397,6 +439,26 @@ mod tests {
         // per repeat, so a large value named many times stays one value.
         let d = case.solver_dict("l2").unwrap();
         assert_eq!(d.entries().count(), 1);
+    }
+
+    #[test]
+    fn references_to_a_large_value_are_bounded_by_size() {
+        // A 1 MB word named 1000 times: few entries, a gigabyte of copies.
+        let big = "w".repeat(1 << 20);
+        let refs: String = (0..1000).map(|i| format!("r{i} {{ $big; }} ")).collect();
+        let all: String = (0..1000).map(|i| format!("$r{i}; ")).collect();
+        let text = format!("solvers {{ big {{ v {big}; }} {refs} all {{ {all} }} }}");
+        let dir = tempfile::tempdir().unwrap();
+        let system = dir.path().join("system");
+        std::fs::create_dir_all(&system).unwrap();
+        for f in ["controlDict", "fvSchemes"] {
+            std::fs::write(system.join(f), "a 1;").unwrap();
+        }
+        std::fs::write(system.join("fvSolution"), text).unwrap();
+        let case = super::Case::open(dir.path()).unwrap();
+        assert!(case.solver_dict("r0").is_ok());
+        let err = case.solver_dict("all").unwrap_err().to_string();
+        assert!(err.contains("too much data"), "{err}");
     }
 
     #[test]

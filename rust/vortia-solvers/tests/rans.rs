@@ -655,6 +655,15 @@ fn unsupported_turbulence_settings_are_refused() {
         "printCoeffs on; kOmegaSSTCoeffs { decayControl yes; }",
         "decayControl",
     );
+    for field in ["k", "omega"] {
+        refuse_on(
+            &sst,
+            "system/fvSchemes",
+            "gradSchemes { default Gauss linear; }",
+            &format!("gradSchemes {{ default Gauss linear; grad({field}) leastSquares; }}"),
+            "leastSquares",
+        );
+    }
     refuse_on(
         &sst,
         "0/omega",
