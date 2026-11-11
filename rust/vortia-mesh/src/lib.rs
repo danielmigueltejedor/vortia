@@ -23,6 +23,7 @@ pub mod check;
 pub mod error;
 pub mod geometry;
 pub mod polymesh;
+pub mod wall;
 
 pub use check::{MeshReport, check};
 pub use error::{MeshError, Result};

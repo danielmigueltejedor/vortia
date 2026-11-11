@@ -54,6 +54,17 @@ fn a_box_rejects_nonsense_sizes() {
     assert!(blocks::structured_box(Aabb::default(), [1, 1, 1]).is_err());
     // Within the cell limit, but its points alone would take 12 GiB.
     assert!(blocks::structured_box(unit, [blocks::MAX_CELLS, 1, 1]).is_err());
+    // A box with no finite end would have no finite points to write.
+    let endless = Aabb {
+        min: Vec3::default(),
+        max: Vec3::new(f64::INFINITY, 1.0, 1.0),
+    };
+    assert!(blocks::structured_box_raw(endless, [1, 1, 1]).is_err());
+    let nan = Aabb {
+        min: Vec3::new(f64::NAN, 0.0, 0.0),
+        max: Vec3::new(1.0, 1.0, 1.0),
+    };
+    assert!(blocks::structured_box_raw(nan, [1, 1, 1]).is_err());
 }
 
 #[test]

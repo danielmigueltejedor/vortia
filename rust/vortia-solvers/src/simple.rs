@@ -12,7 +12,7 @@
 
 use vortia_core::Vec3;
 use vortia_fields::{Data, ScalarField, VectorField};
-use vortia_foamfile::Dictionary;
+use vortia_foamfile::{Dictionary, Entry};
 use vortia_fv::ops::{self, Convection, SnGrad};
 use vortia_fv::stress::div_dev2_grad_t;
 use vortia_fv::vector::{dot_interpolate, solution_directions};
@@ -45,6 +45,7 @@ impl Schemes {
             ));
         }
         let words = |section: &str, key: &str| case.scheme(section, key);
+        case.require_linear_interpolation()?;
         let convection = Convection::from_scheme(&as_str(&words("divSchemes", "div(phi,U)")?))?;
         let stress = words("divSchemes", "div((nuEff*dev2(T(grad(U)))))")?;
         if stress != ["Gauss", "linear"] {
@@ -158,7 +159,7 @@ fn residual_control(case: &Case) -> Vec<(String, f64)> {
 fn check_models(case: &Case) -> Result<()> {
     let constant = case.dir.join("constant");
     let turbulence = constant.join("turbulenceProperties");
-    if turbulence.is_file() {
+    if turbulence.is_file() || constant.join("turbulenceProperties.gz").is_file() {
         let d = read_dict(&turbulence)?;
         match d.word("simulationType") {
             Some("laminar") => {}
@@ -169,11 +170,25 @@ fn check_models(case: &Case) -> Result<()> {
                 )));
             }
         }
-        if let Some(model) = d.dict("laminar").and_then(|l| l.word("model"))
+        if let Some(model) = d.dict("laminar").and_then(|l| l.word("laminarModel"))
             && model != "Stokes"
         {
             return Err(SolverError::Setup(format!(
                 "laminar model '{model}' is not supported yet; use Stokes"
+            )));
+        }
+    }
+    for (dir, name) in [
+        ("constant", "MRFProperties"),
+        ("constant", "fvOptions"),
+        ("system", "fvOptions"),
+    ] {
+        let path = case.dir.join(dir).join(name);
+        if (path.is_file() || path.with_extension("gz").is_file())
+            && has_active_entry(&read_dict(&path)?)
+        {
+            return Err(SolverError::Setup(format!(
+                "{dir}/{name} is not supported yet; remove it or set its entries inactive"
             )));
         }
     }
@@ -186,12 +201,27 @@ fn check_models(case: &Case) -> Result<()> {
     }
 }
 
+/// Whether `d` holds a sub-dictionary that is not `active false`, which is
+/// how `MRFProperties` and `fvOptions` switch their entries on and off.
+fn has_active_entry(d: &Dictionary) -> bool {
+    d.entries().any(|(_, e)| match e {
+        Entry::Dict(sub) => sub
+            .word("active")
+            .is_none_or(|w| !matches!(w, "false" | "off" | "no" | "n" | "none")),
+        Entry::Directive(_) => true,
+        Entry::Values(_) => false,
+    })
+}
+
 /// Runs the case and returns what each iteration did. `log` receives the
 /// lines OpenFOAM would print.
 pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let (mesh, fv) = case.mesh()?;
     check_models(case)?;
     let nu = transport_property(case, "nu", KINEMATIC_DIFFUSIVITY)?;
+    let nu_faces = vec![nu; mesh.n_faces()];
+    let nu_cells = vec![nu; mesh.n_cells()];
+    let nu_boundary = vec![Some(nu); mesh.n_faces() - mesh.n_internal_faces()];
     let schemes = Schemes::read(case)?;
     let simple = Algorithm::read(case, "SIMPLE", mesh.n_cells())?;
     if case
@@ -255,10 +285,10 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             &mesh,
             &fv,
             &u_bc,
-            nu,
+            &nu_faces,
             schemes.momentum_sn_grad,
         )?);
-        let stress = div_dev2_grad_t(&mesh, &fv, &u_bc, &u, nu);
+        let stress = div_dev2_grad_t(&mesh, &fv, &u_bc, &u, &nu_cells, &nu_boundary);
         for ((s, &d), &v) in u_eqn.source.iter_mut().zip(&stress).zip(fv.volumes()) {
             *s = *s + d * v;
         }
@@ -329,8 +359,10 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let written = run.writes(step) || converged;
         if written {
             u_field.internal = Data::NonUniform(u.clone());
+            u_field.drop_zero_gradient_values();
             u_field.write(&case.dir, &name)?;
             p_field.internal = Data::NonUniform(p.clone());
+            p_field.drop_zero_gradient_values();
             p_field.write(&case.dir, &name)?;
             flux_field(&mesh, &phi).write(&case.dir, &name)?;
         }
@@ -373,7 +405,6 @@ fn converged(control: &[(String, f64)], solves: &[(String, Performance)]) -> boo
     for field in ["U", "p"] {
         let Some(tol) = control
             .iter()
-            .rev()
             .find(|(k, _)| key_matches(k, field))
             .map(|&(_, t)| t)
         else {

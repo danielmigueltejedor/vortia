@@ -108,6 +108,7 @@ impl Schemes {
             ));
         }
         let words = |section: &str, key: &str| -> Result<Vec<String>> { case.scheme(section, key) };
+        case.require_linear_interpolation()?;
         let convection = Convection::from_scheme(&as_str(&words("divSchemes", "div(phi,U)")?))?;
         let sn = |key: &str| -> Result<SnGrad> {
             let w = words("laplacianSchemes", key)?;
@@ -149,6 +150,7 @@ pub(crate) fn as_str(w: &[String]) -> Vec<&str> {
 pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let (mesh, fv) = case.mesh()?;
     let nu = transport_property(case, "nu", KINEMATIC_DIFFUSIVITY)?;
+    let nu_faces = vec![nu; mesh.n_faces()];
     let schemes = Schemes::read(case)?;
     let piso = Algorithm::read(case, "PISO", mesh.n_cells())?;
     let (u_solver, u_controls) = LinearSolver::read(case, "U")?;
@@ -202,7 +204,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             &mesh,
             &fv,
             &u_bc,
-            nu,
+            &nu_faces,
             schemes.momentum_sn_grad,
         )?);
 
@@ -280,8 +282,10 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let written = run.writes(step);
         if written {
             u_field.internal = Data::NonUniform(u.clone());
+            u_field.drop_zero_gradient_values();
             u_field.write(&case.dir, &name)?;
             p_field.internal = Data::NonUniform(p.clone());
+            p_field.drop_zero_gradient_values();
             p_field.write(&case.dir, &name)?;
             flux_field(&mesh, &phi).write(&case.dir, &name)?;
         }

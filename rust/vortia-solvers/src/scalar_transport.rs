@@ -66,6 +66,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let written = run.writes(step);
         if written {
             field.internal = Data::NonUniform(t.clone());
+            field.drop_zero_gradient_values();
             field.write(&case.dir, &name)?;
             // The flow goes with it, as OpenFOAM writes it, so a run can
             // restart from any time it wrote.

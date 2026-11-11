@@ -148,6 +148,29 @@ impl Case {
             .collect())
     }
 
+    /// Refuses `interpolationSchemes` other than `linear`, the one the
+    /// engine's face interpolation is: `interpolate(rAU)` and `flux(HbyA)`
+    /// read their own keys there, so every entry is checked, not only
+    /// `default`.
+    pub fn require_linear_interpolation(&self) -> Result<()> {
+        let Some(d) = self.schemes.dict("interpolationSchemes") else {
+            return Ok(());
+        };
+        for (key, entry) in d.entries() {
+            let words: Vec<&str> = match entry {
+                vortia_foamfile::Entry::Values(v) => v.iter().filter_map(|v| v.as_word()).collect(),
+                _ => Vec::new(),
+            };
+            if words != ["linear"] {
+                return Err(SolverError::Setup(format!(
+                    "interpolation scheme '{}' for {key} is not supported yet; use linear",
+                    words.join(" ")
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// The linear-solver settings for `field`, by exact key then pattern.
     pub fn solver_controls(&self, field: &str) -> Result<(String, String, Controls)> {
         let d = self.solver_dict(field)?;
@@ -196,7 +219,7 @@ impl Case {
         let d = find(field).ok_or_else(|| {
             SolverError::Setup(format!("fvSolution/solvers has no entry for '{field}'"))
         })?;
-        expand(d, &find, 0)
+        expand(d, &find, 0, &mut { MAX_EXPANDED_ENTRIES })
     }
 
     pub fn non_orthogonal_correctors(&self, algorithm: &str) -> usize {
@@ -210,10 +233,15 @@ impl Case {
 }
 
 /// `d` with each `$name` entry replaced by the entries of `find(name)`.
+/// The most entries `$` references may expand to in one lookup: depth
+/// alone does not bound a dictionary that names another many times over.
+const MAX_EXPANDED_ENTRIES: usize = 10_000;
+
 fn expand<'a>(
     d: &Dictionary,
     find: &impl Fn(&str) -> Option<&'a Dictionary>,
     depth: u32,
+    budget: &mut usize,
 ) -> Result<Dictionary> {
     if depth > 8 {
         return Err(SolverError::Setup(
@@ -222,12 +250,17 @@ fn expand<'a>(
     }
     let mut out = Dictionary::new();
     for (key, entry) in d.entries() {
+        *budget = budget.checked_sub(1).ok_or_else(|| {
+            SolverError::Setup(format!(
+                "fvSolution: '$' references expand to more than {MAX_EXPANDED_ENTRIES} entries"
+            ))
+        })?;
         match key.strip_prefix('$') {
             Some(name) => {
                 let other = find(name).ok_or_else(|| {
                     SolverError::Setup(format!("fvSolution/solvers has no '{name}' for '${name}'"))
                 })?;
-                for (k, e) in expand(other, find, depth + 1)?.entries() {
+                for (k, e) in expand(other, find, depth + 1, budget)?.entries() {
                     out.insert(k, e.clone());
                 }
             }
@@ -290,6 +323,28 @@ fn trim(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{time_name, time_name_with};
+
+    #[test]
+    fn references_that_fan_out_are_bounded() {
+        // Each level names the one below ten times: 10^8 entries at the end.
+        let mut text = String::from("solvers { l0 { tolerance 1; } ");
+        for level in 1..=8 {
+            let refs: String = (0..10).map(|_| format!("$l{}; ", level - 1)).collect();
+            text.push_str(&format!("l{level} {{ {refs} }} "));
+        }
+        text.push('}');
+        let dir = tempfile::tempdir().unwrap();
+        let system = dir.path().join("system");
+        std::fs::create_dir_all(&system).unwrap();
+        for f in ["controlDict", "fvSchemes"] {
+            std::fs::write(system.join(f), "a 1;").unwrap();
+        }
+        std::fs::write(system.join("fvSolution"), text).unwrap();
+        let case = super::Case::open(dir.path()).unwrap();
+        assert!(case.solver_dict("l1").is_ok());
+        let err = case.solver_dict("l8").unwrap_err().to_string();
+        assert!(err.contains("more than"), "{err}");
+    }
 
     #[test]
     fn time_names_match_openfoam() {

@@ -147,7 +147,8 @@ fn cavity(dir: &Path, s: &Setup) {
     );
 }
 
-/// Writes the case for OpenFOAM: `VORTIA_CAVITY=dir cargo test -- --ignored`.
+/// Writes the case for OpenFOAM:
+/// `VORTIA_CAVITY=dir cargo test --test ico write_cavity_for_openfoam -- --ignored`.
 #[test]
 #[ignore]
 fn write_cavity_for_openfoam() {
@@ -160,7 +161,8 @@ fn write_cavity_for_openfoam() {
     cavity(Path::new(&dir), setup);
 }
 
-/// Runs the engine on a case: `VORTIA_CAVITY=dir cargo test -- --ignored`.
+/// Runs the engine on a case:
+/// `VORTIA_CAVITY=dir cargo test --test ico run_cavity_case -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn run_cavity_case() {

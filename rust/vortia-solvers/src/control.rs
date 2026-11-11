@@ -30,16 +30,30 @@ pub struct RunControl {
 impl RunControl {
     pub fn read(case: &Case) -> Result<Self> {
         let times = vortia_fields::times(&case.dir)?;
-        let start_time = match case.control.word("startFrom") {
-            Some("latestTime") => times.last().map_or(0.0, |t| t.value),
-            _ => case.control.scalar("startTime").unwrap_or(0.0),
+        let (start_time, start_name) = match case.control.word("startFrom") {
+            Some("latestTime") => times
+                .last()
+                .map_or_else(|| (0.0, time_name(0.0)), |t| (t.value, t.name.clone())),
+            _ => {
+                let start = case.control.scalar("startTime").unwrap_or(0.0);
+                // `0.123456789` is not the six-digit name the engine would
+                // give that time, so the directory is found by value: an
+                // exact one first, then the nearest close enough.
+                let near = |t: &&vortia_fields::Time| {
+                    (t.value - start).abs() <= 1e-12 * start.abs().max(1.0)
+                };
+                let name = times
+                    .iter()
+                    .find(|t| t.value == start)
+                    .or_else(|| {
+                        times.iter().filter(near).min_by(|a, b| {
+                            (a.value - start).abs().total_cmp(&(b.value - start).abs())
+                        })
+                    })
+                    .map_or_else(|| time_name(start), |t| t.name.clone());
+                (start, name)
+            }
         };
-        // `0.123456789` is not the six-digit name the engine would give that
-        // time, so the directory is found by value.
-        let start_name = times
-            .iter()
-            .find(|t| (t.value - start_time).abs() <= 1e-12 * start_time.abs().max(1.0))
-            .map_or_else(|| time_name(start_time), |t| t.name.clone());
         let end_time = case.scalar("endTime")?;
         let delta_t = case.scalar("deltaT")?;
         if !(delta_t > 0.0 && delta_t.is_finite()) {
@@ -93,6 +107,13 @@ fn distinct_precision(requested: u32, start: f64, dt: f64, n_steps: u64) -> Resu
     let largest = start.abs().max(end.abs());
     if largest == 0.0 || n_steps == 0 {
         return Ok(requested.clamp(1, MAX_TIME_PRECISION));
+    }
+    // More digits cannot tell apart times the arithmetic itself makes equal.
+    let time = |k: u64| start + k as f64 * dt;
+    if time(1) == start || time(n_steps) == time(n_steps - 1) {
+        return Err(SolverError::Setup(format!(
+            "deltaT {dt} is below what a double resolves near {largest}"
+        )));
     }
     let exp = largest.log10().floor() as i32;
     // Names a rounding step of no more than `dt` apart stay distinct.
@@ -229,6 +250,8 @@ mod tests {
         unique.dedup();
         assert_eq!(unique.len(), names.len(), "{names:?}");
         assert!(distinct_precision(6, 1e10, 1e-9, 10).is_err());
+        // Seventeen digits would name these apart, but 1 + 1e-16 is 1.
+        assert!(distinct_precision(6, 1.0, 1e-16, 10).is_err());
     }
 
     #[test]

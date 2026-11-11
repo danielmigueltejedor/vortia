@@ -147,3 +147,23 @@ fn a_condition_type_that_would_not_read_back_is_refused() {
                 boundaryField { inlet { type \"fixed; value\"; } }";
     assert!(scalar_from(text).is_err());
 }
+
+#[test]
+fn directives_a_solver_would_need_evaluated_are_named() {
+    let head = "FoamFile { version 2.0; format ascii; class volScalarField; object T; }\n\
+                dimensions [0 0 0 1 0 0 0]; internalField uniform 1;\n";
+    let with = |body: &str| scalar_from(&format!("{head}{body}")).unwrap();
+    let constraint = with(
+        "boundaryField { #includeEtc \"caseDicts/setConstraintTypes\"\n inlet { type zeroGradient; } }",
+    );
+    assert_eq!(constraint.unevaluated_directive(), None);
+    let include = with("boundaryField { \".*\" { type zeroGradient; }\n #include \"inlets\"\n }");
+    assert_eq!(include.unevaluated_directive().as_deref(), Some("#include"));
+    let in_patch = with("boundaryField { inlet { type fixedValue; #include \"v\"\n } }");
+    assert_eq!(
+        in_patch.unevaluated_directive().as_deref(),
+        Some("#include")
+    );
+    let top = with("#include \"initialConditions\"\nboundaryField { }");
+    assert_eq!(top.unevaluated_directive().as_deref(), Some("#include"));
+}

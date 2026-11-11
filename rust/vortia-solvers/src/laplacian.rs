@@ -122,6 +122,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let written = run.writes(step);
         if written {
             field.internal = Data::NonUniform(t.clone());
+            field.drop_zero_gradient_values();
             field.write(&case.dir, &name)?;
         }
         steps.push(Step {

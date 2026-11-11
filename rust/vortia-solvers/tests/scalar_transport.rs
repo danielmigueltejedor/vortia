@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use vortia_fields::ScalarField;
+use vortia_solvers::control::RunControl;
 use vortia_solvers::{Case, scalar_transport};
 
 const HEADER: &str = "FoamFile { version 2.0; format ascii; class dictionary; object x; }\n";
@@ -164,6 +165,28 @@ fn a_run_restarts_from_the_last_time_it_wrote() {
     let steps = scalar_transport::run(&Case::open(dir.path()).unwrap(), |_| {}).unwrap();
     assert_eq!(steps.len(), 1);
     assert!(dir.path().join("3e-06/T").is_file());
+}
+
+/// Two directories a hair apart are two times: a restart from the later one
+/// reads that one, not the first that is close enough.
+#[test]
+fn a_restart_reads_the_directory_it_chose() {
+    let dir = case("Euler", "Gauss linear", "2e-06", "1e-06", false);
+    scalar_transport::run(&Case::open(dir.path()).unwrap(), |_| {}).unwrap();
+    let later = dir.path().join("2.0000000000001e-06");
+    std::fs::create_dir(&later).unwrap();
+    for f in ["T", "U", "phi"] {
+        std::fs::copy(dir.path().join("2e-06").join(f), later.join(f)).unwrap();
+    }
+    let control = dir.path().join("system/controlDict");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        text.replace("startFrom startTime", "startFrom latestTime"),
+    )
+    .unwrap();
+    let run = RunControl::read(&Case::open(dir.path()).unwrap()).unwrap();
+    assert_eq!(run.start_name, "2.0000000000001e-06");
 }
 
 #[test]

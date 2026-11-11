@@ -153,7 +153,8 @@ fn cavity(dir: &Path, s: &Setup) {
     );
 }
 
-/// Writes the case for OpenFOAM: `VORTIA_CAVITY=dir cargo test -- --ignored`.
+/// Writes the case for OpenFOAM:
+/// `VORTIA_CAVITY=dir cargo test --test simple write_steady_cavity_for_openfoam -- --ignored`.
 #[test]
 #[ignore]
 fn write_steady_cavity_for_openfoam() {
@@ -340,4 +341,64 @@ fn unsupported_settings_are_refused() {
         "Gauss linear corrected",
         "corrected",
     );
+    refuse(
+        "constant/turbulenceProperties",
+        "simulationType laminar;",
+        "simulationType laminar; laminar { laminarModel Maxwell; }",
+        "Maxwell",
+    );
+    refuse(
+        "system/fvSchemes",
+        "interpolationSchemes { default linear; }",
+        "interpolationSchemes { default linear; interpolate((1|A(U))) midPoint; }",
+        "midPoint",
+    );
+    refuse(
+        "0/U",
+        "fixedWalls { type noSlip; }",
+        "fixedWalls { type noSlip; }\n#include \"inlet\"\n",
+        "#include",
+    );
+    refuse(
+        "0/p",
+        "class volScalarField",
+        "class surfaceScalarField",
+        "not a cell field",
+    );
+    for (file, says) in [
+        ("constant/MRFProperties", "MRFProperties"),
+        ("system/fvOptions", "fvOptions"),
+        ("constant/fvOptions", "fvOptions"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        cavity(dir.path(), &STEADY);
+        let path = dir.path().join(file);
+        let zone = "zone1 { cellZone all; active yes; }";
+        write(&path, &format!("{HEADER}{zone}"));
+        let run = || Case::open(dir.path()).and_then(|case| simple::run(&case, |_| {}));
+        let err = run().unwrap_err().to_string();
+        assert!(err.contains(says), "{err}");
+        // An entry switched off changes nothing, so it runs.
+        write(&path, &format!("{HEADER}{}", zone.replace("yes", "no")));
+        assert!(run().is_ok(), "{file}");
+    }
+}
+
+/// `residualControl` applies the first entry that matches a field, as
+/// OpenFOAM does: a tight `U` ahead of a loose catch-all keeps iterating.
+#[test]
+fn the_first_matching_residual_control_applies() {
+    let iterations = |control: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        cavity(dir.path(), &STEADY);
+        let path = dir.path().join("system/fvSolution");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let text = text.replace("residualControl", &format!("residualControl {control} old"));
+        std::fs::write(&path, text).unwrap();
+        let case = Case::open(dir.path()).unwrap();
+        simple::run(&case, |_| {}).unwrap().len()
+    };
+    let loose = iterations("{ \".*\" 1e-1; }");
+    let tight_first = iterations("{ U 1e-6; \".*\" 1e-1; }");
+    assert!(tight_first > loose, "{tight_first} vs {loose}");
 }

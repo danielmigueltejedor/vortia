@@ -59,7 +59,8 @@ impl FvGeometry {
                     weights.push(if sum > 0.0 { sfd_nei / sum } else { 0.5 });
                     c_nei - c_own
                 }
-                None => cf - c_own,
+                // OpenFOAM's `fvPatch::delta`: the patch-normal part only.
+                None => unit * unit.dot(cf - c_own),
             };
             let mag_d = delta.norm();
             delta_coeffs.push(if mag_d > 0.0 { 1.0 / mag_d } else { 0.0 });
@@ -140,4 +141,36 @@ fn sign_of(v: f64) -> f64 {
 pub fn transform(t: &[[f64; 3]; 3], v: Vec3) -> Vec3 {
     let row = |r: &[f64; 3]| r[0] * v.x + r[1] * v.y + r[2] * v.z;
     Vec3::new(row(&t[0]), row(&t[1]), row(&t[2]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vortia_core::Aabb;
+    use vortia_mesh::blocks::structured_box_raw;
+
+    #[test]
+    fn a_skewed_boundary_face_measures_its_normal_distance() {
+        let bounds = Aabb {
+            min: Vec3::default(),
+            max: Vec3::new(1.0, 1.0, 1.0),
+        };
+        let mut raw = structured_box_raw(bounds, [1, 1, 1]).unwrap();
+        // Shear the cell: x grows with y, so the centre sits off the normal
+        // through the centre of the yMin face.
+        for p in &mut raw.points {
+            p.x += p.y;
+        }
+        let mesh = PolyMesh::from_raw(raw).unwrap();
+        let fv = FvGeometry::new(&mesh);
+        let y_min = mesh.patch("yMin").unwrap();
+        for f in y_min.faces() {
+            assert!(
+                (fv.delta_coeffs[f] - 2.0).abs() < 1e-12,
+                "{}",
+                fv.delta_coeffs[f]
+            );
+            assert!((fv.non_orth_delta_coeffs[f] - 2.0).abs() < 1e-12);
+        }
+    }
 }

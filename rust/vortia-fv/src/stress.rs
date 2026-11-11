@@ -140,17 +140,30 @@ pub fn grad(
     (g, out)
 }
 
-/// `fvc::div(ν dev2(T(fvc::grad(U))))` with `Gauss linear`, per cell.
+/// `dev(twoSymm(g)) && g`: what `ν_t` multiplies in the production of
+/// turbulent kinetic energy, `G = ν_t (dev(twoSymm(∇U)) && ∇U)`.
+pub fn production(g: &Tensor) -> f64 {
+    let [[xx, xy, xz], [yx, yy, yz], [zx, zy, zz]] = *g;
+    let (sxx, sxy, sxz) = (2.0 * xx, xy + yx, xz + zx);
+    let (syy, syz, szz) = (2.0 * yy, yz + zy, 2.0 * zz);
+    let third = (1.0 / 3.0) * (sxx + syy + szz);
+    let (sxx, syy, szz) = (sxx - third, syy - third, szz - third);
+    sxx * xx + sxy * xy + sxz * xz + sxy * yx + syy * yy + syz * yz + sxz * zx + syz * zy + szz * zz
+}
+
+/// `fvc::div(ν dev2(T(fvc::grad(U))))` with `Gauss linear`, per cell, for
+/// `nu` in every cell and on every boundary face (`None` on empty faces).
 pub fn div_dev2_grad_t(
     mesh: &PolyMesh,
     fv: &FvGeometry,
     bc: &VectorBoundary,
     u: &[Vec3],
-    nu: f64,
+    nu: &[f64],
+    nu_boundary: &[Option<f64>],
 ) -> Vec<Vec3> {
     let (cells, boundary) = grad(mesh, fv, bc, u);
-    let stress = |t: &Tensor| zip_with(&dev2_transpose(t), &[[nu; 3]; 3], |a, n| n * a);
-    let cells: Vec<Tensor> = cells.iter().map(stress).collect();
+    let stress = |t: &Tensor, nu: f64| zip_with(&dev2_transpose(t), &[[nu; 3]; 3], |a, n| n * a);
+    let cells: Vec<Tensor> = cells.iter().zip(nu).map(|(t, &n)| stress(t, n)).collect();
     let sf = &fv.geo.face_areas;
     let own = mesh.owner();
     let mut div = vec![Vec3::default(); mesh.n_cells()];
@@ -172,11 +185,13 @@ pub fn div_dev2_grad_t(
     let n_internal = mesh.n_internal_faces();
     for (k, t) in boundary.iter().enumerate() {
         let f = n_internal + k;
-        let (Some(t), Some(&s), Some(&o)) = (t, sf.get(f), own.get(f)) else {
+        let (Some(t), Some(&s), Some(&o), Some(Some(n))) =
+            (t, sf.get(f), own.get(f), nu_boundary.get(k))
+        else {
             continue;
         };
         if let Some(d) = div.get_mut(o) {
-            *d = *d + dot(s, &stress(t));
+            *d = *d + dot(s, &stress(t, *n));
         }
     }
     for (d, &vol) in div.iter_mut().zip(fv.volumes()) {
@@ -197,5 +212,8 @@ mod tests {
         assert_eq!(d[1][0], 2.0);
         assert_eq!(d[0][0], 1.0 - 10.0);
         assert_eq!(dot(Vec3::new(1.0, 0.0, 0.0), &t), Vec3::new(1.0, 2.0, 3.0));
+        // Simple shear du/dy = 1: 2 S:S = 1.
+        let shear = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
+        assert_eq!(production(&shear), 1.0);
     }
 }

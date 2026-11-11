@@ -18,6 +18,7 @@ use vortia_core::Vec3;
 use vortia_fields::{Data, VectorField};
 use vortia_mesh::{PatchKind, PolyMesh};
 
+use crate::bc::check_solvable;
 use crate::error::{FvError, Result};
 use crate::fvgeom::FvGeometry;
 use crate::ldu::LduMatrix;
@@ -41,6 +42,7 @@ pub struct VectorBoundary {
 
 impl VectorBoundary {
     pub fn from_field(field: &VectorField, mesh: &PolyMesh) -> Result<Self> {
+        check_solvable(field)?;
         field.check_against(mesh)?;
         let mut conditions = Vec::with_capacity(mesh.patches().len());
         for patch in mesh.patches() {
@@ -351,15 +353,16 @@ impl VectorMatrix {
         Ok(m)
     }
 
-    /// Implicit `∇·(Γ∇ψ)` with constant `gamma`, OpenFOAM's sign (negative
-    /// diagonal). Non-orthogonal correction is not supported here.
+    /// Implicit `∇·(Γ∇ψ)` with `gamma` given on every face, OpenFOAM's sign
+    /// (negative diagonal). Non-orthogonal correction is not supported here.
     pub fn laplacian(
         mesh: &PolyMesh,
         fv: &FvGeometry,
         bc: &VectorBoundary,
-        gamma: f64,
+        gamma: &[f64],
         sn_grad: SnGrad,
     ) -> Result<Self> {
+        let gamma = |f: usize| gamma.get(f).copied().unwrap_or(0.0);
         if sn_grad == SnGrad::Corrected {
             return Err(FvError::Setup(
                 "the corrected Laplacian of a vector is not supported yet".into(),
@@ -372,7 +375,7 @@ impl VectorMatrix {
             let (Some(&l), Some(&u)) = (ldu.l.get(f), ldu.u.get(f)) else {
                 continue;
             };
-            let gm = gamma * fv.mag_sf.get(f).copied().unwrap_or(0.0);
+            let gm = gamma(f) * fv.mag_sf.get(f).copied().unwrap_or(0.0);
             let coeff = dc.get(f).copied().unwrap_or(0.0) * gm;
             if let (Some(up), Some(lo)) = (ldu.upper.get_mut(f), ldu.lower.get_mut(f)) {
                 *up = coeff;
@@ -389,7 +392,7 @@ impl VectorMatrix {
         for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
             for (i, f) in patch.faces().enumerate() {
                 let k = f.saturating_sub(n_internal);
-                let gm = gamma * fv.mag_sf.get(f).copied().unwrap_or(0.0);
+                let gm = gamma(f) * fv.mag_sf.get(f).copied().unwrap_or(0.0);
                 let d = dc.get(f).copied().unwrap_or(0.0);
                 if let VectorBc::FixedValue(v) = cond {
                     let value = v.get(i).copied().unwrap_or_default();

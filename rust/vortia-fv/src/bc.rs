@@ -7,7 +7,7 @@
 //! For a scalar, `wedge` and `symmetry` reflect nothing: the face takes the
 //! cell's value and carries no flux.
 
-use vortia_fields::{Data, ScalarField};
+use vortia_fields::{Data, Field, FieldValue, Location, ScalarField};
 use vortia_mesh::{Patch, PatchKind, PolyMesh};
 
 use crate::error::{FvError, Result};
@@ -43,6 +43,7 @@ fn values(data: Option<&Data<f64>>, patch: &Patch, what: &str) -> Result<Vec<f64
 
 impl Boundary {
     pub fn from_field(field: &ScalarField, mesh: &PolyMesh) -> Result<Self> {
+        check_solvable(field)?;
         field.check_against(mesh)?;
         let mut conditions = Vec::with_capacity(mesh.patches().len());
         for patch in mesh.patches() {
@@ -130,4 +131,22 @@ impl Boundary {
         }
         out
     }
+}
+
+/// Refuses a field a solver cannot take as it stands: one on faces, or one
+/// whose conditions depend on a directive the reader keeps unevaluated.
+pub fn check_solvable<T: FieldValue>(field: &Field<T>) -> Result<()> {
+    if field.location != Location::Cells {
+        return Err(FvError::Condition(format!(
+            "{} is not a cell field",
+            field.name
+        )));
+    }
+    if let Some(d) = field.unevaluated_directive() {
+        return Err(FvError::Condition(format!(
+            "{}: '{d}' is not evaluated yet; write its entries out in the field",
+            field.name
+        )));
+    }
+    Ok(())
 }

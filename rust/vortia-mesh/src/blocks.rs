@@ -64,6 +64,10 @@ pub fn structured_box_raw(bounds: Aabb, cells: [usize; 3]) -> Result<RawPolyMesh
         )));
     }
     let size = bounds.size();
+    let finite = |v: Vec3| v.x.is_finite() && v.y.is_finite() && v.z.is_finite();
+    if !(finite(bounds.min) && finite(bounds.max) && finite(size)) {
+        return Err(MeshError::Invalid("the box's bounds are not finite".into()));
+    }
     if !(size.x > 0.0 && size.y > 0.0 && size.z > 0.0) {
         return Err(MeshError::Invalid("the box has no volume".into()));
     }

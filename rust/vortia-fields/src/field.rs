@@ -225,6 +225,45 @@ impl<T: FieldValue> Field<T> {
         Ok(())
     }
 
+    /// The first directive the field holds that would have to be evaluated
+    /// to know its conditions, if any. `#includeEtc
+    /// "caseDicts/setConstraintTypes"` is not one: it only adds entries
+    /// for constraint groups, which a patch's own entry or a pattern
+    /// already decides, and a patch left to it has no condition here and is
+    /// refused as such.
+    pub fn unevaluated_directive(&self) -> Option<String> {
+        let constraint_types = |key: &str, e: &Entry| {
+            key == "#includeEtc"
+                && matches!(e, Entry::Directive(v)
+                    if v.len() == 1
+                        && v.first().and_then(Value::as_word) == Some("caseDicts/setConstraintTypes"))
+        };
+        let directive = |d: &Dictionary, allow: &dyn Fn(&str, &Entry) -> bool| {
+            d.entries()
+                .find(|(k, e)| matches!(e, Entry::Directive(_)) && !allow(k, e))
+                .map(|(k, _)| k.to_owned())
+        };
+        let none = |_: &str, _: &Entry| false;
+        directive(&self.extra, &none)
+            .or_else(|| directive(&self.boundary_directives, &constraint_types))
+            .or_else(|| {
+                self.boundary
+                    .iter()
+                    .find_map(|pf| directive(&pf.settings, &none))
+            })
+    }
+
+    /// Drops the `value` of every `zeroGradient` entry, as OpenFOAM writes
+    /// them: a value read with the field goes stale once the cells change,
+    /// and a reader that finds one would show it instead of the cells'.
+    pub fn drop_zero_gradient_values(&mut self) {
+        for pf in &mut self.boundary {
+            if pf.kind == "zeroGradient" {
+                pf.value = None;
+            }
+        }
+    }
+
     /// The entry that applies to `patch`: its own name first, then a
     /// pattern, then one of its groups, which is the order OpenFOAM uses.
     pub fn patch_field(&self, patch: &Patch) -> Option<&PatchField<T>> {

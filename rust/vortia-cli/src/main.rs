@@ -266,12 +266,16 @@ fn shown(text: &str) -> String {
         .collect()
 }
 
-/// A solver log line: escaped like [`shown`], keeping only its final newline.
+/// A solver log line: escaped like [`shown`], keeping the newlines the
+/// solver put around it (`Time = 1\n\n`, `\nSIMPLE solution converged…`).
 fn shown_line(line: &str) -> String {
-    match line.strip_suffix('\n') {
-        Some(body) => format!("{}\n", shown(body)),
-        None => shown(line),
+    let body = line.trim_matches('\n');
+    let lead = line.len() - line.trim_start_matches('\n').len();
+    let trail = line.len() - line.trim_end_matches('\n').len();
+    if body.is_empty() {
+        return "\n".repeat(line.len());
     }
+    format!("{}{}{}", "\n".repeat(lead), shown(body), "\n".repeat(trail))
 }
 
 #[cfg(test)]
@@ -286,5 +290,7 @@ mod tests {
         assert_eq!(shown("wall\nMesh OK."), "wall\\nMesh OK.");
         assert_eq!(shown_line("Time = 1\n"), "Time = 1\n");
         assert_eq!(shown_line("a\nMesh OK.\n"), "a\\nMesh OK.\n");
+        assert_eq!(shown_line("Time = 1\n\n"), "Time = 1\n\n");
+        assert_eq!(shown_line("\nEnd\n"), "\nEnd\n");
     }
 }
