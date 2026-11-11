@@ -1,35 +1,49 @@
-# Vortia — Rust port (in progress)
+# Vortia in Rust (in progress)
 
-This directory contains an experimental Rust port of the Vortia core library.
-It is **not** the primary implementation: the C++20/Qt 6 application in `src/`
-remains the one used for the 2026-10 practice and production builds.
+Vortia is moving to Rust, together with a CFD engine of its own built from
+OpenFOAM's methods. The C++20/Qt 6 application in `src/` remains the one that
+ships until the Rust side can replace it. The plan, stages and principles are
+in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
 
-## Status
+## Crates
 
-- `vortia-core`: error type, physical units checked at compile time, vectors and
-  bounding boxes, version parsing, project manifest (same schema as the C++
-  application, atomic write) and process runner (no shell, timeout).
-- The unit tests are the same cases as `tests/unit/test_units.cpp`,
-  `test_version.cpp` and `test_project.cpp`, plus the smoke tests of the process
-  runner. Not ported yet from `src/core`: host environment and logging.
-- Checked on every pull request by the `Rust` workflow (format, clippy, tests).
+- `vortia-core`: error type, physical units checked at compile time, vectors
+  and bounding boxes, version parsing, project manifest (same schema as the C++
+  application, atomic write) and process runner (no shell, timeout). Its tests
+  are the cases of `tests/unit/test_{units,version,project}.cpp`.
+- `vortia-foamfile`: reader for the case format: dictionaries, lists,
+  dimension sets, the `polyMesh` files; ASCII, optionally gzip-compressed.
+- `vortia-mesh`: the engine's polyhedral mesh: validation, face and cell
+  geometry, the quality report `checkMesh` gives, and structured boxes it
+  can write as `polyMesh` files.
+- `vortia-fields`: volume and surface fields with their boundary conditions,
+  read, checked against the mesh and written back as OpenFOAM writes them.
+- `vortia-fv`: the finite-volume discretisation (gradient, diffusion with
+  non-orthogonal correction, upwind and linear convection, Euler time
+  derivative),
+  vector equations with their `A` and `H` for pressure–velocity coupling and
+  under-relaxation, the explicit viscous stress, and linear solvers (PCG with
+  DIC, PBiCGStab with DILU, the symmetric Gauss–Seidel smoother), with
+  OpenFOAM's residual definition.
+- `vortia-solvers`: solvers run on a case directory: diffusion
+  (`laplacianFoam`), convection–diffusion by a given flow
+  (`scalarTransportFoam`), transient incompressible flow with PISO
+  (`icoFoam`) and steady laminar flow with SIMPLE (`simpleFoam`).
+- `vortia-cli`: the `vortia` command.
 
-## Roadmap for the Rust port
+```bash
+cd rust
+cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
+cargo run -p vortia-cli -- fields ../examples/nozzle-practice-2026
+cargo run -p vortia-cli -- solve path/to/a/case   # laplacianFoam, scalarTransportFoam, icoFoam or simpleFoam
+```
 
-Decided on 2026-11-10: the interface will be built with **egui**, the toolkit other
-Nodalia apps use, so interface components and styles can be shared across the suite.
+The interface will be built with **egui**, the toolkit other Nodalia apps use
+(decided on 2026-11-10), so interface components and styles can be shared across
+the suite.
 
-1. Finish `vortia-core`: host environment and logging.
-2. Geometry, mesh and physics (mirroring `src/geometry`, `src/mesh`, `src/physics`).
-   Physics depends on the box domain and the block-mesh parameters, so they go first.
-3. Solver: OpenFOAM adapter, process-based as in C++, case writer and log parser.
-4. Interop and verification (`src/interop`, `src/verification`).
-5. A command-line front end over those crates, to compare results with the C++ app.
-6. The egui application shell, built on the shared design language of the Nodalia apps
-   ([nodalia-design](https://github.com/danielmigueltejedor/nodalia-design)) rather than
-   on styles of its own.
-7. The 3D viewer. VTK has no mature Rust equivalent, so this is the largest open risk:
-   a wgpu renderer for meshes, contours and profiles is the planned route.
+## Checks
 
-Each crate carries the same test cases as its C++ counterpart. The port is incremental
-and does not block the C++ deliverables.
+Every pull request runs `cargo fmt --check`, `cargo clippy -D warnings` and the
+tests on Linux and macOS (the `Rust` workflow). The engine crates forbid
+`unsafe` and deny `unwrap`, `expect`, `panic!` and unchecked indexing.
