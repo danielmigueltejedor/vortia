@@ -50,6 +50,9 @@ pub struct Field<T> {
     pub dimensions: Value,
     pub internal: Data<T>,
     pub boundary: Vec<PatchField<T>>,
+    /// Directives inside `boundaryField` (`#includeEtc "caseDicts/…"`), kept
+    /// and written back ahead of the patches.
+    pub boundary_directives: Dictionary,
     /// Other top-level entries (`oriented`, directives), kept as they were.
     pub extra: Dictionary,
 }
@@ -84,6 +87,11 @@ impl<T: FieldValue> Field<T> {
         } else {
             header.object.clone()
         };
+        if !is_file_name(&name) {
+            return Err(FieldError::Invalid(format!(
+                "field name {name:?} is not a plain file name"
+            )));
+        }
         Self::from_dictionary(name, location, &dict)
     }
 
@@ -103,13 +111,25 @@ impl<T: FieldValue> Field<T> {
             .ok_or_else(|| invalid("no 'boundaryField'"))?;
 
         let mut boundary = Vec::new();
+        let mut boundary_directives = Dictionary::new();
         for (key, entry) in boundary_dict.entries() {
-            let Entry::Dict(d) = entry else {
-                continue;
+            let d = match entry {
+                Entry::Dict(d) => d,
+                Entry::Directive(_) => {
+                    boundary_directives.insert(key, entry.clone());
+                    continue;
+                }
+                Entry::Values(_) => continue,
             };
+            if key.is_empty() || key.contains('"') || key.chars().any(char::is_control) {
+                return Err(FieldError::Invalid(format!(
+                    "boundaryField key {key:?} cannot be written back"
+                )));
+            }
             let kind = d
                 .word("type")
-                .ok_or_else(|| FieldError::Invalid(format!("patch '{key}' has no 'type'")))?
+                .filter(|k| is_word(k))
+                .ok_or_else(|| FieldError::Invalid(format!("patch '{key}' has no valid 'type'")))?
                 .to_owned();
             let value = d
                 .values("value")
@@ -139,6 +159,7 @@ impl<T: FieldValue> Field<T> {
             dimensions,
             internal,
             boundary,
+            boundary_directives,
             extra,
         })
     }
@@ -162,6 +183,10 @@ impl<T: FieldValue> Field<T> {
         out.push_str("internalField   ");
         self.internal.write(&mut out);
         out.push_str(";\n\nboundaryField\n{\n");
+        if self.boundary_directives.entries().next().is_some() {
+            write::dictionary(&mut out, &self.boundary_directives, 1);
+            out.push('\n');
+        }
         for p in &self.boundary {
             let key = if p.key.contains(['|', '*', '(']) {
                 format!("\"{}\"", p.key)
@@ -187,6 +212,14 @@ impl<T: FieldValue> Field<T> {
 
     /// Writes the field into `case/time/name`, atomically.
     pub fn write(&self, case: impl AsRef<Path>, time: &str) -> Result<()> {
+        // Both come from case files; neither may lead outside `case`.
+        for part in [time, self.name.as_str()] {
+            if !is_file_name(part) {
+                return Err(FieldError::Invalid(format!(
+                    "{part:?} is not a plain file name"
+                )));
+            }
+        }
         let path = case.as_ref().join(time).join(&self.name);
         write::atomic(&path, self.to_text(time).as_bytes())?;
         Ok(())
@@ -245,6 +278,24 @@ impl<T: FieldValue> Field<T> {
 
 /// The patterns case files use as patch keys: `.*`, `(a|b|c)`, `prefix.*`.
 /// Anything else matches only itself.
+/// One path component that stays where it is joined: no separators, not `.`
+/// or `..`, nothing a terminal or a shell would read as more.
+fn is_file_name(s: &str) -> bool {
+    !s.is_empty()
+        && s != "."
+        && s != ".."
+        && !s.contains(['/', '\\'])
+        && !s.chars().any(char::is_control)
+}
+
+/// A word the case format reads back as one token.
+fn is_word(s: &str) -> bool {
+    !s.is_empty()
+        && !s
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | ';' | '{' | '}'))
+}
+
 fn pattern_matches(pattern: &str, name: &str) -> bool {
     let inner = pattern
         .strip_prefix('(')

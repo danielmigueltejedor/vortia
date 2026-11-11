@@ -100,3 +100,50 @@ fn a_field_that_does_not_fit_is_refused() {
     // A vector field cannot be read as scalars.
     assert!(ScalarField::read(nozzle().join("500/U")).is_err());
 }
+
+fn scalar_from(text: &str) -> vortia_fields::Result<ScalarField> {
+    let file = FoamFile::from_bytes("T", text.as_bytes().to_vec());
+    ScalarField::from_file(&file)
+}
+
+#[test]
+fn a_field_cannot_name_its_way_out_of_the_case() {
+    for object in ["../../escape", "a/b", ".."] {
+        let text = format!(
+            "FoamFile {{ version 2.0; format ascii; class volScalarField; object {object}; }}\n\
+             dimensions [0 0 0 1 0 0 0]; internalField uniform 1; boundaryField {{ }}"
+        );
+        assert!(scalar_from(&text).is_err(), "{object}");
+    }
+    let mut ok = scalar_from(
+        "FoamFile { version 2.0; format ascii; class volScalarField; object T; }\n\
+         dimensions [0 0 0 1 0 0 0]; internalField uniform 1; boundaryField { }",
+    )
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    assert!(ok.write(dir.path(), "../up").is_err());
+    ok.name = "../T".into();
+    assert!(ok.write(dir.path(), "0").is_err());
+}
+
+#[test]
+fn boundary_directives_are_written_back() {
+    let field = scalar_from(
+        "FoamFile { version 2.0; format ascii; class volScalarField; object T; }\n\
+         dimensions [0 0 0 1 0 0 0]; internalField uniform 1;\n\
+         boundaryField { #includeEtc \"caseDicts/setConstraintTypes\"\n inlet { type zeroGradient; } }",
+    )
+    .unwrap();
+    let text = field.to_text("0");
+    assert!(text.contains("#includeEtc"), "{text}");
+    let back = scalar_from(&text).unwrap();
+    assert_eq!(field, back);
+}
+
+#[test]
+fn a_condition_type_that_would_not_read_back_is_refused() {
+    let text = "FoamFile { version 2.0; format ascii; class volScalarField; object T; }\n\
+                dimensions [0 0 0 1 0 0 0]; internalField uniform 1;\n\
+                boundaryField { inlet { type \"fixed; value\"; } }";
+    assert!(scalar_from(text).is_err());
+}
