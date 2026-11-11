@@ -414,6 +414,25 @@ impl VectorMatrix {
             .collect()
     }
 
+    /// `H(1)`: minus the off-diagonal coefficients summed per row, per unit
+    /// volume (`fvMatrix::H1`), what SIMPLEC takes from `A`.
+    pub fn h1(&self, fv: &FvGeometry) -> Vec<f64> {
+        let ldu = &self.ldu;
+        let mut h1 = vec![0.0; ldu.n_cells()];
+        for (((&l, &u), &up), &lo) in ldu.l.iter().zip(&ldu.u).zip(&ldu.upper).zip(&ldu.lower) {
+            if let Some(x) = h1.get_mut(u) {
+                *x -= lo;
+            }
+            if let Some(x) = h1.get_mut(l) {
+                *x -= up;
+            }
+        }
+        for (x, &v) in h1.iter_mut().zip(fv.volumes()) {
+            *x /= v;
+        }
+        h1
+    }
+
     /// `H`: everything but the diagonal, applied to `psi`, per unit volume.
     /// Components outside `valid` are zero.
     pub fn h(&self, mesh: &PolyMesh, fv: &FvGeometry, psi: &[Vec3], valid: [bool; 3]) -> Vec<Vec3> {

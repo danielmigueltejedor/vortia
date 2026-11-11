@@ -66,13 +66,13 @@ impl Schemes {
 /// `fvSolution/relaxationFactors`: `fields` and `equations`, or the older
 /// flat form, where names starting with `p` are fields and every name an
 /// equation.
-struct Relaxation {
+pub(crate) struct Relaxation {
     fields: Dictionary,
     equations: Dictionary,
 }
 
 impl Relaxation {
-    fn read(case: &Case) -> Self {
+    pub(crate) fn read(case: &Case) -> Self {
         let d = case
             .solution
             .dict("relaxationFactors")
@@ -110,18 +110,18 @@ impl Relaxation {
             .filter(|f| f.is_finite())
     }
 
-    fn field(&self, name: &str) -> Option<f64> {
+    pub(crate) fn field(&self, name: &str) -> Option<f64> {
         Self::factor(&self.fields, name)
     }
 
-    fn equation(&self, name: &str) -> Option<f64> {
+    pub(crate) fn equation(&self, name: &str) -> Option<f64> {
         Self::factor(&self.equations, name)
     }
 }
 
 /// `SIMPLE/residualControl`: the tolerance under which a field's first
 /// initial residual of an iteration counts as converged.
-fn residual_control(case: &Case) -> Vec<(String, f64)> {
+pub(crate) fn residual_control(case: &Case) -> Vec<(String, f64)> {
     let Some(d) = case
         .solution
         .dict("SIMPLE")
@@ -138,6 +138,19 @@ fn residual_control(case: &Case) -> Vec<(String, f64)> {
 /// has laminar flow, k-ε and k-ω SST, of a Newtonian fluid.
 fn check_models(case: &Case) -> Result<()> {
     Model::read(case)?;
+    check_options(case)?;
+    let transport = read_dict(&case.dir.join("constant").join("transportProperties"))?;
+    match transport.word("transportModel") {
+        None | Some("Newtonian") => Ok(()),
+        Some(other) => Err(SolverError::Setup(format!(
+            "transportModel '{other}' is not supported yet; use Newtonian"
+        ))),
+    }
+}
+
+/// Refuses active `MRFProperties` and `fvOptions`, which the engine does
+/// not have.
+pub(crate) fn check_options(case: &Case) -> Result<()> {
     for (dir, name) in [
         ("constant", "MRFProperties"),
         ("constant", "fvOptions"),
@@ -152,13 +165,7 @@ fn check_models(case: &Case) -> Result<()> {
             )));
         }
     }
-    let transport = read_dict(&case.dir.join("constant").join("transportProperties"))?;
-    match transport.word("transportModel") {
-        None | Some("Newtonian") => Ok(()),
-        Some(other) => Err(SolverError::Setup(format!(
-            "transportModel '{other}' is not supported yet; use Newtonian"
-        ))),
-    }
+    Ok(())
 }
 
 /// Whether `d` holds a sub-dictionary that is not `active false`, which is
