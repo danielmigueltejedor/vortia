@@ -40,9 +40,6 @@ QToolButton#ndl-window-button,QToolButton#ndl-app-menu {background:transparent;b
 QToolButton#ndl-window-button:hover,QToolButton#ndl-app-menu:hover {background:{{color.controlBgHover}};}
 QToolButton#ndl-window-button[role="close"]:hover {background:{{color.statusDangerFg}};}
 QToolButton#ndl-app-menu::menu-indicator {image:none;}
-QMenuBar#vortia-header-menus {background:transparent;border:0;spacing:{{space.xxs}}px;}
-QMenuBar#vortia-header-menus::item {background:transparent;color:{{color.textPrimary}};padding:{{space.xs}}px {{space.sm}}px;border-radius:{{radius.md}}px;}
-QMenuBar#vortia-header-menus::item:selected,QMenuBar#vortia-header-menus::item:pressed {background:{{color.controlBgHover}};}
 
 /* Ribbon: the action row under the document tabs. */
 QTabWidget#vortia-ribbon {background:{{color.surfaceWindow}};}

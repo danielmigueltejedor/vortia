@@ -62,16 +62,6 @@ set_target_properties(vortia_ui PROPERTIES
     AUTOMOC ON AUTOUIC ON AUTORCC ON)
 target_compile_features(vortia_ui PUBLIC cxx_std_20)
 
-# Linux shells with a global menu bar register com.canonical.AppMenu.Registrar
-# on the session bus; Vortia asks for it to decide where its menus go.
-if(UNIX AND NOT APPLE)
-    find_package(Qt6 QUIET COMPONENTS DBus)
-    if(TARGET Qt6::DBus)
-        target_link_libraries(vortia_ui PRIVATE Qt6::DBus)
-        target_compile_definitions(vortia_ui PRIVATE VORTIA_HAS_QTDBUS)
-    endif()
-endif()
-
 if(APPLE)
     enable_language(OBJCXX)
     target_sources(vortia_ui PRIVATE src/MacWindow.mm)
