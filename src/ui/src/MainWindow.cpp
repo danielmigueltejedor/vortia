@@ -857,7 +857,8 @@ void MainWindow::buildDocks() {
     central->setObjectName(QStringLiteral("vortia-central-card"));
     central->setAttribute(Qt::WA_StyledBackground, true);
     auto* centralLayout = new QVBoxLayout(central);
-    centralLayout->setContentsMargins(1, 1, 1, 1);
+    // Pages fill the island; a canvas flush with it rounds its own corners (roundCanvasCorners).
+    centralLayout->setContentsMargins(0, 0, 0, 0);
     centralLayout->setSpacing(0);
     projectTabs_ = new QTabBar(central);
     projectTabs_->setObjectName(QStringLiteral("vortia-project-tabs"));
@@ -945,6 +946,9 @@ void MainWindow::buildDocks() {
     workspaceTabs_->setObjectName(QStringLiteral("vortia-editor-tabs"));
     workspaceTabs_->tabBar()->hide();
     viewport_ = new VtkViewport(workspaceTabs_);
+    // It fills the work island to its corners: rounded like the island, as an OpenGL view is
+    // not clipped by the panel it sits on.
+    ndl::roundCanvasCorners(viewport_, 16);
     connect(viewport_,&VtkViewport::fieldDataChanged,this,[this](){refreshFieldTools();});
     connect(viewport_,&VtkViewport::viewToolsChanged,this,[this](){refreshFieldTools();});
     workspaceTabs_->addTab(viewport_, tr("3D CFD"));

@@ -91,4 +91,9 @@ void installDockTitleBar(QDockWidget* dock);
 /// with the label, so code that toggles the label keeps working.
 [[nodiscard]] QWidget* wrapNotice(QLabel* label, const QString& kind);
 
+/// Rounds the corners of a canvas that fills an island (an OpenGL viewport cannot be clipped
+/// by its parent): paints what lies outside the rounded corners in the window's colour, on top
+/// of the canvas, without taking its clicks.
+void roundCanvasCorners(QWidget* canvas, int radius);
+
 } // namespace vortia::ndl

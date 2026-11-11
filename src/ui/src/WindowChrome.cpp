@@ -15,6 +15,7 @@
 #include <QFrame>
 #include <QLabel>
 #include <QLayout>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QEvent>
@@ -22,6 +23,7 @@
 #include <QMainWindow>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QProcess>
 #include <QSettings>
 #include <QStyle>
@@ -452,11 +454,14 @@ void restyleMessageBox(QMessageBox* box) {
 
 class DialogChrome final : public QObject {
 public:
-    using QObject::QObject;
+    explicit DialogChrome(QObject* parent, bool frames) : QObject(parent), frames_(frames) {}
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override {
         if (event->type() != QEvent::Polish)
+            return false;
+        roundPopup(qobject_cast<QWidget*>(watched));
+        if (!frames_)
             return false;
         auto* dialog = qobject_cast<QDialog*>(watched);
         // File dialogs are the desktop's own; a dialog without a layout has no room for a header.
@@ -494,6 +499,19 @@ protected:
         dialog->layout()->setMenuBar(header);
         return false;
     }
+
+private:
+    /// Menus, combo lists and tooltips are islands with NDL's radius: their window has to be
+    /// see-through for the corners to show, and that is only possible before it exists.
+    static void roundPopup(QWidget* widget) {
+        if (!widget || !widget->isWindow() || widget->testAttribute(Qt::WA_WState_Created))
+            return;
+        if (qobject_cast<QMenu*>(widget) || widget->inherits("QComboBoxPrivateContainer")
+            || widget->inherits("QTipLabel"))
+            widget->setAttribute(Qt::WA_TranslucentBackground, true);
+    }
+
+    bool frames_;
 };
 
 /// Moves a floating dock by its title bar. Qt moves it by setting its position, which Wayland
@@ -588,11 +606,49 @@ private:
     QString kind_;
 };
 
+class CanvasCorners final : public QWidget {
+public:
+    CanvasCorners(QWidget* canvas, int radius) : QWidget(canvas), radius_(radius) {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_NoSystemBackground);
+        canvas->installEventFilter(this);
+        setGeometry(canvas->rect());
+        raise();
+    }
+
+protected:
+    bool eventFilter(QObject*, QEvent* event) override {
+        if (event->type() == QEvent::Resize) {
+            setGeometry(parentWidget()->rect());
+            raise();
+        }
+        return false;
+    }
+
+    void paintEvent(QPaintEvent*) override {
+        // The window's frame shows outside an island's corners; a theme change repaints it.
+        QPainterPath outside;
+        outside.addRect(QRectF(rect()));
+        QPainterPath island;
+        island.addRoundedRect(QRectF(rect()), radius_, radius_);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.fillPath(outside.subtracted(island), tokenColor(QStringLiteral("color.surfaceWindow")));
+    }
+
+private:
+    int radius_;
+};
+
 } // namespace
 
+void roundCanvasCorners(QWidget* canvas, int radius) {
+    if (canvas)
+        new CanvasCorners(canvas, radius);
+}
+
 void installDialogChrome(QApplication* app) {
-    if (usesClientSideDecorations())
-        app->installEventFilter(new DialogChrome(app));
+    app->installEventFilter(new DialogChrome(app, usesClientSideDecorations()));
 }
 
 void installDockTitleBar(QDockWidget* dock) {

@@ -8,6 +8,7 @@
 #include <QDockWidget>
 #include <QLabel>
 #include <QMainWindow>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QToolButton>
 #include <QJsonDocument>
@@ -166,4 +167,21 @@ TEST(NdlDock, OnlyTheWindowModeButtonFloatsAPanel) {
     ASSERT_EQ(buttons.size(), 2);
     buttons.front()->click();
     EXPECT_TRUE(dock->isFloating());
+}
+
+// Menus are islands with NDL's radius: their window must be see-through for the corners to show,
+// which has to be decided before the window exists.
+TEST(NdlPopups, MenusGetASeeThroughWindow) {
+    static bool installed = false;
+    if (!installed) {
+        // Popups only: other tests' dialogs keep their plain frame.
+        qputenv("VORTIA_NATIVE_TITLEBAR", "1");
+        vortia::ndl::installDialogChrome(qApp);
+        qunsetenv("VORTIA_NATIVE_TITLEBAR");
+        installed = true;
+    }
+    QMenu menu;
+    menu.addAction(QStringLiteral("One"));
+    menu.ensurePolished();
+    EXPECT_TRUE(menu.testAttribute(Qt::WA_TranslucentBackground));
 }
