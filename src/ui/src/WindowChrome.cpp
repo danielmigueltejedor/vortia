@@ -1,5 +1,7 @@
 #include "vortia/ui/WindowChrome.hpp"
 
+#include <cmath>
+
 #include <QApplication>
 #include <QBoxLayout>
 #include <QDir>
@@ -43,29 +45,45 @@ protected:
         QToolButton::paintEvent(event);
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        QPen pen(palette().color(QPalette::ButtonText), 1.4);
+        // NDL's bold window glyphs: 2 px strokes centred on whole pixels, so they stay crisp.
+        // Close turns coral under the pointer (the style sheet), and its X turns white with it.
+        const bool hovered = underMouse();
+        const bool onCoral = kind_ == WindowButton::Close && hovered;
+        // On the accent tint the glyph takes the accent's text colour, which the palette keeps as Link.
+        const QColor ink = onCoral   ? QColor(Qt::white)
+                           : hovered ? palette().color(QPalette::Link)
+                                     : palette().color(QPalette::ButtonText);
+        QPen pen(ink, 2.0);
         pen.setCapStyle(Qt::RoundCap);
+        pen.setJoinStyle(Qt::RoundJoin);
         painter.setPen(pen);
-        const QPointF c = QRectF(rect()).center();
+        const QPointF c(std::floor(width() / 2.0), std::floor(height() / 2.0));
         const qreal h = 4.0;
         switch (kind_) {
         case WindowButton::Minimize:
-            painter.drawLine(QPointF(c.x() - h, c.y() + 3.0), QPointF(c.x() + h, c.y() + 3.0));
+            painter.drawLine(QPointF(c.x() - h, c.y()), QPointF(c.x() + h, c.y()));
             break;
         case WindowButton::Maximize:
-            if (restore_) {
-                painter.drawRect(QRectF(c.x() - h, c.y() - h + 2.0, 2 * h - 2.0, 2 * h - 2.0));
-                painter.drawLine(QPointF(c.x() - h + 2.0, c.y() - h), QPointF(c.x() + h, c.y() - h));
-                painter.drawLine(QPointF(c.x() + h, c.y() - h), QPointF(c.x() + h, c.y() + h - 2.0));
-            } else {
-                painter.drawRect(QRectF(c.x() - h, c.y() - h, 2 * h, 2 * h));
-            }
+            // A rounded square; solid while the window is maximised.
+            if (restore_)
+                painter.setBrush(ink);
+            painter.drawRoundedRect(QRectF(c.x() - h, c.y() - h, 2 * h, 2 * h), 2.0, 2.0);
             break;
         case WindowButton::Close:
             painter.drawLine(QPointF(c.x() - h, c.y() - h), QPointF(c.x() + h, c.y() + h));
             painter.drawLine(QPointF(c.x() + h, c.y() - h), QPointF(c.x() - h, c.y() + h));
             break;
         }
+    }
+
+    void enterEvent(QEnterEvent* event) override {
+        QToolButton::enterEvent(event);
+        update();
+    }
+
+    void leaveEvent(QEvent* event) override {
+        QToolButton::leaveEvent(event);
+        update();
     }
 
 private:

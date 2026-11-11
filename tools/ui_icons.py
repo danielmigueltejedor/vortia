@@ -1,4 +1,4 @@
-"""Vortia tool icons: one grid (24), one stroke (1.75), round caps and joins, 3 px of clear margin.
+"""Vortia tool icons, in NDL's bold style: one grid (24), one stroke (2.25), round caps and joins, 3 px of clear margin.
 Each entry is a list of SVG fragments. `dot(x, y)` is a filled node; `d="..."` strings are stroked paths."""
 import os
 
@@ -81,7 +81,7 @@ I = {
  'vectors': [P('M3.500 6.500h11'), P('M11.500 3.500l3 3-3 3'), P('M3.500 12h17'), P('M17.500 9l3 3-3 3'), P('M3.500 17.500h8'), P('M8.500 14.500l3 3-3 3')],
 }
 
-HEAD = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">'
+HEAD = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">'
 if __name__ == '__main__':
     # Always writes next to the sources it belongs to: no path comes from the command line.
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'resources', 'icons', 'ui')

@@ -35,10 +35,15 @@ QStatusBar QLabel {padding:{{space.xxs}}px {{space.sm}}px;color:{{color.textSeco
 QToolBar,QToolBar#vortia-main-toolbar {background:{{color.surfaceWindow}};border:0;padding:0;}
 QWidget#vortia-top-bar,QWidget#vortia-document-header {background:{{color.surfaceWindow}};}
 QTabBar#vortia-project-tabs::tab {min-width:96px;margin:{{space.xs}}px {{space.xxs}}px 0 {{space.xxs}}px;color:{{color.textSecondary}};}
-QTabBar#vortia-project-tabs::tab:selected {color:{{color.textPrimary}};border-bottom-color:{{color.accentDefault}};}
-QToolButton#ndl-window-button,QToolButton#ndl-app-menu {background:transparent;border:0;border-radius:{{radius.md}}px;min-width:{{size.targetMin}}px;max-width:{{size.targetMin}}px;min-height:{{size.targetMin}}px;max-height:{{size.targetMin}}px;padding:0;margin:0 {{space.xxs}}px;}
-QToolButton#ndl-window-button:hover,QToolButton#ndl-app-menu:hover {background:{{color.controlBgHover}};}
-QToolButton#ndl-window-button[role="close"]:hover {background:{{color.statusDangerFg}};}
+QTabBar#vortia-project-tabs::tab:selected {color:{{color.textPrimary}};border-bottom-color:{{color.accentDefault}};font-weight:700;}
+QTabBar#vortia-project-tabs::tab {font-family:"Sora";}
+/* Window controls: three round buttons (32 px; Qt draws no radius past half the side), a flat raised disc at rest; minimise
+   and maximise take the accent tint under the pointer, close turns coral (its glyph turns white). */
+QToolButton#ndl-window-button {background:{{color.controlBg}};border:0;border-radius:{{space.lg}}px;min-width:{{space.xxl}}px;max-width:{{space.xxl}}px;min-height:{{space.xxl}}px;max-height:{{space.xxl}}px;padding:0;margin:0 {{space.xxs}}px;color:{{color.textSecondary}};}
+QToolButton#ndl-window-button:hover {background:{{color.accentSubtle}};color:{{color.accentText}};}
+QToolButton#ndl-window-button[role="close"]:hover {background:{{color.windowClose}};}
+QToolButton#ndl-app-menu {background:transparent;border:0;border-radius:{{space.lg}}px;min-width:{{space.xxl}}px;max-width:{{space.xxl}}px;min-height:{{space.xxl}}px;max-height:{{space.xxl}}px;padding:0;margin:0 {{space.xxs}}px;}
+QToolButton#ndl-app-menu:hover {background:{{color.controlBgHover}};}
 QToolButton#ndl-app-menu::menu-indicator {image:none;}
 
 /* Ribbon: the action row under the document tabs. */
@@ -52,19 +57,21 @@ QTabWidget#vortia-ribbon QScrollArea,QTabWidget#vortia-ribbon QScrollArea > QWid
 /* Workflow navigation: a sunken side bar with one row per stage. */
 QToolBar#vortia-workflow-toolbar {background:{{color.surfaceWindow}};border:0;padding:0;spacing:0;}
 /* The side bar spans exactly the height of the panels beside it; its side gaps are its own margin. */
-QWidget#vortia-workflow-navigation {margin:0 {{space.sm}}px;background:{{color.surfaceSunken}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;}
-QWidget#vortia-workflow-navigation QToolButton {text-align:left;min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;border-radius:{{radius.md}}px;color:{{color.textPrimary}};border-color:transparent;}
-QWidget#vortia-workflow-navigation QToolButton:hover {background:{{color.controlBgHover}};}
-QWidget#vortia-workflow-navigation QToolButton:checked {background:{{color.selectionBg}};color:{{color.accentText}};font-weight:{{weight.medium}};border-color:transparent;}
+/* The side bar is an island. The stage you are on is inverted, not tinted: the strongest mark the
+   palette has, kept for the one thing that is current. */
+QWidget#vortia-workflow-navigation {margin:0 {{space.sm}}px;background:{{color.surfacePanel}};border:0;border-radius:{{component.panelRadius}}px;}
+QWidget#vortia-workflow-navigation QToolButton {text-align:left;min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;border-radius:{{component.controlRadius}}px;color:{{color.textSecondary}};font-weight:{{weight.medium}};border-color:transparent;}
+QWidget#vortia-workflow-navigation QToolButton:hover {background:{{color.controlBgHover}};color:{{color.textPrimary}};}
+QWidget#vortia-workflow-navigation QToolButton:checked {background:{{color.textPrimary}};color:{{color.surfaceWindow}};font-weight:700;border-color:transparent;}
 QWidget#flow-navigation-sidebar QPushButton,QWidget#preferences-navigation-sidebar QPushButton {text-align:left;background:transparent;border:{{border.thin}}px solid transparent;border-radius:{{radius.md}}px;min-height:{{density.rowHeight}}px;padding:0 {{density.controlPaddingX}}px;color:{{color.textPrimary}};font-weight:{{weight.regular}};}
 QWidget#flow-navigation-sidebar QPushButton:hover,QWidget#preferences-navigation-sidebar QPushButton:hover {background:{{color.controlBgHover}};}
-QWidget#flow-navigation-sidebar QPushButton:checked,QWidget#preferences-navigation-sidebar QPushButton:checked {background:{{color.selectionBg}};color:{{color.accentText}};font-weight:{{weight.medium}};}
+QWidget#flow-navigation-sidebar QPushButton:checked,QWidget#preferences-navigation-sidebar QPushButton:checked {background:{{color.textPrimary}};color:{{color.surfaceWindow}};font-weight:700;border-color:transparent;}
 
 /* Content panels. */
-QWidget#vortia-central-card {background:{{color.surfacePanel}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;}
+QWidget#vortia-central-card {background:{{color.surfacePanel}};border:0;border-radius:{{component.panelRadius}}px;}
 QTabWidget#vortia-editor-tabs::pane {border:0;background:transparent;}
 QTabWidget#vortia-editor-tabs QDialog,QWidget#vortia-mesh-workspace,QWidget#vortia-physics-workspace {background:transparent;}
-QDockWidget > QWidget {background:{{color.surfacePanel}};border:{{border.thin}}px solid {{color.borderSubtle}};border-radius:{{component.panelRadius}}px;}
+QDockWidget > QWidget {background:{{color.surfacePanel}};border:0;border-radius:{{component.panelRadius}}px;}
 QDockWidget::title {background:transparent;border-bottom:0;padding:{{space.sm}}px {{space.md}}px;}
 /* Scroll areas are layout, not surfaces: they show the panel they sit on. */
 QScrollArea {background:transparent;border:0;}

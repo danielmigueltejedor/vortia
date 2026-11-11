@@ -7,6 +7,12 @@
   <qresource prefix="/vortia">
     <file alias="app-icon.png">icons/vortia.png</file>
   </qresource>
+  <qresource prefix="/fonts">
+    <file alias="sora/Sora[wght].ttf">fonts/sora/Sora[wght].ttf</file>
+    <file alias="sora/OFL.txt">fonts/sora/OFL.txt</file>
+    <file alias="inter/Inter[opsz,wght].ttf">fonts/inter/Inter[opsz,wght].ttf</file>
+    <file alias="inter/OFL.txt">fonts/inter/OFL.txt</file>
+  </qresource>
   <qresource prefix="/ndl">
     <file alias="nodalia-qt.json">ndl/nodalia-qt.json</file>
     <file alias="nodalia.qss">ndl/nodalia.qss</file>
