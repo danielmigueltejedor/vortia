@@ -142,6 +142,19 @@ TEST(NdlTheme, EnvironmentOverridesTheSavedThemeForOneRun) {
 }
 
 namespace {
+/// The app-wide filter for popups and tooltips, without dialog frames, leaving
+/// VORTIA_NATIVE_TITLEBAR as the test process had it.
+void installChromeWithoutFrames() {
+    const bool had = qEnvironmentVariableIsSet("VORTIA_NATIVE_TITLEBAR");
+    const QByteArray previous = qgetenv("VORTIA_NATIVE_TITLEBAR");
+    qputenv("VORTIA_NATIVE_TITLEBAR", "1");
+    vortia::ndl::installDialogChrome(qApp);
+    if (had)
+        qputenv("VORTIA_NATIVE_TITLEBAR", previous);
+    else
+        qunsetenv("VORTIA_NATIVE_TITLEBAR");
+}
+
 void sendMouse(QWidget* target, QEvent::Type type, QPointF at, Qt::MouseButtons buttons) {
     QMouseEvent event(type, at, target->mapToGlobal(at), Qt::LeftButton, buttons, Qt::NoModifier);
     QApplication::sendEvent(target, &event);
@@ -177,9 +190,7 @@ TEST(NdlPopups, MenusGetASeeThroughWindow) {
     static bool installed = false;
     if (!installed) {
         // Popups only: other tests' dialogs keep their plain frame.
-        qputenv("VORTIA_NATIVE_TITLEBAR", "1");
-        vortia::ndl::installDialogChrome(qApp);
-        qunsetenv("VORTIA_NATIVE_TITLEBAR");
+        installChromeWithoutFrames();
         installed = true;
     }
     QMenu menu;
@@ -190,9 +201,7 @@ TEST(NdlPopups, MenusGetASeeThroughWindow) {
 
 // A button that shows its name does not repeat it in a tooltip; an icon-only one keeps it.
 TEST(NdlTooltips, OnlyIconButtonsShowTheirName) {
-    qputenv("VORTIA_NATIVE_TITLEBAR", "1");
-    vortia::ndl::installDialogChrome(qApp);
-    qunsetenv("VORTIA_NATIVE_TITLEBAR");
+    installChromeWithoutFrames();
     QWidget host;
     auto* labelled = new QToolButton(&host);
     labelled->setText(QStringLiteral("Malla"));

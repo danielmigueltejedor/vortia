@@ -65,6 +65,7 @@
 #include <QApplication>
 #include <QDockWidget>
 #include <QScrollArea>
+#include <QPointer>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QProgressDialog>
@@ -414,7 +415,8 @@ void MainWindow::buildMenusAndToolbar() {
     auto* appMenu = new QToolButton(sidebarHeader); appMenu->setObjectName("ndl-app-menu");
     appMenu->setIcon(uiIcon(QStringLiteral(":/vortia/icons/menu.svg"))); appMenu->setIconSize({18,18});
     appMenu->setToolTip(tr("Main menu")); appMenu->setAccessibleName(tr("Main menu"));
-    appMenu->setPopupMode(QToolButton::InstantPopup); appMenu->setFocusPolicy(Qt::NoFocus);
+    // Reachable with Tab: with the menu bar hidden it is the keyboard's way into every menu.
+    appMenu->setPopupMode(QToolButton::InstantPopup); appMenu->setFocusPolicy(Qt::TabFocus);
     auto* primaryMenu = new QMenu(appMenu); primaryMenu->setObjectName("ndl-primary-menu");
     connect(primaryMenu, &QMenu::aboutToShow, this, [this, primaryMenu, preferences] {
         primaryMenu->clear();
@@ -916,17 +918,19 @@ void MainWindow::buildDocks() {
 #ifdef Q_OS_LINUX
         // The desktop's own frame (Preferences › Window controls › System): the menus still go
         // to a top bar that takes them; elsewhere the window keeps its menu bar.
-        if(ndl::globalMenuAvailable()) {
-            std::function<void(const QList<QAction*>&)> keepShortcuts=[&](const QList<QAction*>& actions) {
-                for(QAction* action:actions) {
-                    if(action->menu())keepShortcuts(action->menu()->actions());
-                    else if(!action->isSeparator())addAction(action);
-                }
-            };
-            keepShortcuts(menuBar()->actions());
-            ndl::exportGlobalMenu(menuBar());
-            menuBar()->hide();
-        }
+        // The menu bar goes away only once the bar has accepted the menus, and comes back if it
+        // refuses them later; its shortcuts stay on the window either way.
+        std::function<void(const QList<QAction*>&)> keepShortcuts=[&](const QList<QAction*>& actions) {
+            for(QAction* action:actions) {
+                if(action->menu())keepShortcuts(action->menu()->actions());
+                else if(!action->isSeparator())addAction(action);
+            }
+        };
+        keepShortcuts(menuBar()->actions());
+        // Guarded: the registrar can answer, or vanish, after the window has gone.
+        ndl::exportGlobalMenu(menuBar(),[window=QPointer<MainWindow>(this)](bool accepted){
+            if(window)window->menuBar()->setVisible(!accepted||!ndl::globalMenuAvailable());
+        });
 #endif
     }
     updateNotice_ = new QLabel(central);

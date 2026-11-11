@@ -70,7 +70,7 @@ public:
         setMouseTracking(true);
         setObjectName(QStringLiteral("vortia-sketch-canvas"));
         setFocusPolicy(Qt::StrongFocus);
-        setAccessibleDescription(SketchEditorDialog::tr("Pinch to zoom; swipe with two fingers to pan. Drag empty space, or hold Space to pan. Esc selects; L draws; F fits the sketch."));
+        setAccessibleDescription(SketchEditorDialog::tr("Pinch to zoom; swipe with two fingers to pan. In select mode drag empty space to pan; in any mode hold Space and drag. Esc selects; L draws; F fits the sketch."));
     }
     void setSketch(const Sketch2D* sketch) { dragVertex_ = -1; sketch_ = sketch; fitView(); }
     void setInteractionPreferences(bool snap,double spacing,bool grid,bool dimensions,double zoom) {

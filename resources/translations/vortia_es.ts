@@ -777,8 +777,6 @@ Caso fallido conservado: %2
     <message><source>XY preview</source><translation>Vista previa XY</translation></message>
     <message><source>Total cells: %1. Average size X/Y/Z: %2 / %3 / %4 mm%5</source><translation>Celdas totales: %1. Tamaño medio X/Y/Z: %2 / %3 / %4 mm%5</translation></message>
     <message><source>. WARNING: high memory and compute cost.</source><translation>. ATENCIÓN: consumo elevado de memoria y cálculo.</translation></message>
-    <message><source>Float</source><translation>Ventana flotante</translation></message>
-    <message><source>Close</source><translation>Cerrar</translation></message>
     <message><source>Structured grid preview (XY). Not a computed mesh.</source><translation>Vista previa de malla estructurada (XY). No es una malla calculada.</translation></message>
     <message><source>OpenFOAM simpleGrading: ratio of final to first cell width.</source><translation>OpenFOAM simpleGrading: cociente entre el ancho de la última celda y el de la primera.</translation></message>
     <message><source>Validate and apply the current simulation settings.</source><translation>Validar y aplicar la configuración actual.</translation></message>
@@ -856,7 +854,7 @@ Caso fallido conservado: %2
     <message><source>Polar tracking · 15° (F10)</source><translation>Rastreo polar · 15° (F10)</translation></message>
     <message><source>Case geometry: select to inspect; drag empty space to pan.</source><translation>Geometría del caso: selecciona para consultar; arrastra el fondo para desplazar.</translation></message>
     <message><source>OpenFOAM case geometry: pinch to zoom, pan and inspect dimensions. To change the mesh, prepare a new nozzle case with the desired dimensions.</source><translation>Geometría del caso OpenFOAM: amplía con dos dedos, desplaza y consulta cotas. Para cambiar la malla, prepara un nuevo caso de tobera con las dimensiones que quieras.</translation></message>
-    <message><source>Pinch to zoom; swipe with two fingers to pan. Drag empty space, or hold Space to pan. Esc selects; L draws; F fits the sketch.</source><translation>Pellizca para ampliar; desliza dos dedos para desplazar. Arrastra el fondo o mantén Espacio para mover la vista. Esc selecciona; L dibuja; F encuadra el croquis.</translation></message>
+    <message><source>Pinch to zoom; swipe with two fingers to pan. In select mode drag empty space to pan; in any mode hold Space and drag. Esc selects; L draws; F fits the sketch.</source><translation>Pellizca para ampliar; desliza dos dedos para desplazar. En modo selección, arrastra el fondo para desplazar; en cualquier modo, mantén Espacio y arrastra. Esc selecciona; L dibuja; F encuadra el croquis.</translation></message>
     <message><source>Select (Esc / V)</source><translation>Seleccionar (Esc / V)</translation></message>
     <message><source>Draw polyline (L)</source><translation>Dibujar polilínea (L)</translation></message>
     <message><source>Pan (H / hold Space)</source><translation>Desplazar (H / mantener Espacio)</translation></message>
@@ -977,6 +975,9 @@ Caso fallido conservado: %2
 </context>
 <context>
     <name>QObject</name>
+    <message><source>Float</source><translation>Ventana flotante</translation></message>
+    <message><source>Dock</source><translation>Acoplar</translation></message>
+    <message><source>Close</source><translation>Cerrar</translation></message>
     <message><source>Structured grid preview (XY). Not a computed mesh.</source><translation>Vista previa de la cuadrícula estructurada (XY). No es una malla calculada.</translation></message>
 </context>
 <context>
