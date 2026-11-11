@@ -135,27 +135,6 @@ if(Qt6_FOUND)
     gtest_discover_tests(test_app_updater)
 endif()
 
-# Where the menus go in a client-side-decorated header. Needs Qt Widgets only;
-# the D-Bus case registers its own service name and skips without a session bus.
-find_package(Qt6 QUIET COMPONENTS Widgets)
-if(TARGET Qt6::Widgets)
-    add_executable(test_header_menus unit/test_header_menus.cpp
-        ${PROJECT_SOURCE_DIR}/src/ui/src/HeaderMenus.cpp
-        ${PROJECT_SOURCE_DIR}/src/ui/include/vortia/ui/HeaderMenus.hpp)
-    set_target_properties(test_header_menus PROPERTIES AUTOMOC ON)
-    target_include_directories(test_header_menus PRIVATE ${PROJECT_SOURCE_DIR}/src/ui/include)
-    target_compile_features(test_header_menus PRIVATE cxx_std_20)
-    target_link_libraries(test_header_menus PRIVATE Qt6::Widgets GTest::gtest vortia_warnings)
-    if(UNIX AND NOT APPLE)
-        find_package(Qt6 QUIET COMPONENTS DBus)
-        if(TARGET Qt6::DBus)
-            target_link_libraries(test_header_menus PRIVATE Qt6::DBus)
-            target_compile_definitions(test_header_menus PRIVATE VORTIA_HAS_QTDBUS)
-        endif()
-    endif()
-    gtest_discover_tests(test_header_menus PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-endif()
-
 # CI regression: ensures that lrelease ran and the built app embeds a readable
 # Spanish catalog in the same resource path used at runtime.
 if(TARGET vortia)

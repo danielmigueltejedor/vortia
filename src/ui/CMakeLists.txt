@@ -34,8 +34,6 @@ add_library(vortia_ui STATIC
     src/ProjectExplorerPanel.cpp
     src/PropertiesPanel.cpp
     src/ThemeManager.cpp
-    include/vortia/ui/HeaderMenus.hpp
-    src/HeaderMenus.cpp
     include/vortia/ui/WindowChrome.hpp
     src/WindowChrome.cpp
     src/SketchEditorDialog.cpp)
