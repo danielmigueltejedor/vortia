@@ -4,6 +4,49 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-11
+
+Interfaz con la identidad de Nodalia. No cambia el motor ni los resultados de
+cálculo.
+
+### Añadido
+- **Islas de Nodalia:** barra lateral, área de trabajo e inspector son paneles
+  redondeados sobre el marco de la ventana, con títulos en Sora, iconos en
+  negrita y la etapa actual invertida.
+- **Menú principal** en la cabecera de la barra lateral, como en las demás apps
+  de Nodalia: Preferencias (Ctrl+,), Atajos de teclado (Ctrl+?), Acerca de
+  Vortia y Salir. Sin una barra superior que reciba los menús, también lleva los
+  menús de la aplicación.
+- **Ventana de atajos de teclado**, generada a partir de las acciones reales y
+  de las etapas (Alt+1…6).
+- **Menús en la barra superior de Nodalix** en Wayland, exportados por D-Bus; en
+  ese caso la ventana no repite la barra de menús.
+- **Controles de ventana configurables:** Preferencias › Apariencia › Controles
+  de ventana › Nodalia o Del sistema (GNOME, KDE…). Se aplica al reiniciar.
+- **Acerca de** con el estilo de Nodalia: icono, nombre en Sora, versión y enlaces.
+
+### Cambiado
+- Los diálogos y avisos no usan la barra de título del sistema: cabecera de
+  Nodalia con el título y el botón de cierre. «Proyecto sin guardar» ofrece
+  «Descartar» y «Cancelar» en vez de Sí/No.
+- Botones de ventana circulares de 28 px con tinte al pasar el puntero (cian,
+  ámbar, coral) y nuevos glifos de maximizar y restaurar.
+- El inspector es una sola isla con barra de título propia; acoplado no se
+  arrastra y en modo ventana se mueve por su título.
+- Avisos (actualización, CFD experimental) como islas con icono, sin la línea de
+  caja.
+- Menús, listas desplegables y tooltips con esquinas redondeadas; el visor 3D
+  respeta las esquinas de su isla.
+- Los botones que ya muestran su nombre no lo repiten en un tooltip.
+- El icono de la app tiene el mismo tamaño que el de las demás apps en Nodalix
+  y GNOME.
+
+### Corregido
+- Las islas no dejaban margen con el borde derecho de la ventana.
+- Las flechas de los campos numéricos se salían del campo al pasar el puntero.
+- El nombre de la app en la barra superior salía como «dev.vortia.vortia».
+- Las pestañas del inspector se cortaban.
+
 ## [0.5.0] — 2026-11-10
 
 Rediseño visual. No cambia el motor ni los resultados de cálculo.
