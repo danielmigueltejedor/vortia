@@ -317,6 +317,17 @@ struct Budget {
     weight: usize,
 }
 
+impl Budget {
+    /// Charges one copy of `key = entry`, key included.
+    fn copy(&mut self, key: &str, entry: &Entry) -> Result<()> {
+        let cost = key.len().saturating_add(weight(entry));
+        self.weight = self.weight.checked_sub(cost).ok_or_else(|| {
+            SolverError::Setup("fvSolution: '$' references copy too much data".into())
+        })?;
+        Ok(())
+    }
+}
+
 /// `d` with each `$name` entry replaced by the entries of `find(name)`.
 fn expand<'a>(
     d: &Dictionary,
@@ -342,13 +353,12 @@ fn expand<'a>(
                     SolverError::Setup(format!("fvSolution/solvers has no '{name}' for '${name}'"))
                 })?;
                 for (k, e) in expand(other, find, depth + 1, budget)?.entries() {
+                    budget.copy(k, e)?;
                     out.set(k, e.clone());
                 }
             }
             None => {
-                budget.weight = budget.weight.checked_sub(weight(entry)).ok_or_else(|| {
-                    SolverError::Setup("fvSolution: '$' references copy too much data".into())
-                })?;
+                budget.copy(key, entry)?;
                 out.set(key, entry.clone());
             }
         }
@@ -457,6 +467,14 @@ mod tests {
         std::fs::write(system.join("fvSolution"), text).unwrap();
         let case = super::Case::open(dir.path()).unwrap();
         assert!(case.solver_dict("r0").is_ok());
+        let err = case.solver_dict("all").unwrap_err().to_string();
+        assert!(err.contains("too much data"), "{err}");
+
+        // The same with a 1 MB key and a small value.
+        let key = "k".repeat(1 << 20);
+        let text = format!("solvers {{ big {{ {key} 1; }} {refs} all {{ {all} }} }}");
+        std::fs::write(system.join("fvSolution"), text).unwrap();
+        let case = super::Case::open(dir.path()).unwrap();
         let err = case.solver_dict("all").unwrap_err().to_string();
         assert!(err.contains("too much data"), "{err}");
     }
