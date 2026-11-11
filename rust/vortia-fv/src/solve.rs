@@ -1,6 +1,7 @@
 //! Iterative solvers for [`LduMatrix`] systems.
 //!
-//! Derived from OpenFOAM's `PCG`, `DICPreconditioner` and the convergence
+//! Derived from OpenFOAM's `PCG`, `PBiCGStab`, `DICPreconditioner`,
+//! `DILUPreconditioner` and the convergence
 //! rules of `lduMatrix::solver` (OpenFOAM, Copyright (C) 2011-2017 OpenFOAM
 //! Foundation and OpenCFD Ltd., GPL-3.0-or-later). The residual is defined as
 //! OpenFOAM defines it, so the two print the same numbers for the same system.
@@ -173,6 +174,151 @@ pub fn pcg_dic(m: &LduMatrix, x: &mut [f64], c: &Controls) -> Result<Performance
     Ok(perf)
 }
 
+/// The diagonal-based incomplete LU preconditioner, for asymmetric matrices.
+struct Dilu {
+    r_d: Vec<f64>,
+    /// Internal faces in neighbour order (OpenFOAM's `losort`): the forward
+    /// sweep visits them so, which fixes the order round-off accumulates in.
+    losort: Vec<usize>,
+}
+
+impl Dilu {
+    fn new(m: &LduMatrix) -> Result<Self> {
+        let mut r_d = m.diag.clone();
+        for (((&l, &u), &up), &lo) in m.l.iter().zip(&m.u).zip(&m.upper).zip(&m.lower) {
+            let dl = r_d.get(l).copied().unwrap_or(0.0);
+            if let Some(du) = r_d.get_mut(u) {
+                *du -= up * lo / dl;
+            }
+        }
+        for d in &mut r_d {
+            if *d == 0.0 || !d.is_finite() {
+                return Err(FvError::Singular("DILU: a zero pivot".into()));
+            }
+            *d = 1.0 / *d;
+        }
+        let mut losort: Vec<usize> = (0..m.u.len()).collect();
+        losort.sort_by_key(|&f| m.u.get(f).copied().unwrap_or(0));
+        Ok(Self { r_d, losort })
+    }
+
+    fn precondition(&self, m: &LduMatrix, w: &mut [f64], r: &[f64]) {
+        for ((wc, &d), &rc) in w.iter_mut().zip(&self.r_d).zip(r) {
+            *wc = d * rc;
+        }
+        for &f in &self.losort {
+            let (Some(&l), Some(&u), Some(&lo)) = (m.l.get(f), m.u.get(f), m.lower.get(f)) else {
+                continue;
+            };
+            let wl = w.get(l).copied().unwrap_or(0.0);
+            let du = self.r_d.get(u).copied().unwrap_or(0.0);
+            if let Some(wu) = w.get_mut(u) {
+                *wu -= du * lo * wl;
+            }
+        }
+        for ((&l, &u), &up) in m.l.iter().zip(&m.u).zip(&m.upper).rev() {
+            let wu = w.get(u).copied().unwrap_or(0.0);
+            let dl = self.r_d.get(l).copied().unwrap_or(0.0);
+            if let Some(wl) = w.get_mut(l) {
+                *wl -= dl * up * wu;
+            }
+        }
+    }
+}
+
+/// OpenFOAM's test for a quantity too small to divide by.
+fn singular(v: f64) -> bool {
+    v.abs() < 1e-300
+}
+
+/// Preconditioned bi-conjugate gradients, stabilised, with DILU: for
+/// asymmetric matrices such as convection.
+pub fn pbicgstab_dilu(m: &LduMatrix, x: &mut [f64], c: &Controls) -> Result<Performance> {
+    let n = m.n_cells();
+    if x.len() != n || m.source.len() != n {
+        return Err(FvError::Shape(format!("{} unknowns for {n} rows", x.len())));
+    }
+    let mut perf = Performance {
+        solver: "DILUPBiCGStab",
+        initial_residual: 0.0,
+        final_residual: 0.0,
+        iterations: 0,
+        converged: false,
+    };
+    let mut y_a = vec![0.0; n];
+    m.amul(x, &mut y_a);
+    let mut r_a: Vec<f64> = m.source.iter().zip(&y_a).map(|(b, a)| b - a).collect();
+    let norm = m.norm_factor(x, &y_a);
+    perf.initial_residual = sum_mag(&r_a) / norm;
+    perf.final_residual = perf.initial_residual;
+
+    if c.min_iter > 0 || !c.converged(perf.initial_residual, perf.final_residual) {
+        let mut p_a = vec![0.0; n];
+        let mut ay_a = vec![0.0; n];
+        let mut s_a = vec![0.0; n];
+        let mut z_a = vec![0.0; n];
+        let mut t_a = vec![0.0; n];
+        let r_a0 = r_a.clone();
+        let (mut r_a0r_a, mut alpha, mut omega) = (0.0, 0.0, 0.0);
+        let dilu = Dilu::new(m)?;
+        loop {
+            let r_a0r_a_old = r_a0r_a;
+            r_a0r_a = dot(&r_a0, &r_a);
+            if singular(r_a0r_a) {
+                break;
+            }
+            if perf.iterations == 0 {
+                p_a.copy_from_slice(&r_a);
+            } else {
+                if singular(omega) {
+                    break;
+                }
+                let beta = (r_a0r_a / r_a0r_a_old) * (alpha / omega);
+                for ((p, &r), &ay) in p_a.iter_mut().zip(&r_a).zip(&ay_a) {
+                    *p = r + beta * (*p - omega * ay);
+                }
+            }
+            dilu.precondition(m, &mut y_a, &p_a);
+            m.amul(&y_a, &mut ay_a);
+            alpha = r_a0r_a / dot(&r_a0, &ay_a);
+            for ((s, &r), &ay) in s_a.iter_mut().zip(&r_a).zip(&ay_a) {
+                *s = r - alpha * ay;
+            }
+            perf.final_residual = sum_mag(&s_a) / norm;
+            if c.converged(perf.initial_residual, perf.final_residual) {
+                for (xc, &y) in x.iter_mut().zip(&y_a) {
+                    *xc += alpha * y;
+                }
+                perf.iterations += 1;
+                break;
+            }
+            dilu.precondition(m, &mut z_a, &s_a);
+            m.amul(&z_a, &mut t_a);
+            omega = dot(&t_a, &s_a) / dot(&t_a, &t_a);
+            for (((xc, r), (&y, &z)), (&s, &t)) in x
+                .iter_mut()
+                .zip(r_a.iter_mut())
+                .zip(y_a.iter().zip(&z_a))
+                .zip(s_a.iter().zip(&t_a))
+            {
+                *xc += alpha * y + omega * z;
+                *r = s - omega * t;
+            }
+            perf.final_residual = sum_mag(&r_a) / norm;
+            perf.iterations += 1;
+            let done = c.converged(perf.initial_residual, perf.final_residual);
+            if !((perf.iterations < c.max_iter && !done) || perf.iterations < c.min_iter) {
+                break;
+            }
+        }
+    }
+    perf.converged = c.converged(perf.initial_residual, perf.final_residual);
+    if !perf.final_residual.is_finite() {
+        return Err(FvError::Diverged(format!("{perf}")));
+    }
+    Ok(perf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,11 +362,34 @@ mod tests {
     }
 
     #[test]
+    fn pbicgstab_solves_an_asymmetric_chain() {
+        // Upwind convection plus diffusion along a chain: lower ≠ upper.
+        let n = 40;
+        let mut m = chain(n);
+        m.lower = vec![-1.5; n - 1];
+        m.upper = vec![-0.5; n - 1];
+        let mut x = vec![0.0; n];
+        let c = Controls {
+            tolerance: 1e-14,
+            ..Controls::default()
+        };
+        let perf = pbicgstab_dilu(&m, &mut x, &c).unwrap();
+        assert!(perf.converged, "{perf}");
+        let mut ax = vec![0.0; n];
+        m.amul(&x, &mut ax);
+        for (a, b) in ax.iter().zip(&m.source) {
+            assert!((a - b).abs() < 1e-10, "{a} vs {b}");
+        }
+    }
+
+    #[test]
     fn bad_shapes_and_zero_pivots_are_errors() {
         let m = chain(3);
         assert!(pcg_dic(&m, &mut [0.0; 2], &Controls::default()).is_err());
         let mut z = chain(3);
         z.diag = vec![0.0; 3];
         assert!(pcg_dic(&z, &mut [0.0; 3], &Controls::default()).is_err());
+        assert!(pbicgstab_dilu(&z, &mut [0.0; 3], &Controls::default()).is_err());
+        assert!(pbicgstab_dilu(&m, &mut [0.0; 2], &Controls::default()).is_err());
     }
 }

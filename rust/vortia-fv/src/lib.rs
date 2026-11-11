@@ -28,4 +28,4 @@ pub use bc::{Boundary, ScalarBc};
 pub use error::{FvError, Result};
 pub use fvgeom::FvGeometry;
 pub use ldu::LduMatrix;
-pub use solve::{Controls, Performance, pcg_dic};
+pub use solve::{Controls, Performance, pbicgstab_dilu, pcg_dic};

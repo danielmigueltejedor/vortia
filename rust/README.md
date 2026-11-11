@@ -18,17 +18,19 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
 - `vortia-fields`: volume and surface fields with their boundary conditions,
   read, checked against the mesh and written back as OpenFOAM writes them.
 - `vortia-fv`: the finite-volume discretisation (gradient, diffusion with
-  non-orthogonal correction, Euler time derivative) and linear solvers (PCG
-  with DIC), with OpenFOAM's residual definition.
-- `vortia-solvers`: solvers run on a case directory; diffusion
-  (`laplacianFoam`) today.
+  non-orthogonal correction, upwind and linear convection, Euler time
+  derivative) and linear solvers (PCG with DIC, PBiCGStab with DILU), with
+  OpenFOAM's residual definition.
+- `vortia-solvers`: solvers run on a case directory: diffusion
+  (`laplacianFoam`) and convection–diffusion by a given flow
+  (`scalarTransportFoam`).
 - `vortia-cli`: the `vortia` command.
 
 ```bash
 cd rust
 cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
 cargo run -p vortia-cli -- fields ../examples/nozzle-practice-2026
-cargo run -p vortia-cli -- solve path/to/a/laplacianFoam/case
+cargo run -p vortia-cli -- solve path/to/a/case   # laplacianFoam or scalarTransportFoam
 ```
 
 ## Checks

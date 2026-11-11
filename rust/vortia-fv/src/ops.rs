@@ -1,7 +1,8 @@
 //! Finite-volume operators on scalar fields.
 //!
 //! Derived from OpenFOAM's `gaussGrad`, `gaussLaplacianScheme` with the
-//! `corrected` and `uncorrected` surface-normal gradients, and `EulerDdtScheme`
+//! `corrected` and `uncorrected` surface-normal gradients, `gaussConvectionScheme`
+//! with `upwind` and `linear` interpolation, and `EulerDdtScheme`
 //! (OpenFOAM, Copyright (C) 2011-2017 OpenFOAM Foundation and OpenCFD Ltd.,
 //! GPL-3.0-or-later).
 //!
@@ -30,6 +31,8 @@ pub fn grad(mesh: &PolyMesh, fv: &FvGeometry, bc: &Boundary, cells: &[f64]) -> V
         else {
             continue;
         };
+        // `w·P + (1 − w)·N`, the form OpenFOAM v1912's gradient uses: the
+        // algebraically equal `w·(P − N) + N` changes solver iteration counts.
         let face = s * (w * po + (1.0 - w) * pn);
         if let Some(go) = g.get_mut(o) {
             *go = *go + face;
@@ -165,6 +168,113 @@ pub fn diffusion(
             }
             if let Some(s) = m.source.get_mut(u) {
                 *s -= flux;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// How `Gauss <scheme>` interpolates the convected value to a face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Interpolation {
+    /// The value of the cell the flux comes from.
+    Upwind,
+    /// The distance-weighted mean of the two cells.
+    Linear,
+}
+
+impl Interpolation {
+    /// From a `divSchemes` entry such as `Gauss upwind` or `bounded Gauss linear`.
+    pub fn from_scheme(words: &[&str]) -> Result<Self> {
+        let words = match words {
+            ["bounded", rest @ ..] => rest,
+            all => all,
+        };
+        match words {
+            ["Gauss", "upwind"] => Ok(Self::Upwind),
+            ["Gauss", "linear"] => Ok(Self::Linear),
+            other => Err(FvError::Setup(format!(
+                "div scheme '{}' is not supported yet",
+                other.join(" ")
+            ))),
+        }
+    }
+}
+
+/// Adds the implicit `∇·(φ ψ)` for a face flux `phi` (internal faces, then
+/// boundary faces in patch order).
+pub fn convection(
+    m: &mut LduMatrix,
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    bc: &Boundary,
+    phi: &[f64],
+    scheme: Interpolation,
+) -> Result<()> {
+    if phi.len() != mesh.n_faces() {
+        return Err(FvError::Shape(format!(
+            "{} face fluxes for {} faces",
+            phi.len(),
+            mesh.n_faces()
+        )));
+    }
+    let n_internal = mesh.n_internal_faces();
+    for f in 0..n_internal {
+        let (Some(&l), Some(&u), Some(&flux)) = (m.l.get(f), m.u.get(f), phi.get(f)) else {
+            continue;
+        };
+        let w = match scheme {
+            Interpolation::Upwind => {
+                if flux >= 0.0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            Interpolation::Linear => fv.weights.get(f).copied().unwrap_or(0.5),
+        };
+        // The owner's share goes on the diagonal, the neighbour's off it;
+        // OpenFOAM's `negSumDiag` makes each row sum to the net outflow.
+        let lower = -w * flux;
+        let upper = lower + flux;
+        if let (Some(up), Some(lo)) = (m.upper.get_mut(f), m.lower.get_mut(f)) {
+            *up += upper;
+            *lo += lower;
+        }
+        if let Some(d) = m.diag.get_mut(l) {
+            *d -= lower;
+        }
+        if let Some(d) = m.diag.get_mut(u) {
+            *d -= upper;
+        }
+    }
+
+    for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
+        for (i, f) in patch.faces().enumerate() {
+            let (Some(&c), Some(&flux)) = (mesh.owner().get(f), phi.get(f)) else {
+                continue;
+            };
+            // `valueInternalCoeffs` on the diagonal, `valueBoundaryCoeffs` in
+            // the source, each times the face flux.
+            let (internal, boundary) = match cond {
+                ScalarBc::FixedValue(v) => (0.0, v.get(i).copied().unwrap_or(0.0)),
+                ScalarBc::ZeroGradient | ScalarBc::Reflect => (1.0, 0.0),
+                ScalarBc::FixedGradient(g) => {
+                    let dc = fv.non_orth_delta_coeffs.get(f).copied().unwrap_or(0.0);
+                    let g = g.get(i).copied().unwrap_or(0.0);
+                    (1.0, if dc > 0.0 { g / dc } else { 0.0 })
+                }
+                ScalarBc::Empty => continue,
+                ScalarBc::Calculated(_) => {
+                    return Err(FvError::Condition(format!(
+                        "patch '{}': a 'calculated' condition cannot be solved for",
+                        patch.name
+                    )));
+                }
+            };
+            if let (Some(d), Some(s)) = (m.diag.get_mut(c), m.source.get_mut(c)) {
+                *d += flux * internal;
+                *s -= flux * boundary;
             }
         }
     }
