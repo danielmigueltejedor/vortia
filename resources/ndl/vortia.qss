@@ -93,4 +93,3 @@ QLabel#ndl-about-tagline {color:{{color.textSecondary}};}
 QLabel#ndl-about-developer {color:{{color.textSecondary}};}
 QLabel#ndl-version-pill {background:{{color.accentSubtle}};color:{{color.accentText}};border-radius:{{component.controlRadius}}px;padding:{{space.xxs}}px {{space.md}}px;font-weight:700;}
 QLabel#ndl-about-notice {color:{{color.textTertiary}};font-size:{{font.small}}px;}
-
