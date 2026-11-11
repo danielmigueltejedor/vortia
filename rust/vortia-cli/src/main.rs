@@ -24,6 +24,14 @@ use vortia_foamfile::FoamFile;
 use vortia_mesh::check::{NON_ORTH_THRESHOLD, SKEW_THRESHOLD, Stat};
 use vortia_mesh::{MeshGeometry, PolyMesh, check};
 
+/// `println!` that ignores a closed stdout: `vortia fields | head` must not
+/// panic once `head` has what it wants.
+macro_rules! out {
+    ($($arg:tt)*) => {{
+        let _ = writeln!(std::io::stdout(), $($arg)*);
+    }};
+}
+
 const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20      vortia fields [CASE [TIME]]\n\
     \x20      vortia solve [CASE]\n\n\
@@ -49,7 +57,7 @@ fn main() -> ExitCode {
         ["fields", case] => fields(Path::new(case), None),
         ["fields", case, time] => fields(Path::new(case), Some(time)),
         ["-h" | "--help" | "help"] => {
-            println!("{USAGE}");
+            out!("{USAGE}");
             ExitCode::SUCCESS
         }
         _ => {
@@ -70,47 +78,52 @@ fn check_mesh(case: &Path) -> ExitCode {
     let geo = MeshGeometry::compute(&mesh);
     let r = check(&mesh, &geo);
 
-    println!("Mesh stats");
-    println!("    points:           {}", r.n_points);
-    println!("    faces:            {}", r.n_faces);
-    println!("    internal faces:   {}", r.n_internal_faces);
-    println!("    cells:            {}", r.n_cells);
-    println!();
-    println!("Patches");
+    out!("Mesh stats");
+    out!("    points:           {}", r.n_points);
+    out!("    faces:            {}", r.n_faces);
+    out!("    internal faces:   {}", r.n_internal_faces);
+    out!("    cells:            {}", r.n_cells);
+    out!();
+    out!("Patches");
     for p in mesh.patches() {
-        println!(
+        out!(
             "    {:<20} {:<14} {:>8} faces",
             shown(&p.name),
             shown(p.kind.name()),
             p.size
         );
     }
-    println!();
-    println!("Geometry");
+    out!();
+    out!("Geometry");
     let b = r.bounds;
-    println!(
+    out!(
         "    bounding box:     ({} {} {}) ({} {} {})",
-        b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z
+        b.min.x,
+        b.min.y,
+        b.min.z,
+        b.max.x,
+        b.max.y,
+        b.max.z
     );
-    println!("    total volume:     {:e}", r.total_volume);
+    out!("    total volume:     {:e}", r.total_volume);
     print_stat("cell volume", r.volume.as_ref());
     print_stat("face area", r.face_area.as_ref());
     print_stat("non-orthogonality", r.non_orthogonality.as_ref());
     print_stat("skewness", r.skewness.as_ref());
-    println!("    unused points:    {}", r.unused_points);
-    println!(
+    out!("    unused points:    {}", r.unused_points);
+    out!(
         "    thresholds:       non-orthogonality {NON_ORTH_THRESHOLD}°, skewness {SKEW_THRESHOLD}"
     );
-    println!();
+    out!();
 
     let failed = r.failed_checks();
     if failed.is_empty() {
-        println!("Mesh OK.");
+        out!("Mesh OK.");
         ExitCode::SUCCESS
     } else {
-        println!("Failed {} mesh checks:", failed.len());
+        out!("Failed {} mesh checks:", failed.len());
         for f in failed {
-            println!("    {f}");
+            out!("    {f}");
         }
         ExitCode::FAILURE
     }
@@ -118,14 +131,14 @@ fn check_mesh(case: &Path) -> ExitCode {
 
 fn print_stat(name: &str, s: Option<&Stat>) {
     match s {
-        Some(s) => println!(
+        Some(s) => out!(
             "    {:<18}min {:e}  max {:e}  mean {:e}",
             format!("{name}:"),
             s.min,
             s.max,
             s.mean
         ),
-        None => println!("    {:<18}none", format!("{name}:")),
+        None => out!("    {:<18}none", format!("{name}:")),
     }
 }
 
@@ -164,7 +177,7 @@ fn fields(case: &Path, time: Option<&str>) -> ExitCode {
         }
     };
     entries.sort();
-    println!("Time {}", shown(&time));
+    out!("Time {}", shown(&time));
     let mut failed = false;
     for path in entries {
         let name = path
@@ -183,10 +196,10 @@ fn fields(case: &Path, time: Option<&str>) -> ExitCode {
             _ => continue,
         };
         match line {
-            Ok(text) => println!("    {name:<12} {class:<20} {text}"),
+            Ok(text) => out!("    {name:<12} {class:<20} {text}"),
             Err(e) => {
                 failed = true;
-                println!(
+                out!(
                     "    {name:<12} {class:<20} error: {}",
                     shown(&e.to_string())
                 );
