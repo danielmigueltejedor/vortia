@@ -39,13 +39,9 @@
 #include "vortia/ui/WindowChrome.hpp"
 #include "vortia/ui/SketchEditorDialog.hpp"
 #include "vortia/ui/ResultFiles.hpp"
+#include "vortia/ui/HeaderMenus.hpp"
 
 #include <QMenuBar>
-#ifdef VORTIA_HAS_QTDBUS
-#include <QDBusConnection>
-#include <QDBusConnectionInterface>
-#include <QDBusServiceWatcher>
-#endif
 #include <initializer_list>
 #include <QWidget>
 #include <QSizePolicy>
@@ -153,21 +149,6 @@ void MainWindow::showEvent(QShowEvent* event) {
         });
     }
 }
-
-namespace {
-/// Whether the desktop shell shows application menus in its own top bar.
-/// macOS always does; on Linux it is the app-menu registrar Qt exports to.
-bool shellHasGlobalMenu() {
-#if defined(Q_OS_MACOS)
-    return true;
-#elif defined(VORTIA_HAS_QTDBUS)
-    const auto* bus=QDBusConnection::sessionBus().interface();
-    return bus&&bus->isServiceRegistered(QStringLiteral("com.canonical.AppMenu.Registrar")).value();
-#else
-    return false;
-#endif
-}
-}  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     settings_ = std::make_unique<QSettings>(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
@@ -869,25 +850,7 @@ void MainWindow::buildDocks() {
             // A shell with a global menu (Nodalix, KDE's app-menu applet) shows
             // the menus in its top bar, which Qt exports to; there the window
             // keeps one button for them. Without one, the menus sit in the header.
-            auto* appMenu=new QToolButton(header);appMenu->setObjectName("ndl-app-menu");
-            appMenu->setText(QStringLiteral("\u2261"));appMenu->setToolTip(tr("Main menu"));
-            appMenu->setPopupMode(QToolButton::InstantPopup);appMenu->setFocusPolicy(Qt::NoFocus);
-            auto* menu=new QMenu(appMenu);
-            connect(menu,&QMenu::aboutToShow,this,[this,menu]{menu->clear();menu->addActions(menuBar()->actions());});
-            appMenu->setMenu(menu);
-            auto* headerMenus=new QMenuBar(header);headerMenus->setObjectName("vortia-header-menus");
-            headerMenus->setNativeMenuBar(false);
-            headerMenus->addActions(menuBar()->actions());
-            row->addSpacing(8);row->addWidget(appMenu);row->addWidget(headerMenus);row->addSpacing(4);
-            const auto showMenus=[appMenu,headerMenus](bool global){appMenu->setVisible(global);headerMenus->setVisible(!global);};
-            showMenus(shellHasGlobalMenu());
-#ifdef VORTIA_HAS_QTDBUS
-            // The shell's menu service can start or stop while Vortia runs.
-            auto* watcher=new QDBusServiceWatcher(QStringLiteral("com.canonical.AppMenu.Registrar"),
-                QDBusConnection::sessionBus(),QDBusServiceWatcher::WatchForOwnerChange,header);
-            connect(watcher,&QDBusServiceWatcher::serviceRegistered,header,[showMenus]{showMenus(true);});
-            connect(watcher,&QDBusServiceWatcher::serviceUnregistered,header,[showMenus]{showMenus(false);});
-#endif
+            row->addSpacing(8);row->addWidget(new ndl::HeaderMenus(menuBar(),header));row->addSpacing(4);
         }
         projectTabs_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);row->addWidget(projectTabs_,1);
         qobject_cast<QVBoxLayout*>(topBar->layout())->insertWidget(0,header);
