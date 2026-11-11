@@ -410,9 +410,18 @@ void exportGlobalMenu(QMenuBar* menuBar, std::function<void(bool)> registered) {
     // The registrar may start after Vortia (or restart with the shell): register whenever it
     // appears.
     auto* watcher = new QDBusServiceWatcher(QString::fromLatin1(kRegistrar), bus,
-                                            QDBusServiceWatcher::WatchForRegistration, menuBar);
+                                            QDBusServiceWatcher::WatchForRegistration
+                                                | QDBusServiceWatcher::WatchForUnregistration,
+                                            menuBar);
     QObject::connect(watcher, &QDBusServiceWatcher::serviceRegistered, menuBar,
                      [](const QString&) { registerWithRegistrar(); });
+    // A registrar that goes away takes the menus with it: the window shows its own again until
+    // a new one accepts them.
+    QObject::connect(watcher, &QDBusServiceWatcher::serviceUnregistered, menuBar, [](const QString&) {
+        registrationAccepted = false;
+        if (onRegistration)
+            onRegistration(false);
+    });
     if (bus.interface()->isServiceRegistered(QString::fromLatin1(kRegistrar)))
         registerWithRegistrar();
 }

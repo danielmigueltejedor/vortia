@@ -65,6 +65,7 @@
 #include <QApplication>
 #include <QDockWidget>
 #include <QScrollArea>
+#include <QPointer>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QProgressDialog>
@@ -926,7 +927,10 @@ void MainWindow::buildDocks() {
             }
         };
         keepShortcuts(menuBar()->actions());
-        ndl::exportGlobalMenu(menuBar(),[this](bool accepted){menuBar()->setVisible(!accepted||!ndl::globalMenuAvailable());});
+        // Guarded: the registrar can answer, or vanish, after the window has gone.
+        ndl::exportGlobalMenu(menuBar(),[window=QPointer<MainWindow>(this)](bool accepted){
+            if(window)window->menuBar()->setVisible(!accepted||!ndl::globalMenuAvailable());
+        });
 #endif
     }
     updateNotice_ = new QLabel(central);
