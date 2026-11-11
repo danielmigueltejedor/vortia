@@ -37,10 +37,11 @@ QWidget#vortia-top-bar,QWidget#vortia-document-header {background:{{color.surfac
 QTabBar#vortia-project-tabs::tab {min-width:96px;margin:{{space.xs}}px {{space.xxs}}px 0 {{space.xxs}}px;color:{{color.textSecondary}};}
 QTabBar#vortia-project-tabs::tab:selected {color:{{color.textPrimary}};border-bottom-color:{{color.accentDefault}};font-weight:700;}
 QTabBar#vortia-project-tabs::tab {font-family:"Sora";}
-/* Window controls: three round buttons (32 px; Qt draws no radius past half the side), a flat raised disc at rest; minimise
-   and maximise take the accent tint under the pointer, close turns coral (its glyph turns white). */
-QToolButton#ndl-window-button {background:{{color.controlBg}};border:0;border-radius:{{space.lg}}px;min-width:{{space.xxl}}px;max-width:{{space.xxl}}px;min-height:{{space.xxl}}px;max-height:{{space.xxl}}px;padding:0;margin:0 {{space.xxs}}px;color:{{color.textSecondary}};}
-QToolButton#ndl-window-button:hover {background:{{color.accentSubtle}};color:{{color.accentText}};}
+/* Window controls: three round 28 px buttons (Qt draws no radius past half the side), a flat raised
+   disc at rest; under the pointer minimise tints cyan, maximise amber, close turns coral (white X). */
+QToolButton#ndl-window-button {background:{{color.controlBg}};border:0;border-radius:14px;min-width:28px;max-width:28px;min-height:28px;max-height:28px;padding:0;margin:0 {{space.xxs}}px;color:{{color.textSecondary}};}
+QToolButton#ndl-window-button:hover {background:{{color.windowMinimizeTint}};color:{{color.windowMinimize}};}
+QToolButton#ndl-window-button[role="maximize"]:hover {background:{{color.windowMaximizeTint}};color:{{color.windowMaximize}};}
 QToolButton#ndl-window-button[role="close"]:hover {background:{{color.windowClose}};}
 QToolButton#ndl-app-menu {background:transparent;border:0;border-radius:{{space.lg}}px;min-width:{{space.xxl}}px;max-width:{{space.xxl}}px;min-height:{{space.xxl}}px;max-height:{{space.xxl}}px;padding:0;margin:0 {{space.xxs}}px;}
 QToolButton#ndl-app-menu:hover {background:{{color.controlBgHover}};}

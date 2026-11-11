@@ -176,6 +176,8 @@ void ThemeManager::apply(QApplication& app, Theme theme, const QString& density)
     app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     useBundledFonts(app);
     const QString scheme = toName(theme);
+    // Widgets that paint in token colours themselves (the window buttons) read the mode here.
+    app.setProperty("ndl-scheme", scheme);
     const QJsonObject tokens = ndl::bundledTokens();
     const auto color = [&](const char* name) {
         return QColor(ndl::tokenValue(tokens, scheme, QStringLiteral("color.") + QLatin1String(name)));

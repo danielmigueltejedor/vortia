@@ -1,11 +1,14 @@
 #include "vortia/ui/WindowChrome.hpp"
 
+#include "vortia/ui/ThemeManager.hpp"
+
 #include <cmath>
 
 #include <QApplication>
 #include <QBoxLayout>
 #include <QDir>
 #include <QEvent>
+#include <QJsonObject>
 #include <QMainWindow>
 #include <QMouseEvent>
 #include <QPainter>
@@ -23,6 +26,16 @@ constexpr int kResizeMargin = 6;
 
 /// Round window button whose glyph is drawn in the current text colour, so
 /// it follows the theme without separate icon files.
+/// The glyph colour under the pointer: cyan for minimise, amber for maximise, from the tokens of
+/// the mode ThemeManager applied (the style sheet tints the button to match).
+QColor hoverInk(WindowButton kind) {
+    static const QJsonObject tokens = bundledTokens();
+    const QString scheme = qApp->property("ndl-scheme").toString();
+    const QString name = kind == WindowButton::Maximize ? QStringLiteral("color.windowMaximize")
+                                                        : QStringLiteral("color.windowMinimize");
+    return QColor(tokenValue(tokens, scheme.isEmpty() ? QStringLiteral("light") : scheme, name));
+}
+
 class GlyphButton final : public QToolButton {
 public:
     GlyphButton(WindowButton kind, QWidget* parent) : QToolButton(parent), kind_(kind) {
@@ -48,11 +61,9 @@ protected:
         // NDL's bold window glyphs: 2 px strokes centred on whole pixels, so they stay crisp.
         // Close turns coral under the pointer (the style sheet), and its X turns white with it.
         const bool hovered = underMouse();
-        const bool onCoral = kind_ == WindowButton::Close && hovered;
-        // On the accent tint the glyph takes the accent's text colour, which the palette keeps as Link.
-        const QColor ink = onCoral   ? QColor(Qt::white)
-                           : hovered ? palette().color(QPalette::Link)
-                                     : palette().color(QPalette::ButtonText);
+        const QColor ink = !hovered                     ? palette().color(QPalette::ButtonText)
+                           : kind_ == WindowButton::Close ? QColor(Qt::white)
+                                                          : hoverInk(kind_);
         QPen pen(ink, 2.0);
         pen.setCapStyle(Qt::RoundCap);
         pen.setJoinStyle(Qt::RoundJoin);
