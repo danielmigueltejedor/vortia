@@ -60,7 +60,7 @@ fn nozzle_case(ddt: &str, end: &str, dt: &str, correctors: u32) -> tempfile::Tem
          boundaryField {\n\
            axis { type empty; }\n\
            inlet { type fixedValue; value uniform 400; }\n\
-           walls { type fixedGradient; gradient uniform 1000; }\n\
+           walls { type fixedGradient; gradient uniform 1000; value uniform 0; }\n\
            atmosphere { type fixedValue; value uniform 300; }\n\
            front { type wedge; } back { type wedge; }\n\
          }\n",
@@ -93,6 +93,11 @@ fn steady_diffusion_matches_openfoam() {
         .collect();
     // laplacianFoam's log: "No Iterations" of each solve.
     assert_eq!(iterations, [125, 104, 94, 81, 72, 58, 39, 9, 1]);
+    // laplacianFoam writes a fixedGradient patch without a value, even one
+    // read with a value, which the cells have since moved away from.
+    let t = ScalarField::read(dir.path().join("3/T")).unwrap();
+    let walls = t.boundary.iter().find(|p| p.key == "walls").unwrap();
+    assert_eq!(walls.value, None);
     check(
         dir.path(),
         "3",

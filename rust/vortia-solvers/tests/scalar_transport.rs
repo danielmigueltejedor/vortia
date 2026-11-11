@@ -196,6 +196,16 @@ fn a_restart_reads_the_directory_it_chose() {
     assert!(from("lastTime").is_err());
 }
 
+/// A directory a step ahead of `startTime` is the first write's, not the
+/// start: reading from it would have the run overwrite its own input.
+#[test]
+fn a_start_never_reads_the_first_step_ahead() {
+    let dir = case("Euler", "Gauss linear", "1e-13", "1e-13", false);
+    std::fs::rename(dir.path().join("0"), dir.path().join("1e-13")).unwrap();
+    let run = RunControl::read(&Case::open(dir.path()).unwrap()).unwrap();
+    assert_eq!(run.start_name, "0");
+}
+
 #[test]
 fn a_mass_flux_is_refused_as_a_volume_flux() {
     let dir = case("steadyState", "Gauss upwind", "1", "1", true);

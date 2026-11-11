@@ -198,9 +198,12 @@ impl Case {
             return Ok(());
         };
         for (key, entry) in d.entries() {
+            // Every value has to be a word: `linear (upwind)` is not linear.
             let words: Vec<&str> = match entry {
-                vortia_foamfile::Entry::Values(v) => v.iter().filter_map(|v| v.as_word()).collect(),
-                _ => Vec::new(),
+                vortia_foamfile::Entry::Values(v) => {
+                    v.iter().map(|v| v.as_word().unwrap_or("(…)")).collect()
+                }
+                _ => vec!["{…}"],
             };
             if words != ["linear"] {
                 return Err(SolverError::Setup(format!(
@@ -302,10 +305,10 @@ fn expand<'a>(
                     SolverError::Setup(format!("fvSolution/solvers has no '{name}' for '${name}'"))
                 })?;
                 for (k, e) in expand(other, find, depth + 1, budget)?.entries() {
-                    out.insert(k, e.clone());
+                    out.set(k, e.clone());
                 }
             }
-            None => out.insert(key, entry.clone()),
+            None => out.set(key, entry.clone()),
         }
     }
     Ok(out)
@@ -390,6 +393,10 @@ mod tests {
         assert!(case.solver_dict("l1").is_ok());
         let err = case.solver_dict("l8").unwrap_err().to_string();
         assert!(err.contains("more than"), "{err}");
+        // Repeating one reference keeps one copy of what it names, not one
+        // per repeat, so a large value named many times stays one value.
+        let d = case.solver_dict("l2").unwrap();
+        assert_eq!(d.entries().count(), 1);
     }
 
     #[test]

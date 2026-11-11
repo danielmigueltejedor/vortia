@@ -19,9 +19,10 @@ use vortia_mesh::PolyMesh;
 
 use crate::case::{Case, KINEMATIC_DIFFUSIVITY, KINEMATIC_PRESSURE};
 use crate::error::{Result, SolverError};
+use crate::ico::switch_or;
 use crate::rans::{
     EquationSetup, Kind, LogLaw, ModelField, bound, correct_nut_walls, face_diffusivity, near_wall,
-    pow025, rhs, solve, switch, transport, wall_function,
+    pow025, rhs, solve, transport, wall_function,
 };
 
 /// `[0 2 -3 0 0 0 0]`.
@@ -84,10 +85,9 @@ impl KEpsilon {
             match pf.kind.as_str() {
                 "fixedValue" => Some(Kind::Fixed(Vec::new())),
                 "zeroGradient" => Some(Kind::ZeroGradient),
-                "epsilonWallFunction" => match pf.settings.word("lowReCorrection") {
-                    None => Some(Kind::EpsilonWall(false)),
-                    Some(w) => switch(w).map(Kind::EpsilonWall),
-                },
+                "epsilonWallFunction" => switch_or(&pf.settings, "lowReCorrection", false, "")
+                    .ok()
+                    .map(Kind::EpsilonWall),
                 _ => None,
             }
         })?;
@@ -97,7 +97,7 @@ impl KEpsilon {
             nu,
             k,
             epsilon,
-            y: near_wall(mesh, fv, &nut),
+            y: near_wall(mesh, fv, &nut)?,
             nut,
             k_eqn: EquationSetup::read(case, "k", "DkEff", relax_k)?,
             epsilon_eqn: EquationSetup::read(case, "epsilon", "DepsilonEff", relax_epsilon)?,

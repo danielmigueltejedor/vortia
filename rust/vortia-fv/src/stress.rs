@@ -216,4 +216,39 @@ mod tests {
         let shear = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
         assert_eq!(production(&shear), 1.0);
     }
+
+    /// On a sheared cell the boundary gradient's normal part is the patch's
+    /// normal gradient over the normal distance (½ here), not over the
+    /// centre-to-face distance (√½).
+    #[test]
+    fn a_skewed_wall_takes_its_normal_gradient_over_the_normal_distance() {
+        use vortia_core::Aabb;
+        use vortia_mesh::blocks::structured_box_raw;
+
+        let bounds = Aabb {
+            min: Vec3::default(),
+            max: Vec3::new(1.0, 1.0, 1.0),
+        };
+        let mut raw = structured_box_raw(bounds, [1, 1, 1]).unwrap();
+        for p in &mut raw.points {
+            p.x += p.y;
+        }
+        let mesh = PolyMesh::from_raw(raw).unwrap();
+        let fv = FvGeometry::new(&mesh);
+        let conditions = mesh
+            .patches()
+            .iter()
+            .map(|p| match p.name.as_str() {
+                "yMin" => VectorBc::FixedValue(vec![Vec3::new(1.0, 0.0, 0.0); p.size]),
+                _ => VectorBc::ZeroGradient,
+            })
+            .collect();
+        let bc = VectorBoundary { conditions };
+        let (_, faces) = grad(&mesh, &fv, &bc, &[Vec3::default()]);
+        let y_min = mesh.patch("yMin").unwrap();
+        let k = y_min.start - mesh.n_internal_faces();
+        let g = faces[k].unwrap();
+        let normal = dot(Vec3::new(0.0, -1.0, 0.0), &g);
+        assert!((normal.x - 2.0).abs() < 1e-12, "{normal:?}");
+    }
 }

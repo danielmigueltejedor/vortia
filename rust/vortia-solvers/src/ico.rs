@@ -93,6 +93,15 @@ pub(crate) fn switch(d: &Dictionary, key: &str) -> Option<bool> {
     }
 }
 
+/// The switch `key` of `d`, `default` when it is absent, and an error
+/// naming `what` when it is there but is not a switch.
+pub(crate) fn switch_or(d: &Dictionary, key: &str, default: bool, what: &str) -> Result<bool> {
+    if d.get(key).is_none() {
+        return Ok(default);
+    }
+    switch(d, key).ok_or_else(|| SolverError::Setup(format!("{what}: '{key}' is not a switch")))
+}
+
 /// The schemes `icoFoam` asks for, checked against what the engine has.
 struct Schemes {
     convection: Convection,
@@ -438,5 +447,25 @@ pub(crate) fn flux_field(mesh: &PolyMesh, phi: &[f64]) -> ScalarField {
         boundary,
         boundary_directives: Dictionary::new(),
         extra: Dictionary::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortia_foamfile::{Dictionary, Tokenizer};
+
+    use super::switch_or;
+
+    #[test]
+    fn a_switch_is_a_word_or_a_number() {
+        let src = "a 1; b 0; c f; d on; e maybe;";
+        let d = Dictionary::parse(&mut Tokenizer::new(src.as_bytes()), false, 0).unwrap();
+        let read = |k: &str| switch_or(&d, k, false, "test");
+        assert!(read("a").unwrap());
+        assert!(!read("b").unwrap());
+        assert!(!read("c").unwrap());
+        assert!(read("d").unwrap());
+        assert!(read("e").is_err());
+        assert!(switch_or(&d, "absent", true, "test").unwrap());
     }
 }

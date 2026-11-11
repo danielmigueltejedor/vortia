@@ -129,6 +129,14 @@ impl Dictionary {
         self.entries.push((key.into(), entry));
     }
 
+    /// Like [`insert`](Self::insert), but drops earlier entries of the same
+    /// key, which [`get`](Self::get) would never return anyway.
+    pub fn set(&mut self, key: impl Into<String>, entry: Entry) {
+        let key = key.into();
+        self.entries.retain(|(k, _)| *k != key);
+        self.entries.push((key, entry));
+    }
+
     pub fn dict(&self, key: &str) -> Option<&Dictionary> {
         match self.get(key)? {
             Entry::Dict(d) => Some(d),

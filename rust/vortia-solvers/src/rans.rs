@@ -17,6 +17,7 @@ use vortia_mesh::{PatchKind, PolyMesh, wall::near_wall_distance};
 use crate::case::{Case, check_dimensions, read_dict};
 use crate::control::{LinearSolver, solve_line};
 use crate::error::{Result, SolverError};
+use crate::ico::switch_or;
 use crate::kepsilon::KEpsilon;
 use crate::komegasst::KOmegaSst;
 
@@ -319,10 +320,7 @@ impl Model {
                         )));
                     }
                 };
-                if matches!(
-                    ras.word("turbulence"),
-                    Some("off" | "false" | "no" | "n" | "none")
-                ) {
+                if !switch_or(&ras, "turbulence", true, "RAS")? {
                     return Err(SolverError::Setup(
                         "RAS with 'turbulence off' is not supported yet".into(),
                     ));
@@ -503,13 +501,17 @@ pub(crate) fn solve(
 
 /// For each patch with a ν_t wall function, the distance of each of its
 /// faces' cells to it; empty for other patches.
-pub(crate) fn near_wall(mesh: &PolyMesh, fv: &FvGeometry, nut: &ModelField) -> Vec<Vec<f64>> {
+pub(crate) fn near_wall(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    nut: &ModelField,
+) -> Result<Vec<Vec<f64>>> {
     mesh.patches()
         .iter()
         .zip(&nut.kinds)
         .map(|(patch, kind)| match kind {
-            Kind::NutWall(_) => near_wall_distance(mesh, patch, &fv.geo.cell_centres),
-            _ => Vec::new(),
+            Kind::NutWall(_) => Ok(near_wall_distance(mesh, patch, &fv.geo.cell_centres)?),
+            _ => Ok(Vec::new()),
         })
         .collect()
 }
@@ -752,14 +754,5 @@ pub(crate) fn bound(
     }
     for v in field.faces.iter_mut().flatten() {
         *v = v.max(SMALL);
-    }
-}
-
-/// An OpenFOAM `Switch` word, or `None` when it is not one.
-pub(crate) fn switch(word: &str) -> Option<bool> {
-    match word {
-        "yes" | "on" | "true" | "y" | "t" => Some(true),
-        "no" | "off" | "false" | "n" | "f" | "none" => Some(false),
-        _ => None,
     }
 }

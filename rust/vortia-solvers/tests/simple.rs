@@ -354,6 +354,12 @@ fn unsupported_settings_are_refused() {
         "midPoint",
     );
     refuse(
+        "system/fvSchemes",
+        "interpolationSchemes { default linear; }",
+        "interpolationSchemes { default linear (upwind); }",
+        "linear (…)",
+    );
+    refuse(
         "0/U",
         "fixedWalls { type noSlip; }",
         "fixedWalls { type noSlip; }\n#include \"inlet\"\n",
@@ -378,9 +384,12 @@ fn unsupported_settings_are_refused() {
         let run = || Case::open(dir.path()).and_then(|case| simple::run(&case, |_| {}));
         let err = run().unwrap_err().to_string();
         assert!(err.contains(says), "{err}");
-        // An entry switched off changes nothing, so it runs.
-        write(&path, &format!("{HEADER}{}", zone.replace("yes", "no")));
-        assert!(run().is_ok(), "{file}");
+        // An entry switched off changes nothing, so it runs, however the
+        // switch is spelled.
+        for off in ["no", "f", "0"] {
+            write(&path, &format!("{HEADER}{}", zone.replace("yes", off)));
+            assert!(run().is_ok(), "{file} active {off}");
+        }
     }
 }
 

@@ -416,3 +416,131 @@ fn calculated(patch: &str) -> FvError {
         "patch '{patch}': a 'calculated' condition cannot be solved for"
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use vortia_core::{Aabb, Vec3};
+    use vortia_mesh::blocks::structured_box;
+
+    use super::*;
+
+    /// Three cells in a row, x from 0 to 3, each of volume 1.
+    fn row() -> (PolyMesh, FvGeometry) {
+        let bounds = Aabb {
+            min: Vec3::default(),
+            max: Vec3::new(3.0, 1.0, 1.0),
+        };
+        let mesh = structured_box(bounds, [3, 1, 1]).unwrap();
+        let fv = FvGeometry::new(&mesh);
+        (mesh, fv)
+    }
+
+    /// A diffusion-like equation: −1 between neighbours, a diagonal of 3,
+    /// and a coefficient on every boundary face.
+    fn equation(mesh: &PolyMesh) -> ScalarMatrix {
+        let mut m = ScalarMatrix::new(mesh);
+        m.ldu.diag.fill(3.0);
+        m.ldu.upper.fill(-1.0);
+        m.ldu.lower.fill(-1.0);
+        m.ldu.source = vec![1.0, 2.0, 3.0];
+        m.internal_coeffs.fill(0.5);
+        m.boundary_coeffs.fill(0.25);
+        m
+    }
+
+    #[test]
+    fn su_sp_is_implicit_when_positive_and_explicit_when_negative() {
+        let (mesh, fv) = row();
+        let m = ScalarMatrix::su_sp(&mesh, &fv, &[2.0, -2.0, 0.0], &[1.0, 5.0, 7.0]);
+        assert_eq!(m.ldu.diag, [2.0, 0.0, 0.0]);
+        assert_eq!(m.ldu.source, [0.0, 10.0, 0.0]);
+        let sp = ScalarMatrix::sp(&mesh, &fv, &[2.0, -2.0, 0.0]);
+        assert_eq!(sp.ldu.diag, [2.0, -2.0, 0.0]);
+    }
+
+    #[test]
+    fn relaxation_scales_the_diagonal_and_keeps_the_solution() {
+        let (mesh, _) = row();
+        let psi = [1.0, 2.0, 3.0];
+        let mut m = equation(&mesh);
+        m.relax(&mesh, &psi, 1.0);
+        // Diagonally dominant with α = 1: nothing moves.
+        assert_eq!(m.ldu.diag, [3.0; 3]);
+        assert_eq!(m.ldu.source, [1.0, 2.0, 3.0]);
+        let mut m = equation(&mesh);
+        m.relax(&mesh, &psi, 0.5);
+        // Each cell's boundary coefficients join the diagonal before the
+        // division and leave it after: an end cell has 5 boundary faces, the
+        // middle one 4.
+        let ends = (3.0 + 2.5) / 0.5 - 2.5;
+        let middle = (3.0 + 2.0) / 0.5 - 2.0;
+        assert_eq!(m.ldu.diag, [ends, middle, ends]);
+        let source: Vec<f64> = [1.0, 2.0, 3.0]
+            .iter()
+            .zip([ends, middle, ends])
+            .zip(psi)
+            .map(|((s, d), p)| s + (d - 3.0) * p)
+            .collect();
+        assert_eq!(m.ldu.source, source);
+        // α ≤ 0 is no relaxation at all.
+        let mut m = equation(&mesh);
+        m.relax(&mesh, &psi, 0.0);
+        assert_eq!(m, equation(&mesh));
+    }
+
+    #[test]
+    fn fixing_a_cell_moves_its_couplings_to_the_neighbours() {
+        let (mesh, _) = row();
+        let mut m = equation(&mesh);
+        let mut psi = [0.0; 3];
+        m.set_values(&mesh, &[1], &[10.0], &mut psi);
+        assert_eq!(psi[1], 10.0);
+        assert_eq!(m.ldu.source[1], 30.0);
+        // Both neighbours took −(−1)·10 into their sources.
+        assert_eq!(m.ldu.source[0], 11.0);
+        assert_eq!(m.ldu.source[2], 13.0);
+        assert!(m.ldu.upper.iter().all(|&x| x == 0.0));
+        assert!(m.ldu.lower.iter().all(|&x| x == 0.0));
+        // The middle cell's own boundary faces lose their coefficients; the
+        // end cells keep theirs.
+        let n_internal = mesh.n_internal_faces();
+        for (k, (&ic, &bc)) in m.internal_coeffs.iter().zip(&m.boundary_coeffs).enumerate() {
+            let owner = mesh.owner()[n_internal + k];
+            let expected = if owner == 1 { (0.0, 0.0) } else { (0.5, 0.25) };
+            assert_eq!((ic, bc), expected, "boundary face {k}");
+        }
+        // Fixing two cells side by side leaves no coupling between them to
+        // carry into either source.
+        let mut m = equation(&mesh);
+        m.set_values(&mesh, &[0, 1], &[4.0, 6.0], &mut psi);
+        assert_eq!(m.ldu.source, [12.0, 18.0, 9.0]);
+    }
+
+    #[test]
+    fn solving_adds_the_boundary_and_checks_the_size() {
+        let (mesh, _) = row();
+        let m = equation(&mesh);
+        let mut seen = None;
+        let perf = m.solve::<FvError>(&mesh, &mut [0.0; 3], |a, _| {
+            seen = Some((a.diag.clone(), a.source.clone()));
+            Ok(Performance {
+                solver: "test",
+                initial_residual: 0.0,
+                final_residual: 0.0,
+                iterations: 0,
+                converged: true,
+            })
+        });
+        assert!(perf.is_ok());
+        let (diag, source) = seen.unwrap();
+        assert_eq!(diag, [5.5, 5.0, 5.5]);
+        assert_eq!(source, [2.25, 3.0, 4.25]);
+        let mut called = false;
+        let short = m.solve::<FvError>(&mesh, &mut [0.0; 2], |_, _| {
+            called = true;
+            Err(FvError::Shape("solver reached".into()))
+        });
+        assert!(short.is_err());
+        assert!(!called, "a short field must be refused before solving");
+    }
+}

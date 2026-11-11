@@ -169,9 +169,7 @@ fn check_models(case: &Case) -> Result<()> {
 /// how `MRFProperties` and `fvOptions` switch their entries on and off.
 fn has_active_entry(d: &Dictionary) -> bool {
     d.entries().any(|(_, e)| match e {
-        Entry::Dict(sub) => sub
-            .word("active")
-            .is_none_or(|w| !matches!(w, "false" | "off" | "no" | "n" | "none")),
+        Entry::Dict(sub) => switch(sub, "active") != Some(false),
         Entry::Directive(_) => true,
         Entry::Values(_) => false,
     })

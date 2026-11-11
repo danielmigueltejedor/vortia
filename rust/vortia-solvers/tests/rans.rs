@@ -601,12 +601,15 @@ fn unsupported_turbulence_settings_are_refused() {
         "realizableKE",
         "RAS model 'realizableKE'",
     );
-    refuse(
-        "constant/turbulenceProperties",
-        "turbulence on",
-        "turbulence off",
-        "turbulence off",
-    );
+    // A switch is a word or a number: `0` is off like `off`.
+    for off in ["off", "f", "0"] {
+        refuse(
+            "constant/turbulenceProperties",
+            "turbulence on",
+            &format!("turbulence {off}"),
+            "turbulence off",
+        );
+    }
     refuse(
         "0/k",
         "inlet { type fixedValue;",

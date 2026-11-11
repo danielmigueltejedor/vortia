@@ -23,10 +23,11 @@ use vortia_mesh::wall::wall_distance;
 
 use crate::case::Case;
 use crate::error::{Result, SolverError};
+use crate::ico::switch_or;
 use crate::kepsilon::{calculated_faces, read_k, read_nut};
 use crate::rans::{
     EquationSetup, Kind, LogLaw, ModelField, WallFace, bound, correct_nut_walls, face_diffusivity,
-    near_wall, pow025, rhs, solve, switch, transport, wall_function,
+    near_wall, pow025, rhs, solve, transport, wall_function,
 };
 
 /// `[0 0 -1 0 0 0 0]`.
@@ -53,14 +54,7 @@ struct Coeffs {
 impl Coeffs {
     fn read(d: Option<&Dictionary>) -> Result<Self> {
         let get = |k: &str, def: f64| d.and_then(|d| d.scalar(k)).unwrap_or(def);
-        let flag = |k: &str| -> Result<bool> {
-            match d.and_then(|d| d.word(k)) {
-                None => Ok(false),
-                Some(w) => switch(w).ok_or_else(|| {
-                    SolverError::Setup(format!("kOmegaSST: '{w}' is not a switch for {k}"))
-                }),
-            }
-        };
+        let flag = |k: &str| d.map_or(Ok(false), |d| switch_or(d, k, false, "kOmegaSST"));
         if flag("decayControl")? {
             return Err(SolverError::Setup(
                 "kOmegaSST decayControl is not supported yet".into(),
@@ -145,17 +139,14 @@ impl KOmegaSst {
             "fixedValue" => Some(Kind::Fixed(Vec::new())),
             "zeroGradient" => Some(Kind::ZeroGradient),
             "omegaWallFunction" => {
-                let blended = match pf.settings.word("blended") {
-                    None => true,
-                    Some(w) => switch(w)?,
-                };
+                let blended = switch_or(&pf.settings, "blended", true, "").ok()?;
                 let beta1 = pf.settings.scalar("beta1").unwrap_or(0.075);
                 Some(Kind::OmegaWall { blended, beta1 })
             }
             _ => None,
         })?;
         let nut = read_nut(mesh, dir, &omega, "omegaWallFunction")?;
-        let y = wall_distance(mesh, &fv.geo.cell_centres, &fv.geo.face_centres);
+        let y = wall_distance(mesh, &fv.geo.cell_centres, &fv.geo.face_centres)?;
         let mut model = Self {
             c: Coeffs::read(coeffs)?,
             nu,
@@ -163,7 +154,7 @@ impl KOmegaSst {
             omega,
             y_cells: y.cells,
             y_faces: y.faces,
-            y_wall: near_wall(mesh, fv, &nut),
+            y_wall: near_wall(mesh, fv, &nut)?,
             nut,
             k_eqn: EquationSetup::read(case, "k", "DkEff", relax_k)?,
             omega_eqn: EquationSetup::read(case, "omega", "DomegaEff", relax_omega)?,
@@ -496,9 +487,7 @@ fn check_wall_dist(case: &Case) -> Result<()> {
             d.word("method").unwrap_or("")
         )));
     }
-    if d.word("correctWalls")
-        .is_some_and(|w| switch(w) != Some(true))
-    {
+    if !switch_or(d, "correctWalls", true, "wallDist")? {
         return Err(SolverError::Setup(
             "wallDist without correctWalls is not supported yet".into(),
         ));

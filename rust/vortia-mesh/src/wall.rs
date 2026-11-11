@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use vortia_core::Vec3;
 
+use crate::error::{MeshError, Result};
 use crate::polymesh::{Patch, PatchKind, PolyMesh};
 
 const VSMALL: f64 = 1.0e-300;
@@ -108,7 +109,12 @@ fn face_distance(pts: &[Vec3], p: Vec3) -> f64 {
 /// For every face of `patch`, the distance from the centre of the cell it
 /// belongs to (`cell_centres`) to the nearest of that face and the patch's
 /// faces that share a point with it.
-pub fn near_wall_distance(mesh: &PolyMesh, patch: &Patch, cell_centres: &[Vec3]) -> Vec<f64> {
+pub fn near_wall_distance(
+    mesh: &PolyMesh,
+    patch: &Patch,
+    cell_centres: &[Vec3],
+) -> Result<Vec<f64>> {
+    check_len("cell centres", cell_centres, mesh.n_cells())?;
     let mut by_point: HashMap<usize, Vec<usize>> = HashMap::new();
     for f in patch.faces() {
         for &p in mesh.face(f) {
@@ -144,7 +150,19 @@ pub fn near_wall_distance(mesh: &PolyMesh, patch: &Patch, cell_centres: &[Vec3])
         }
         out.push(smallest);
     }
-    out
+    Ok(out)
+}
+
+/// Refuses a slice of per-cell or per-face values shorter than the mesh, so
+/// no distance is ever measured from a stand-in origin.
+fn check_len(what: &str, values: &[Vec3], needed: usize) -> Result<()> {
+    if values.len() < needed {
+        return Err(MeshError::Invalid(format!(
+            "{} {what} for a mesh that needs {needed}",
+            values.len()
+        )));
+    }
+    Ok(())
 }
 
 /// The distance of every cell and every boundary face to the nearest wall,
@@ -216,7 +234,9 @@ pub fn wall_distance(
     mesh: &PolyMesh,
     cell_centres: &[Vec3],
     face_centres: &[Vec3],
-) -> WallDistance {
+) -> Result<WallDistance> {
+    check_len("cell centres", cell_centres, mesh.n_cells())?;
+    check_len("face centres", face_centres, mesh.n_faces())?;
     let n_internal = mesh.n_internal_faces();
     let owner = mesh.owner();
     let neighbour = mesh.neighbour();
@@ -340,7 +360,7 @@ pub fn wall_distance(
     // overwriting an earlier one, as `correctBoundaryFaceCells` does.
     let mut corrected = vec![false; mesh.n_cells()];
     for patch in &walls {
-        let near = near_wall_distance(mesh, patch, cell_centres);
+        let near = near_wall_distance(mesh, patch, cell_centres)?;
         for (f, d) in patch.faces().zip(near) {
             let Some(&c) = owner.get(f) else { continue };
             if let Some(v) = cell_distance.get_mut(c) {
@@ -410,10 +430,10 @@ pub fn wall_distance(
             }
         }
     }
-    WallDistance {
+    Ok(WallDistance {
         cells: cell_distance,
         faces: face_distance_out,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -432,11 +452,15 @@ mod tests {
         let mesh = structured_box(bounds, [40, 10, 1]).unwrap();
         let geo = MeshGeometry::compute(&mesh);
         let y_min = mesh.patch("yMin").unwrap();
-        let d = near_wall_distance(&mesh, y_min, &geo.cell_centres);
+        let d = near_wall_distance(&mesh, y_min, &geo.cell_centres).unwrap();
         assert_eq!(d.len(), 40);
         for v in d {
             assert!((v - 0.005).abs() < 1e-15, "{v}");
         }
+        // Too few centres is an error, not distances from the origin.
+        let short = &geo.cell_centres[..10];
+        assert!(near_wall_distance(&mesh, y_min, short).is_err());
+        assert!(wall_distance(&mesh, short, &geo.face_centres).is_err());
         // A point off the corner of a face is nearest to the corner.
         let square = [
             Vec3::new(0.0, 0.0, 0.0),
@@ -465,7 +489,7 @@ mod tests {
         }
         let mesh = PolyMesh::from_raw(raw).unwrap();
         let geo = MeshGeometry::compute(&mesh);
-        let y = wall_distance(&mesh, &geo.cell_centres, &geo.face_centres);
+        let y = wall_distance(&mesh, &geo.cell_centres, &geo.face_centres).unwrap();
         for (c, centre) in geo.cell_centres.iter().enumerate() {
             let exact = centre.y.min(0.1 - centre.y);
             assert!(

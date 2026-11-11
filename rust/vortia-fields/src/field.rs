@@ -266,12 +266,13 @@ impl<T: FieldValue> Field<T> {
             })
     }
 
-    /// Drops the `value` of every `zeroGradient` entry, as OpenFOAM writes
-    /// them: a value read with the field goes stale once the cells change,
-    /// and a reader that finds one would show it instead of the cells'.
+    /// Drops the `value` of every `zeroGradient` and `fixedGradient` entry,
+    /// as OpenFOAM v1912 writes them: a value read with the field goes stale
+    /// once the cells change, and a reader that finds one would show it
+    /// instead of the cells'.
     pub fn drop_zero_gradient_values(&mut self) {
         for pf in &mut self.boundary {
-            if pf.kind == "zeroGradient" {
+            if matches!(pf.kind.as_str(), "zeroGradient" | "fixedGradient") {
                 pf.value = None;
             }
         }

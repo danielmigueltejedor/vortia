@@ -30,6 +30,10 @@ pub struct RunControl {
 impl RunControl {
     pub fn read(case: &Case) -> Result<Self> {
         let times = vortia_fields::times(&case.dir)?;
+        let delta_t = case.scalar("deltaT")?;
+        if !(delta_t > 0.0 && delta_t.is_finite()) {
+            return Err(SolverError::Setup("deltaT must be positive".into()));
+        }
         let on_disk = |t: Option<&vortia_fields::Time>| {
             t.map_or_else(|| (0.0, time_name(0.0)), |t| (t.value, t.name.clone()))
         };
@@ -45,9 +49,11 @@ impl RunControl {
                 let start = case.control.scalar("startTime").unwrap_or(0.0);
                 // `0.123456789` is not the six-digit name the engine would
                 // give that time, so the directory is found by value: an
-                // exact one first, then the nearest close enough.
+                // exact one first, then the nearest close enough, and never
+                // one as far as half a step, which a write would replace.
                 let near = |t: &&vortia_fields::Time| {
-                    (t.value - start).abs() <= 1e-12 * start.abs().max(1.0)
+                    let gap = (t.value - start).abs();
+                    gap <= 1e-12 * start.abs().max(1.0) && gap < 0.5 * delta_t
                 };
                 let name = times
                     .iter()
@@ -62,10 +68,6 @@ impl RunControl {
             }
         };
         let end_time = case.scalar("endTime")?;
-        let delta_t = case.scalar("deltaT")?;
-        if !(delta_t > 0.0 && delta_t.is_finite()) {
-            return Err(SolverError::Setup("deltaT must be positive".into()));
-        }
         let steps = ((end_time - start_time) / delta_t).round();
         if !(0.0..=MAX_STEPS as f64).contains(&steps) {
             return Err(SolverError::Setup(format!("{steps} time steps")));
@@ -111,13 +113,20 @@ impl RunControl {
 /// collide.
 fn distinct_precision(requested: u32, start: f64, dt: f64, n_steps: u64) -> Result<u32> {
     let end = start + n_steps as f64 * dt;
+    if !end.is_finite() {
+        return Err(SolverError::Setup(format!(
+            "the run ends at {end}, past what a double holds"
+        )));
+    }
     let largest = start.abs().max(end.abs());
     if largest == 0.0 || n_steps == 0 {
         return Ok(requested.clamp(1, MAX_TIME_PRECISION));
     }
-    // More digits cannot tell apart times the arithmetic itself makes equal.
-    let time = |k: u64| start + k as f64 * dt;
-    if time(1) == start || time(n_steps) == time(n_steps - 1) {
+    // More digits cannot tell apart times the arithmetic itself makes
+    // equal. Each time is off by at most two roundings of a value no larger
+    // than twice `largest`, so a step above eight of its ulps keeps every
+    // pair apart, not only the first and the last.
+    if dt <= 8.0 * largest * f64::EPSILON {
         return Err(SolverError::Setup(format!(
             "deltaT {dt} is below what a double resolves near {largest}"
         )));
@@ -259,6 +268,11 @@ mod tests {
         assert!(distinct_precision(6, 1e10, 1e-9, 10).is_err());
         // Seventeen digits would name these apart, but 1 + 1e-16 is 1.
         assert!(distinct_precision(6, 1.0, 1e-16, 10).is_err());
+        // The first and last steps differ here, but steps 1 and 2 land on
+        // the same double.
+        assert!(distinct_precision(6, 1.0, 1.3e-16, 3).is_err());
+        // Every input is finite, the end is not.
+        assert!(distinct_precision(6, 1e308, 1e308, 1).is_err());
     }
 
     #[test]
