@@ -2,14 +2,15 @@
 //! `∇·(φ U) − ∇·(ν_eff (∇U + ∇Uᵀ)) = −∇p`, `∇·U = 0`.
 //!
 //! The engine's counterpart of OpenFOAM's `simpleFoam` (OpenFOAM,
-//! GPL-3.0-or-later), laminar (`Stokes`) or with the k-ε model of
-//! [`crate::kepsilon`], `ν_eff = ν + ν_t`. Its pieces come in the same
+//! GPL-3.0-or-later), laminar (`Stokes`) or with the k-ε or k-ω SST
+//! model, `ν_eff = ν + ν_t`. Its pieces come in the same
 //! order: the under-relaxed momentum equation and predictor, `HbyA` and its
 //! flux, the pressure equation, the corrected flux, the relaxed pressure, the
 //! corrected velocity and then the turbulence model. Each iteration is one
 //! "time" step; the run stops early when every field in
 //! `SIMPLE/residualControl` starts its iteration below its tolerance. It reads `U`, `p` (and `phi` when present) and `nu`,
-//! with k-ε also `k`, `epsilon` and `nut`, and writes them back with `phi`.
+//! with a turbulence model also `k`, `nut` and `epsilon` or `omega`, and
+//! writes them back with `phi`.
 
 use vortia_core::Vec3;
 use vortia_fields::{Data, ScalarField, VectorField};
@@ -28,8 +29,8 @@ use crate::error::{Result, SolverError};
 use crate::ico::{
     Algorithm, Step, adjust_phi, constrained_boundary, extrapolated, flux_field, switch,
 };
-use crate::kepsilon::{KEpsilon, Model};
 use crate::laplacian::{Ddt, transport_property};
+use crate::rans::{Model, Turbulence};
 use crate::scalar_transport::face_values;
 
 /// The schemes `simpleFoam` asks for, checked against what the engine has.
@@ -137,11 +138,10 @@ fn residual_control(case: &Case) -> Vec<(String, f64)> {
         .collect()
 }
 
-/// Reads the turbulence model, refusing a turbulence or transport model
-/// the engine does not have: it has laminar flow and k-ε, of a Newtonian
-/// fluid.
-fn check_models(case: &Case) -> Result<Model> {
-    let model = Model::read(case)?;
+/// Refuses a turbulence or transport model the engine does not have: it
+/// has laminar flow, k-ε and k-ω SST, of a Newtonian fluid.
+fn check_models(case: &Case) -> Result<()> {
+    Model::read(case)?;
     for (dir, name) in [
         ("constant", "MRFProperties"),
         ("constant", "fvOptions"),
@@ -158,7 +158,7 @@ fn check_models(case: &Case) -> Result<Model> {
     }
     let transport = read_dict(&case.dir.join("constant").join("transportProperties"))?;
     match transport.word("transportModel") {
-        None | Some("Newtonian") => Ok(model),
+        None | Some("Newtonian") => Ok(()),
         Some(other) => Err(SolverError::Setup(format!(
             "transportModel '{other}' is not supported yet; use Newtonian"
         ))),
@@ -181,7 +181,7 @@ fn has_active_entry(d: &Dictionary) -> bool {
 /// lines OpenFOAM would print.
 pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let (mesh, fv) = case.mesh()?;
-    let model = check_models(case)?;
+    check_models(case)?;
     let nu = transport_property(case, "nu", KINEMATIC_DIFFUSIVITY)?;
     let schemes = Schemes::read(case)?;
     let simple = Algorithm::read(case, "SIMPLE", mesh.n_cells())?;
@@ -202,19 +202,6 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let run = RunControl::read(case)?;
 
     let start = case.dir.join(&run.start_name);
-    let mut turbulence = match &model {
-        Model::Laminar => None,
-        Model::KEpsilon(coeffs) => Some(KEpsilon::read(
-            case,
-            &mesh,
-            &fv,
-            &start,
-            coeffs.as_ref(),
-            nu,
-            relaxation.equation("k"),
-            relaxation.equation("epsilon"),
-        )?),
-    };
     let mut u_field = VectorField::read(start.join("U"))?;
     let mut p_field = ScalarField::read(start.join("p"))?;
     check_dimensions("U", &u_field.dimensions, VELOCITY)?;
@@ -229,6 +216,9 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         .internal
         .expand(mesh.n_cells())
         .ok_or_else(|| SolverError::Setup("p does not fit the mesh".into()))?;
+    let mut turbulence = Turbulence::read(case, &mesh, &fv, &start, nu, (&u_bc, &u), |name| {
+        relaxation.equation(name)
+    })?;
     let mut phi = if start.join("phi").is_file() || start.join("phi.gz").is_file() {
         face_values(&mesh, &ScalarField::read(start.join("phi"))?)?
     } else {
@@ -250,16 +240,12 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let p_prev = p.clone();
         let mut solves: Vec<(String, Performance)> = Vec::new();
 
-        let (nu_faces, nu_cells, nu_boundary) = match &turbulence {
-            Some(t) => (
-                t.diffusivity_faces(&mesh, &fv, 1.0),
-                t.nu_eff_cells(),
-                t.nu_eff_boundary(),
-            ),
+        let (nu_cells, nu_boundary, nu_faces) = match &turbulence {
+            Some(t) => t.nu_eff(&mesh, &fv),
             None => (
-                vec![nu; mesh.n_faces()],
                 vec![nu; mesh.n_cells()],
                 vec![Some(nu); mesh.n_faces().saturating_sub(mesh.n_internal_faces())],
+                vec![nu; mesh.n_faces()],
             ),
         };
         let mut u_eqn =
@@ -394,7 +380,7 @@ fn converged(control: &[(String, f64)], solves: &[(String, Performance)]) -> boo
         }
     };
     let mut checked = false;
-    for field in ["U", "p", "epsilon", "k"] {
+    for field in ["U", "p", "epsilon", "omega", "k"] {
         let Some(tol) = control
             .iter()
             .find(|(k, _)| key_matches(k, field))
