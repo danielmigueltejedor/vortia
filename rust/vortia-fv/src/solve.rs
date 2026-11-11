@@ -500,9 +500,7 @@ mod tests {
         for (k, lo) in m.lower.iter_mut().enumerate() {
             *lo = -1.0 - 0.01 * k as f64;
         }
-        for d in &mut m.diag {
-            *d = 2.5;
-        }
+        m.diag.fill(2.5);
         let exact: Vec<f64> = (0..30).map(|i| (i as f64 * 0.3).sin()).collect();
         let mut b = vec![0.0; 30];
         m.amul(&exact, &mut b);
