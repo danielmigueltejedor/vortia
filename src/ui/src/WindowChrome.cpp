@@ -1,12 +1,22 @@
 #include "vortia/ui/WindowChrome.hpp"
 
 #include "vortia/ui/ThemeManager.hpp"
+#include "vortia/ui/UiIcon.hpp"
 
 #include <cmath>
+#include <utility>
 
 #include <QApplication>
 #include <QBoxLayout>
+#include <QDialog>
 #include <QDir>
+#include <QDockWidget>
+#include <QFileDialog>
+#include <QFrame>
+#include <QLabel>
+#include <QLayout>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QEvent>
 #include <QJsonObject>
 #include <QMainWindow>
@@ -14,6 +24,7 @@
 #include <QPainter>
 #include <QProcess>
 #include <QSettings>
+#include <QStyle>
 #include <QTabBar>
 #include <QToolButton>
 #include <QWindow>
@@ -28,12 +39,29 @@ constexpr int kResizeMargin = 6;
 /// it follows the theme without separate icon files.
 /// The glyph colour under the pointer: cyan for minimise, amber for maximise, from the tokens of
 /// the mode ThemeManager applied (the style sheet tints the button to match).
-QColor hoverInk(WindowButton kind) {
+QColor tokenColor(const QString& name) {
     static const QJsonObject tokens = bundledTokens();
     const QString scheme = qApp->property("ndl-scheme").toString();
-    const QString name = kind == WindowButton::Maximize ? QStringLiteral("color.windowMaximize")
-                                                        : QStringLiteral("color.windowMinimize");
     return QColor(tokenValue(tokens, scheme.isEmpty() ? QStringLiteral("light") : scheme, name));
+}
+
+QColor hoverInk(WindowButton kind) {
+    return tokenColor(kind == WindowButton::Maximize ? QStringLiteral("color.windowMaximize")
+                                                     : QStringLiteral("color.windowMinimize"));
+}
+
+/// A bold NDL icon from the bundle, inked in `ink`, at `size` logical pixels.
+QPixmap inkedIcon(const QString& name, const QColor& ink, int size, qreal ratio) {
+    QPixmap image = QIcon(QStringLiteral(":/vortia/icons/%1.svg").arg(name))
+                        .pixmap(QSize(size, size) * ratio);
+    if (image.isNull())
+        return image;
+    QPainter painter(&image);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(image.rect(), ink);
+    painter.end();
+    image.setDevicePixelRatio(ratio);
+    return image;
 }
 
 class GlyphButton final : public QToolButton {
@@ -213,7 +241,7 @@ bool usesClientSideDecorations() {
 #endif
 }
 
-WindowChrome::WindowChrome(QMainWindow* window, QWidget* header, QBoxLayout* headerRow,
+WindowChrome::WindowChrome(QWidget* window, QWidget* header, QBoxLayout* headerRow,
                            const WindowButtonLayout& layout)
     : QObject(window), window_(window), header_(header) {
     window_->setWindowFlag(Qt::FramelessWindowHint, true);
@@ -379,6 +407,174 @@ bool WindowChrome::eventFilter(QObject* watched, QEvent* event) {
     default:
         return false;
     }
+}
+
+namespace {
+
+/// Message boxes speak with NDL's bold icons, in the colour of what they say.
+void restyleMessageBox(QMessageBox* box) {
+    QString icon, ink;
+    switch (box->icon()) {
+    case QMessageBox::Warning: icon = QStringLiteral("warning"); ink = QStringLiteral("color.statusWarningFg"); break;
+    case QMessageBox::Critical: icon = QStringLiteral("error"); ink = QStringLiteral("color.statusDangerFg"); break;
+    case QMessageBox::Question: icon = QStringLiteral("help"); ink = QStringLiteral("color.accentText"); break;
+    case QMessageBox::Information: icon = QStringLiteral("info"); ink = QStringLiteral("color.accentText"); break;
+    default: break;
+    }
+    if (!icon.isEmpty())
+        box->setIconPixmap(inkedIcon(icon, tokenColor(ink), 40, box->devicePixelRatioF()));
+    for (QAbstractButton* button : box->buttons()) {
+        // The risky action in coral; backing out stays neutral even as the default button.
+        const auto role = box->buttonRole(button);
+        const char* variant = role == QMessageBox::DestructiveRole ? "danger"
+                              : role == QMessageBox::RejectRole   ? "neutral"
+                                                                  : nullptr;
+        if (variant) {
+            button->setProperty("ndlVariant", QString::fromLatin1(variant));
+            button->style()->unpolish(button);
+            button->style()->polish(button);
+        }
+    }
+}
+
+class DialogChrome final : public QObject {
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (event->type() != QEvent::Polish)
+            return false;
+        auto* dialog = qobject_cast<QDialog*>(watched);
+        // File dialogs are the desktop's own; a dialog without a layout has no room for a header.
+        if (!dialog || !dialog->isWindow() || qobject_cast<QFileDialog*>(dialog) || !dialog->layout()
+            || dialog->property("ndl-chrome").toBool()
+            || dialog->windowFlags().testFlag(Qt::FramelessWindowHint))
+            return false;
+        dialog->setProperty("ndl-chrome", true);
+        // The style polished the dialog before this event; again, so the frame rule applies.
+        dialog->style()->unpolish(dialog);
+        dialog->style()->polish(dialog);
+        // Before the window exists the flag is enough; once it does, the platform window takes it.
+        if (!dialog->testAttribute(Qt::WA_WState_Created))
+            dialog->setWindowFlag(Qt::FramelessWindowHint, true);
+        else if (QWindow* window = dialog->windowHandle())
+            window->setFlags(window->flags() | Qt::FramelessWindowHint);
+        // Restyled first: a message box rebuilds its layout when its icon changes.
+        if (auto* box = qobject_cast<QMessageBox*>(dialog))
+            restyleMessageBox(box);
+
+        auto* header = new QWidget(dialog);
+        header->setObjectName(QStringLiteral("ndl-dialog-header"));
+        auto* row = new QHBoxLayout(header);
+        row->setContentsMargins(16, 8, 0, 0);
+        row->setSpacing(8);
+        auto* title = new QLabel(dialog->windowTitle(), header);
+        title->setObjectName(QStringLiteral("ndl-dialog-header-title"));
+        connect(dialog, &QWidget::windowTitleChanged, title, &QLabel::setText);
+        // A dialog that opens with its own big title needs no second one above it.
+        title->setVisible(!dialog->findChild<QLabel*>(QStringLiteral("ndl-dialog-title"))
+                          && !dialog->findChild<QLabel*>(QStringLiteral("ndl-about-title")));
+        row->addWidget(title);
+        row->addStretch(1);
+        new WindowChrome(dialog, header, row, WindowButtonLayout{{}, {WindowButton::Close}});
+        dialog->layout()->setMenuBar(header);
+        return false;
+    }
+};
+
+class NoticeFollower final : public QObject {
+public:
+    NoticeFollower(QWidget* notice, QLabel* icon, QString kind)
+        : QObject(notice), notice_(notice), icon_(icon), kind_(std::move(kind)) {}
+    void paintIcon() {
+        const QString ink = kind_ == QStringLiteral("warning") ? QStringLiteral("color.statusWarningFg")
+                                                              : QStringLiteral("color.accentText");
+        icon_->setPixmap(inkedIcon(kind_ == QStringLiteral("warning") ? kind_ : QStringLiteral("info"),
+                                   tokenColor(ink), 20, notice_->devicePixelRatioF()));
+    }
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (watched == notice_) {
+            // A theme change restyles the window: re-ink the icon for the new mode.
+            if (event->type() == QEvent::StyleChange || event->type() == QEvent::PaletteChange)
+                paintIcon();
+        } else if (event->type() == QEvent::ShowToParent) {
+            notice_->show();
+        } else if (event->type() == QEvent::HideToParent) {
+            notice_->hide();
+        }
+        return false;
+    }
+
+private:
+    QWidget* notice_;
+    QLabel* icon_;
+    QString kind_;
+};
+
+} // namespace
+
+void installDialogChrome(QApplication* app) {
+    if (usesClientSideDecorations())
+        app->installEventFilter(new DialogChrome(app));
+}
+
+void installDockTitleBar(QDockWidget* dock) {
+    auto* bar = new QWidget(dock);
+    bar->setObjectName(QStringLiteral("ndl-dock-title"));
+    auto* row = new QHBoxLayout(bar);
+    row->setContentsMargins(16, 10, 10, 2);
+    row->setSpacing(4);
+    auto* title = new QLabel(dock->windowTitle(), bar);
+    title->setObjectName(QStringLiteral("ndl-dock-title-label"));
+    QObject::connect(dock, &QWidget::windowTitleChanged, title, &QLabel::setText);
+    row->addWidget(title, 1);
+    const auto button = [&](const char* icon, const QString& tip) {
+        auto* b = new QToolButton(bar);
+        b->setObjectName(QStringLiteral("ndl-dock-button"));
+        b->setIcon(uiIcon(QStringLiteral(":/vortia/icons/%1.svg").arg(QLatin1String(icon))));
+        b->setIconSize(QSize(16, 16));
+        b->setToolTip(tip);
+        b->setFocusPolicy(Qt::NoFocus);
+        row->addWidget(b);
+        return b;
+    };
+    auto* floatButton = button("undock", QObject::tr("Float"));
+    auto* closeButton = button("close", QObject::tr("Close"));
+    QObject::connect(floatButton, &QToolButton::clicked, dock, [dock] { dock->setFloating(!dock->isFloating()); });
+    QObject::connect(closeButton, &QToolButton::clicked, dock, &QWidget::close);
+    const auto sync = [dock, floatButton, closeButton] {
+        floatButton->setVisible(dock->features().testFlag(QDockWidget::DockWidgetFloatable));
+        closeButton->setVisible(dock->features().testFlag(QDockWidget::DockWidgetClosable));
+    };
+    sync();
+    QObject::connect(dock, &QDockWidget::featuresChanged, bar, sync);
+    dock->setTitleBarWidget(bar);
+}
+
+QWidget* wrapNotice(QLabel* label, const QString& kind) {
+    auto* notice = new QFrame(label->parentWidget());
+    notice->setObjectName(QStringLiteral("ndl-notice"));
+    notice->setProperty("kind", kind);
+    auto* row = new QHBoxLayout(notice);
+    row->setContentsMargins(14, 10, 16, 10);
+    row->setSpacing(10);
+    auto* icon = new QLabel(notice);
+    icon->setObjectName(QStringLiteral("ndl-notice-icon"));
+    icon->setFixedSize(20, 20);
+    row->addWidget(icon, 0, Qt::AlignTop);
+    const bool shown = !label->isHidden();
+    label->setParent(notice);
+    row->addWidget(label, 1);
+    label->setVisible(shown);
+    auto* follower = new NoticeFollower(notice, icon, kind);
+    follower->paintIcon();
+    notice->installEventFilter(follower);
+    label->installEventFilter(follower);
+    notice->setVisible(shown);
+    return notice;
 }
 
 } // namespace vortia::ndl

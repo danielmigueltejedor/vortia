@@ -99,6 +99,8 @@ private:
     void applyFlowEdits(const QJsonObject&, bool physics);
     bool usesSketchFlow() const;
     void updateNozzleNotice();
+    /// Asks before unsaved work is lost: true when the user picks `discard`.
+    bool confirmDiscard(const QString& title, const QString& text, const QString& discard);
     void showUpdateBanner(const AppUpdateInfo& info);
     void hideUpdateBanner();
     void showFlowAssessment(const QJsonObject& report);

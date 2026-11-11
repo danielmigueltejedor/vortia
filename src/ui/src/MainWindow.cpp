@@ -817,6 +817,8 @@ void MainWindow::updateWorkflowInspector() {
 void MainWindow::buildDocks() {
     setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowTabbedDocks
                    | QMainWindow::AllowNestedDocks);
+    // The islands keep the window gap on the right too; the left one is the side bar's own margin.
+    setContentsMargins(0, 0, 8, 0);
     auto* central = new QWidget(this);
     // The work area is a panel on the window surface.
     central->setObjectName(QStringLiteral("vortia-central-card"));
@@ -893,22 +895,17 @@ void MainWindow::buildDocks() {
     updateNotice_ = new QLabel(central);
     updateNotice_->setObjectName(QStringLiteral("vortia-update-notice"));
     updateNotice_->setWordWrap(true);
-    updateNotice_->setMargin(8);
     updateNotice_->setTextFormat(Qt::RichText);
     updateNotice_->setOpenExternalLinks(false);
     updateNotice_->setTextInteractionFlags(Qt::TextBrowserInteraction);
-    updateNotice_->setStyleSheet(QStringLiteral(
-        "QLabel { background:palette(alternate-base); color:palette(text); border-left:3px solid #3d7ea6; padding:5px 8px; }"));
     updateNotice_->hide();
     connect(updateNotice_, &QLabel::linkActivated, this, &MainWindow::onUpdateBannerLink);
-    centralLayout->addWidget(updateNotice_);
+    centralLayout->addWidget(ndl::wrapNotice(updateNotice_, QStringLiteral("info")));
     nozzleNotice_ = new QLabel(central);
     nozzleNotice_->setObjectName(QStringLiteral("vortia-nozzle-validation-notice"));
     nozzleNotice_->setWordWrap(true);
-    nozzleNotice_->setMargin(8);
-    nozzleNotice_->setStyleSheet(QStringLiteral("QLabel { background:palette(alternate-base); color:palette(text); border-left:3px solid #b39153; padding:5px 8px; }"));
     nozzleNotice_->hide();
-    centralLayout->addWidget(nozzleNotice_);
+    centralLayout->addWidget(ndl::wrapNotice(nozzleNotice_, QStringLiteral("warning")));
     workspaceTabs_ = new QTabWidget(central);
     workspaceTabs_->setDocumentMode(true);
     workspaceTabs_->setObjectName(QStringLiteral("vortia-editor-tabs"));
@@ -956,6 +953,7 @@ void MainWindow::buildDocks() {
     explorerDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     explorer_ = new ProjectExplorerPanel(this);
     explorerDock->setWidget(explorer_);
+    ndl::installDockTitleBar(explorerDock);
     addDockWidget(Qt::LeftDockWidgetArea, explorerDock);
     explorerDock->hide();
 
@@ -972,6 +970,9 @@ void MainWindow::buildDocks() {
     flowAssessment_->setMinimumWidth(250);flowAssessment_->hide();
     propertiesTabs_=new QTabWidget(propertiesContainer);
     propertiesTabs_->setTabBarAutoHide(true);
+    // Both tab names are read whole; the bar scrolls before it cuts one.
+    propertiesTabs_->setElideMode(Qt::ElideNone);
+    propertiesTabs_->setUsesScrollButtons(true);
     inspectorStack_=new QStackedWidget(propertiesTabs_);inspectorStack_->addWidget(properties_);
     inspectorStack_->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred);
     workflowSummary_=new QLabel(inspectorStack_);workflowSummary_->setObjectName("vortia-workflow-summary");
@@ -1012,6 +1013,7 @@ void MainWindow::buildDocks() {
     propertiesTabs_->addTab(assessmentPage,tr("Run assessment"));propertiesTabs_->setTabVisible(1,false);
     propertiesLayout->addWidget(propertiesTabs_,1);
     propsDock->setWidget(propertiesContainer);
+    ndl::installDockTitleBar(propsDock);
     addDockWidget(Qt::RightDockWidgetArea, propsDock);
     connect(workspaceTabs_,&QTabWidget::currentChanged,this,[this,propsDock](int){
         if(workspaceTabs_->currentWidget()==runMonitor_)if(auto* ribbon=findChild<QTabWidget*>("vortia-ribbon"))ribbon->setCurrentIndex(4);
@@ -1031,6 +1033,7 @@ void MainWindow::buildDocks() {
     console_ = new ConsolePanel(this);
     consoleDock->setWidget(console_);
     consoleDock->hide();
+    ndl::installDockTitleBar(consoleDock);
     addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
     resizeDocks({explorerDock, propsDock}, {230, 295}, Qt::Horizontal);
     resizeDocks({consoleDock}, {155}, Qt::Vertical);
@@ -1209,10 +1212,8 @@ void MainWindow::closeProjectTab(int index) {
         return;
     storeCurrentTab();
     const auto& tab = documents_[static_cast<std::size_t>(index)];
-    if (tab.modified && QMessageBox::question(
-            this, tr("Unsaved project"),
-            tr("Discard unsaved changes in %1?").arg(tab.name),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+    if (tab.modified && !confirmDiscard(tr("Unsaved project"),
+            tr("Discard unsaved changes in %1?").arg(tab.name), tr("Discard")))
         return;
     const int oldActive = activeProjectTab_;
     {
@@ -2358,14 +2359,22 @@ void MainWindow::setProjectState(const QString& statusText) {
     statusLabel_->setText(statusText);
 }
 
+bool MainWindow::confirmDiscard(const QString& title, const QString& text, const QString& discard) {
+    // The action is named, and drawn in the danger colour; Cancel is the safe default.
+    QMessageBox box(QMessageBox::Warning, title, text, QMessageBox::NoButton, this);
+    auto* discardButton = box.addButton(discard, QMessageBox::DestructiveRole);
+    box.setDefaultButton(box.addButton(QMessageBox::Cancel));
+    box.exec();
+    return box.clickedButton() == discardButton;
+}
+
 void MainWindow::closeEvent(QCloseEvent* event) {
     storeCurrentTab();
     bool pending = false;
     for (const auto& doc : documents_)
         pending = pending || doc.modified;
-    if (pending && QMessageBox::question(this, tr("Unsaved projects"),
-         tr("Some projects have unsaved changes. Exit without saving?"),
-         QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+    if (pending && !confirmDiscard(tr("Unsaved projects"),
+         tr("Some projects have unsaved changes. Exit without saving?"), tr("Exit without saving"))) {
         event->ignore();
         return;
     }

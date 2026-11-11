@@ -73,6 +73,10 @@
     <file alias="histogram.svg">icons/ui/histogram.svg</file>
     <file alias="camera.svg">icons/ui/camera.svg</file>
     <file alias="undock.svg">icons/ui/undock.svg</file>
+    <file alias="warning.svg">icons/ui/warning.svg</file>
+    <file alias="help.svg">icons/ui/help.svg</file>
+    <file alias="info.svg">icons/ui/info.svg</file>
+    <file alias="error.svg">icons/ui/error.svg</file>
     <file alias="close.svg">icons/ui/close.svg</file>
     <file alias="chevron-right.svg">icons/ui/chevron-right.svg</file>
     <file alias="chevron-up.svg">icons/ui/chevron-up.svg</file>

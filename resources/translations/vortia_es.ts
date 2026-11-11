@@ -199,6 +199,8 @@
     <message><source>Untitled %1</source><translation>Sin título %1</translation></message>
     <message><source>Unsaved project</source><translation>Proyecto sin guardar</translation></message>
     <message><source>Unsaved projects</source><translation>Proyectos sin guardar</translation></message>
+    <message><source>Discard</source><translation>Descartar</translation></message>
+    <message><source>Exit without saving</source><translation>Salir sin guardar</translation></message>
     <message><source>Discard unsaved changes in %1?</source><translation>¿Descartar los cambios sin guardar en %1?</translation></message>
     <message><source>Some projects have unsaved changes. Exit without saving?</source><translation>Hay proyectos con cambios sin guardar. ¿Salir sin guardar?</translation></message>
     <message><source>Active project: %1</source><translation>Proyecto activo: %1</translation></message>
@@ -774,6 +776,8 @@ Caso fallido conservado: %2
     <message><source>XY preview</source><translation>Vista previa XY</translation></message>
     <message><source>Total cells: %1. Average size X/Y/Z: %2 / %3 / %4 mm%5</source><translation>Celdas totales: %1. Tamaño medio X/Y/Z: %2 / %3 / %4 mm%5</translation></message>
     <message><source>. WARNING: high memory and compute cost.</source><translation>. ATENCIÓN: consumo elevado de memoria y cálculo.</translation></message>
+    <message><source>Float</source><translation>Ventana flotante</translation></message>
+    <message><source>Close</source><translation>Cerrar</translation></message>
     <message><source>Structured grid preview (XY). Not a computed mesh.</source><translation>Vista previa de malla estructurada (XY). No es una malla calculada.</translation></message>
     <message><source>OpenFOAM simpleGrading: ratio of final to first cell width.</source><translation>OpenFOAM simpleGrading: cociente entre el ancho de la última celda y el de la primera.</translation></message>
     <message><source>Validate and apply the current simulation settings.</source><translation>Validar y aplicar la configuración actual.</translation></message>
@@ -975,9 +979,19 @@ Caso fallido conservado: %2
     <message><source>Structured grid preview (XY). Not a computed mesh.</source><translation>Vista previa de la cuadrícula estructurada (XY). No es una malla calculada.</translation></message>
 </context>
 <context>
+    <name>QGnomeTheme</name>
+    <message><source>&amp;OK</source><translation>&amp;Aceptar</translation></message>
+    <message><source>&amp;Save</source><translation>&amp;Guardar</translation></message>
+    <message><source>&amp;Cancel</source><translation>&amp;Cancelar</translation></message>
+    <message><source>&amp;Close</source><translation>&amp;Cerrar</translation></message>
+    <message><source>Close without Saving</source><translation>Cerrar sin guardar</translation></message>
+</context>
+<context>
     <name>QPlatformTheme</name>
     <message><source>OK</source><translation>Aceptar</translation></message>
     <message><source>Cancel</source><translation>Cancelar</translation></message>
+    <message><source>&amp;Cancel</source><translation>&amp;Cancelar</translation></message>
+    <message><source>&amp;OK</source><translation>&amp;Aceptar</translation></message>
     <message><source>Yes</source><translation>Sí</translation></message>
     <message><source>&amp;Yes</source><translation>&amp;Sí</translation></message>
     <message><source>&amp;No</source><translation>&amp;No</translation></message>
@@ -2111,7 +2125,7 @@ Detalles: %2</translation></message>
     <message><source>In-place updates are not supported on this platform.</source><translation>Las actualizaciones en el sitio no están disponibles en esta plataforma.</translation></message>
 </context>
 <context>
-    <name>vortia::lienzo::WindowChrome</name>
+    <name>vortia::ndl::WindowChrome</name>
     <message><source>Minimize</source><translation>Minimizar</translation></message>
     <message><source>Maximize</source><translation>Maximizar</translation></message>
     <message><source>Restore</source><translation>Restaurar</translation></message>

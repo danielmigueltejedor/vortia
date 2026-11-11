@@ -1,5 +1,6 @@
 #include "vortia/ui/MainWindow.hpp"
 #include "vortia/ui/ThemeManager.hpp"
+#include "vortia/ui/WindowChrome.hpp"
 #include "vortia/ui/OpenFoamRuntime.hpp"
 #include "vortia/ui/MesherRuntime.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
@@ -262,6 +263,7 @@ int main(int argc, char* argv[]) {
     QSettings settings(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
     const QString theme = settings.value(QStringLiteral("theme"), QStringLiteral("light")).toString();
     vortia::ThemeManager::apply(app, vortia::ThemeManager::resolve(theme));
+    vortia::ndl::installDialogChrome(&app);
 
     // Explicit preference takes precedence over the system locale. English
     // uses the source strings; Spanish comes from a compiled, bundled .qm.
