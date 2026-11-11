@@ -202,6 +202,11 @@ impl Gas {
                     "the temperature diverged from energy {he} at pressure {p}"
                 )));
             }
+            if t_new <= 0.0 {
+                return Err(SolverError::Setup(format!(
+                    "the temperature {t_new} from energy {he} at pressure {p} is not positive"
+                )));
+            }
             if iter > T_MAX_ITER {
                 return Err(SolverError::Setup(format!(
                     "the temperature did not converge from energy {he} at pressure {p}"
@@ -493,5 +498,7 @@ mod tests {
         }
         assert!(air(Energy::Internal).the(1.0, 1.0e5, -1.0).is_err());
         assert!(air(Energy::Internal).the(f64::NAN, 1.0e5, 300.0).is_err());
+        // An energy below absolute zero's is no temperature at all.
+        assert!(air(Energy::Enthalpy).the(-1.0e3, 1.0e5, 300.0).is_err());
     }
 }

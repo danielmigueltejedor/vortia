@@ -409,9 +409,85 @@ fn unsupported_settings_are_refused() {
         "steadyState",
     );
     refuse(
+        "system/fvSchemes",
+        "snGradSchemes { default orthogonal; }",
+        "snGradSchemes { default corrected; }",
+        "snGrad(p)",
+    );
+    refuse(
         "0/T",
         "dimensions [0 0 0 1 0 0 0]",
         "dimensions [0 0 0 0 0 0 0]",
         "T",
     );
+}
+
+fn edit(dir: &Path, file: &str, from: &str, to: &str) {
+    let path = dir.join(file);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(from), "{from}");
+    std::fs::write(&path, text.replace(from, to)).unwrap();
+}
+
+/// Plain SIMPLE asks for `laplacian(rhorAUf,p)`, SIMPLEC for
+/// `laplacian(rhorAtU,p)`: with `default none` each runs on its own key.
+#[test]
+fn each_algorithm_reads_its_own_pressure_laplacian() {
+    for (setup, key, energy) in [
+        (&ENTHALPY, "laplacian(rhorAUf,p)", "h"),
+        (&CONSISTENT, "laplacian(rhorAtU,p)", "e"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        channel(dir.path(), setup);
+        edit(
+            dir.path(),
+            "system/fvSchemes",
+            "laplacianSchemes { default Gauss linear orthogonal; }",
+            &format!(
+                "laplacianSchemes {{ default none; {key} Gauss linear orthogonal; \
+                 laplacian((rho*nuEff),U) Gauss linear orthogonal; \
+                 laplacian(alphaEff,{energy}) Gauss linear orthogonal; }}"
+            ),
+        );
+        edit(
+            dir.path(),
+            "system/controlDict",
+            &format!("endTime {};", setup.end),
+            "endTime 2;",
+        );
+        let case = Case::open(dir.path()).unwrap();
+        let steps = rho_simple::run(&case, |_| {}).unwrap();
+        assert_eq!(steps.len(), 2, "{key}");
+    }
+}
+
+/// A run picks up from the mass flux it wrote.
+#[test]
+fn a_run_restarts_from_what_it_wrote() {
+    let dir = tempfile::tempdir().unwrap();
+    channel(dir.path(), &ENTHALPY);
+    edit(
+        dir.path(),
+        "system/controlDict",
+        "endTime 40;",
+        "endTime 20;",
+    );
+    let case = Case::open(dir.path()).unwrap();
+    rho_simple::run(&case, |_| {}).unwrap();
+    assert!(dir.path().join("20/phi").is_file());
+    edit(
+        dir.path(),
+        "system/controlDict",
+        "startTime 0;",
+        "startTime 20;",
+    );
+    edit(
+        dir.path(),
+        "system/controlDict",
+        "endTime 20;",
+        "endTime 22;",
+    );
+    let case = Case::open(dir.path()).unwrap();
+    let steps = rho_simple::run(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), 2);
 }

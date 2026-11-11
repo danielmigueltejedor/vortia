@@ -41,10 +41,12 @@ struct Schemes {
     momentum_sn_grad: SnGrad,
     energy_sn_grad: SnGrad,
     pressure_sn_grad: SnGrad,
+    /// `snGrad(p)`, read only for SIMPLEC.
+    correction_sn_grad: SnGrad,
 }
 
 impl Schemes {
-    fn read(case: &Case, gas: &Gas) -> Result<Self> {
+    fn read(case: &Case, gas: &Gas, consistent: bool) -> Result<Self> {
         if Ddt::read(case, "ddt(rho,U)")? != Ddt::Steady {
             return Err(SolverError::Setup(
                 "rhoSimpleFoam is steady: ddt(rho,U) must be steadyState".into(),
@@ -72,7 +74,18 @@ impl Schemes {
             kinetic: case.convection(kinetic)?,
             momentum_sn_grad: case.uncorrected_sn_grad("laplacian((rho*nuEff),U)")?,
             energy_sn_grad: case.uncorrected_sn_grad(&format!("laplacian(alphaEff,{e})"))?,
-            pressure_sn_grad: case.uncorrected_sn_grad("laplacian(rhorAtU,p)")?,
+            // pEqn.H names the pressure diffusivity rhorAUf, pcEqn.H rhorAtU;
+            // SIMPLEC's flux correction is fvc::snGrad(p), a scheme of its own.
+            pressure_sn_grad: case.uncorrected_sn_grad(if consistent {
+                "laplacian(rhorAtU,p)"
+            } else {
+                "laplacian(rhorAUf,p)"
+            })?,
+            correction_sn_grad: if consistent {
+                case.uncorrected_face_sn_grad("snGrad(p)")?
+            } else {
+                SnGrad::Uncorrected
+            },
         })
     }
 }
@@ -148,13 +161,13 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let (mesh, fv) = case.mesh()?;
     check_models(case)?;
     let gas = Gas::read(case)?;
-    let schemes = Schemes::read(case, &gas)?;
     let simple = Algorithm::read(case, "SIMPLE", mesh.n_cells())?;
     let consistent = case
         .solution
         .dict("SIMPLE")
         .and_then(|d| switch(d, "consistent"))
         .unwrap_or(false);
+    let schemes = Schemes::read(case, &gas, consistent)?;
     let relaxation = Relaxation::read(case);
     let residuals = residual_control(case);
     let energy = gas.energy.name();
@@ -193,7 +206,11 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             (mul(&p.cells, &thermo.psi), mul_b(&p_b, &thermo.psi_b))
         };
     let mut phi = if start.join("phi").is_file() || start.join("phi.gz").is_file() {
-        crate::scalar_transport::face_values(&mesh, &ScalarField::read(start.join("phi"))?)?
+        crate::scalar_transport::flux_values(
+            &mesh,
+            &ScalarField::read(start.join("phi"))?,
+            MASS_FLUX,
+        )?
     } else {
         let u_b = u_bc.face_values(&mesh, &u);
         let rho_u: Vec<Vec3> = rho.iter().zip(&u).map(|(&r, &v)| v * r).collect();
@@ -358,7 +375,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             let rho_diff = mul(&rho, &diff);
             let rho_diff_b = mul_b(&rho_b, &diff_b);
             let rho_diff_f = ops::interpolate_linear(&mesh, &fv, &rho_diff, &rho_diff_b);
-            let sn = sn_grad(&mesh, &fv, &p.bc, &p.cells, schemes.pressure_sn_grad);
+            let sn = sn_grad(&mesh, &fv, &p.bc, &p.cells, schemes.correction_sn_grad);
             for (f, x) in phi_hbya.iter_mut().enumerate() {
                 let (Some(&r), Some(&g), Some(&a)) =
                     (rho_diff_f.get(f), sn.get(f), fv.mag_sf.get(f))
