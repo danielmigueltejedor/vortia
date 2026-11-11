@@ -18,6 +18,7 @@ pub mod case;
 pub mod control;
 pub mod error;
 pub mod ico;
+pub(crate) mod kepsilon;
 pub mod laplacian;
 pub mod scalar_transport;
 pub mod simple;

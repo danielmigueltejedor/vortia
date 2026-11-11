@@ -308,8 +308,8 @@ fn unsupported_settings_are_refused() {
     refuse(
         "constant/turbulenceProperties",
         "laminar",
-        "RAS",
-        "simulationType 'RAS'",
+        "LES",
+        "simulationType 'LES'",
     );
     refuse(
         "constant/transportProperties",

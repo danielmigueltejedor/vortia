@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use vortia_foamfile::{Dictionary, Entry, FoamFile, Value};
+use vortia_fv::ops::{Convection, SnGrad};
 use vortia_fv::{Controls, FvGeometry};
 use vortia_mesh::PolyMesh;
 
@@ -136,16 +137,56 @@ impl Case {
             .schemes
             .dict(section)
             .ok_or_else(|| SolverError::Setup(format!("fvSchemes has no '{section}'")))?;
-        let values = d
-            .values(key)
-            .or_else(|| d.values("default"))
-            .ok_or_else(|| {
-                SolverError::Setup(format!("fvSchemes/{section} has no '{key}' or 'default'"))
-            })?;
+        let missing = || SolverError::Setup(format!("fvSchemes/{section} has no '{key}'"));
+        let values = match d.values(key) {
+            Some(v) => v,
+            None => {
+                let default = d.values("default").ok_or_else(missing)?;
+                // `default none` asks for every key to be given.
+                if default.iter().filter_map(|v| v.as_word()).eq(["none"]) {
+                    return Err(missing());
+                }
+                default
+            }
+        };
         Ok(values
             .iter()
             .filter_map(|v| v.as_word().map(str::to_owned))
             .collect())
+    }
+
+    /// The convection scheme `divSchemes` gives for `key`.
+    pub fn convection(&self, key: &str) -> Result<Convection> {
+        let w = self.scheme("divSchemes", key)?;
+        Ok(Convection::from_scheme(&words(&w))?)
+    }
+
+    /// The surface-normal gradient of `laplacianSchemes` for `key`, refusing
+    /// a non-orthogonal correction, which the solvers do not have yet.
+    pub fn uncorrected_sn_grad(&self, key: &str) -> Result<SnGrad> {
+        let w = self.scheme("laplacianSchemes", key)?;
+        let s = SnGrad::from_scheme(&words(&w))?;
+        if s == SnGrad::Corrected {
+            return Err(SolverError::Setup(format!(
+                "laplacian scheme '{}' for {key} is not supported yet; \
+                 use Gauss linear orthogonal or uncorrected",
+                w.join(" ")
+            )));
+        }
+        Ok(s)
+    }
+
+    /// Refuses a `gradSchemes` entry for `grad(field)` other than
+    /// `Gauss linear`, the gradient the engine has.
+    pub fn require_gauss_linear_grad(&self, field: &str) -> Result<()> {
+        let w = self.scheme("gradSchemes", &format!("grad({field})"))?;
+        if w != ["Gauss", "linear"] {
+            return Err(SolverError::Setup(format!(
+                "grad scheme '{}' is not supported yet; use Gauss linear",
+                w.join(" ")
+            )));
+        }
+        Ok(())
     }
 
     /// Refuses `interpolationSchemes` other than `linear`, the one the
@@ -319,6 +360,10 @@ fn trim(s: &str) -> String {
     } else {
         s.to_owned()
     }
+}
+
+fn words(w: &[String]) -> Vec<&str> {
+    w.iter().map(String::as_str).collect()
 }
 
 #[cfg(test)]

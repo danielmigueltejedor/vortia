@@ -11,8 +11,10 @@
 use std::path::Path;
 
 use vortia_core::{Aabb, Vec3};
+use vortia_fields::{ScalarField, VectorField};
 use vortia_foamfile::RawPatch;
 use vortia_mesh::blocks::structured_box_raw;
+use vortia_solvers::{Case, simple};
 
 const HEADER: &str = "FoamFile { version 2.0; format ascii; class dictionary; object x; }\n";
 
@@ -268,4 +270,231 @@ fn write_kepsilon_case_for_openfoam() {
         &CHANNEL
     };
     case(Path::new(&dir), setup);
+}
+
+/// What OpenFOAM printed and wrote for one run.
+struct Reference {
+    iterations: usize,
+    /// Solver iterations over the whole run, per field.
+    totals: [(&'static str, usize); 5],
+    /// The first iteration's initial residuals of ε and k.
+    first: [(&'static str, f64); 2],
+    end: &'static str,
+    /// Cell, U (x, y), p, k, ε and ν_t there at the end.
+    cells: [(usize, [f64; 2], f64, f64, f64, f64); 3],
+}
+
+fn check(setup: &Setup, r: &Reference) {
+    let dir = tempfile::tempdir().unwrap();
+    case(dir.path(), setup);
+    let case = Case::open(dir.path()).unwrap();
+    let steps = simple::run(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), r.iterations);
+    assert!(steps.last().unwrap().written);
+    for (field, total) in r.totals {
+        let sum: usize = steps
+            .iter()
+            .flat_map(|s| &s.solves)
+            .filter(|(f, _)| f == field)
+            .map(|(_, p)| p.iterations)
+            .sum();
+        assert_eq!(sum, total, "iterations solving {field}");
+    }
+    for (field, residual) in r.first {
+        let (_, p) = steps[0].solves.iter().find(|(f, _)| f == field).unwrap();
+        assert!(
+            (p.initial_residual - residual).abs() <= 1e-14,
+            "{field}: {}",
+            p.initial_residual
+        );
+    }
+
+    let end = dir.path().join(r.end);
+    // Both meshes have 400 cells.
+    let n = 400;
+    let scalar = |name: &str| {
+        ScalarField::read(end.join(name))
+            .unwrap()
+            .internal
+            .expand(n)
+            .unwrap()
+    };
+    let u = VectorField::read(end.join("U"))
+        .unwrap()
+        .internal
+        .expand(n)
+        .unwrap();
+    let (p, k, eps, nut) = (scalar("p"), scalar("k"), scalar("epsilon"), scalar("nut"));
+    let close = |a: f64, b: f64| (a - b).abs() <= 1e-12 * b.abs().max(1e-3);
+    for (c, [ux, uy], pc, kc, ec, tc) in r.cells {
+        assert!(
+            close(u[c].x, ux) && close(u[c].y, uy),
+            "U in cell {c}: {:?}",
+            u[c]
+        );
+        assert!(close(p[c], pc), "p in cell {c}: {}", p[c]);
+        assert!(close(k[c], kc), "k in cell {c}: {}", k[c]);
+        assert!(close(eps[c], ec), "epsilon in cell {c}: {}", eps[c]);
+        assert!(close(nut[c], tc), "nut in cell {c}: {}", nut[c]);
+    }
+}
+
+/// OpenFOAM v1912 meets the residual control after 55 iterations, and so
+/// does the engine, every solve taking as many iterations as OpenFOAM's.
+#[test]
+fn kepsilon_channel_matches_openfoam() {
+    check(
+        &CHANNEL,
+        &Reference {
+            iterations: 55,
+            totals: [
+                ("Ux", 55),
+                ("Uy", 55),
+                ("p", 1411),
+                ("epsilon", 43),
+                ("k", 52),
+            ],
+            first: [("epsilon", 0.44066079156468857), ("k", 0.99999999999999845)],
+            end: "55",
+            cells: [
+                (
+                    0,
+                    [9.9651123556574142, 0.0015493319392805831],
+                    4.8098690250121745,
+                    0.40342237264728209,
+                    20.538465363011994,
+                    0.00071317231880875824,
+                ),
+                (
+                    205,
+                    [10.054943197355621, -0.0017220701147942167],
+                    4.12096349034341,
+                    0.23857203587300105,
+                    6.4126586260064,
+                    0.00079880994230361712,
+                ),
+                (
+                    399,
+                    [8.8020513595146319, -0.004699803327319613],
+                    0.040554233480886916,
+                    0.65117822355511001,
+                    42.118977931335486,
+                    0.0009060755737503942,
+                ),
+            ],
+        },
+    );
+}
+
+/// The cavity's corner cells have two wall faces and its wall cells sit
+/// below the log layer, which the ε wall function weights and the ν_t one
+/// sets to zero.
+#[test]
+fn kepsilon_cavity_matches_openfoam() {
+    check(
+        &CAVITY,
+        &Reference {
+            iterations: 150,
+            totals: [
+                ("Ux", 300),
+                ("Uy", 300),
+                ("p", 2224),
+                ("epsilon", 151),
+                ("k", 240),
+            ],
+            first: [
+                ("epsilon", 0.067750933551312648),
+                ("k", 0.99999999999997213),
+            ],
+            end: "150",
+            cells: [
+                (
+                    0,
+                    [0.001738728782152463, -0.0032874822795229235],
+                    4.3190382139112015e-07,
+                    0.0001921284453595628,
+                    0.00042300323416431313,
+                    7.8538419760046958e-06,
+                ),
+                (
+                    210,
+                    [0.0053879268916013244, 0.0034381615708491842],
+                    -0.016143125044324916,
+                    0.00010895162453546411,
+                    4.73376260987291e-05,
+                    2.2568539490643986e-05,
+                ),
+                (
+                    399,
+                    [0.17686716698047655, -0.12147885080780901],
+                    0.033912117474648604,
+                    0.0096311196550028181,
+                    0.15156655902433588,
+                    5.5079840675593408e-05,
+                ),
+            ],
+        },
+    );
+}
+
+/// What the k-ε model cannot do yet is refused by name, and hostile values
+/// end the run without a panic.
+#[test]
+fn unsupported_turbulence_settings_are_refused() {
+    let run = |file: &str, from: &str, to: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        case(dir.path(), &CHANNEL);
+        let path = dir.path().join(file);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(from), "{from}");
+        std::fs::write(&path, text.replace(from, to)).unwrap();
+        Case::open(dir.path()).and_then(|case| simple::run(&case, |_| {}))
+    };
+    let refuse = |file: &str, from: &str, to: &str, says: &str| {
+        let err = run(file, from, to).unwrap_err().to_string();
+        assert!(err.contains(says), "{err}");
+    };
+    refuse(
+        "constant/turbulenceProperties",
+        "kEpsilon",
+        "kOmegaSST",
+        "RAS model 'kOmegaSST'",
+    );
+    refuse(
+        "constant/turbulenceProperties",
+        "turbulence on",
+        "turbulence off",
+        "turbulence off",
+    );
+    refuse(
+        "0/k",
+        "inlet { type fixedValue;",
+        "inlet { type turbulentIntensityKineticEnergyInlet; intensity 0.05;",
+        "turbulentIntensityKineticEnergyInlet",
+    );
+    refuse(
+        "0/nut",
+        "walls { type nutkWallFunction;",
+        "walls { type calculated;",
+        "needs a nut wall function",
+    );
+    refuse(
+        "0/epsilon",
+        "walls { type epsilonWallFunction;",
+        "walls { type epsilonWallFunction; lowReCorrection maybe;",
+        "epsilonWallFunction",
+    );
+    refuse(
+        "system/fvSchemes",
+        "div(phi,k) bounded Gauss upwind;",
+        "",
+        "div(phi,k)",
+    );
+    // ε = 0 divides by zero in ν_t and the sources; the run may fail, but
+    // must not panic.
+    let _ = run(
+        "0/epsilon",
+        "internalField uniform 14.855",
+        "internalField uniform 0",
+    );
 }

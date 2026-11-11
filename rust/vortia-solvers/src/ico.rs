@@ -107,42 +107,15 @@ impl Schemes {
                 "icoFoam is transient: ddt(U) must be Euler".into(),
             ));
         }
-        let words = |section: &str, key: &str| -> Result<Vec<String>> { case.scheme(section, key) };
         case.require_linear_interpolation()?;
-        let convection = Convection::from_scheme(&as_str(&words("divSchemes", "div(phi,U)")?))?;
-        let sn = |key: &str| -> Result<SnGrad> {
-            let w = words("laplacianSchemes", key)?;
-            let s = SnGrad::from_scheme(&as_str(&w))?;
-            if s == SnGrad::Corrected {
-                return Err(SolverError::Setup(format!(
-                    "laplacian scheme '{}' for {key} is not supported yet by icoFoam; \
-                     use Gauss linear orthogonal or uncorrected",
-                    w.join(" ")
-                )));
-            }
-            Ok(s)
-        };
-        let grad = |field: &str| -> Result<()> {
-            let w = words("gradSchemes", &format!("grad({field})"))?;
-            if w != ["Gauss", "linear"] {
-                return Err(SolverError::Setup(format!(
-                    "grad scheme '{}' is not supported yet; use Gauss linear",
-                    w.join(" ")
-                )));
-            }
-            Ok(())
-        };
-        grad("p")?;
+        let convection = case.convection("div(phi,U)")?;
+        case.require_gauss_linear_grad("p")?;
         Ok(Self {
             convection,
-            momentum_sn_grad: sn("laplacian(nu,U)")?,
-            pressure_sn_grad: sn("laplacian((1|A(U)),p)")?,
+            momentum_sn_grad: case.uncorrected_sn_grad("laplacian(nu,U)")?,
+            pressure_sn_grad: case.uncorrected_sn_grad("laplacian((1|A(U)),p)")?,
         })
     }
-}
-
-pub(crate) fn as_str(w: &[String]) -> Vec<&str> {
-    w.iter().map(String::as_str).collect()
 }
 
 /// Runs the case and returns what each time step did. `log` receives the
