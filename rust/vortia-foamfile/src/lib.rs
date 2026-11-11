@@ -30,6 +30,7 @@ pub mod file;
 pub mod lists;
 pub mod polymesh;
 pub mod token;
+pub mod write;
 
 pub use dict::{Dictionary, Entry, Value};
 pub use error::{FoamError, Result};

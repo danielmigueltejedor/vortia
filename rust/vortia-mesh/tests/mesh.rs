@@ -174,5 +174,24 @@ fn the_nozzle_wedge_reads_and_has_the_analytic_volume() {
     let report = check(&mesh, &geo);
     assert!(report.is_ok(), "{:?}", report.failed_checks());
     assert_eq!(report.unused_points, 0);
-    assert!(report.volume.unwrap().min > 0.0);
+
+    // What OpenFOAM v1912's checkMesh prints for this case, to the digits it
+    // prints them with.
+    let six = |a: f64, b: f64| close(a, b, 5e-6);
+    let vol = report.volume.unwrap();
+    assert!(
+        six(vol.min, 8.90456e-17) && six(vol.max, 2.92611e-13),
+        "{vol:?}"
+    );
+    let area = report.face_area.unwrap();
+    assert!(
+        six(area.min, 2.20383e-12) && six(area.max, 7.32728e-09),
+        "{area:?}"
+    );
+    let ortho = report.non_orthogonality.unwrap();
+    assert!(
+        six(ortho.max, 7.21974) && six(ortho.mean, 4.50556),
+        "{ortho:?}"
+    );
+    assert!(six(report.skewness.unwrap().max, 0.32915));
 }

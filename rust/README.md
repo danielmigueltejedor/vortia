@@ -15,10 +15,13 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
   dimension sets, the `polyMesh` files; ASCII, optionally gzip-compressed.
 - `vortia-mesh`: the engine's polyhedral mesh: validation, face and cell
   geometry, the quality report `checkMesh` gives, and structured boxes.
+- `vortia-fields`: volume and surface fields with their boundary conditions,
+  read, checked against the mesh and written back as OpenFOAM writes them.
 - `vortia-cli`: the `vortia` command.
 
 ```bash
 cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
+cargo run -p vortia-cli -- fields ../examples/nozzle-practice-2026
 ```
 
 ## Checks

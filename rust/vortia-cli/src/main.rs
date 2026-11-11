@@ -17,12 +17,18 @@
 use std::path::Path;
 use std::process::ExitCode;
 
+use vortia_core::Vec3;
+use vortia_fields::{Field, FieldValue};
+use vortia_foamfile::FoamFile;
 use vortia_mesh::check::{NON_ORTH_THRESHOLD, SKEW_THRESHOLD, Stat};
 use vortia_mesh::{MeshGeometry, PolyMesh, check};
 
-const USAGE: &str = "usage: vortia check-mesh [CASE]\n\n\
+const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
+    \x20      vortia fields [CASE [TIME]]\n\n\
     check-mesh   read CASE/constant/polyMesh (default: the current directory)\n\
-    \x20            and report its size, geometry and quality";
+    \x20            and report its size, geometry and quality\n\
+    fields       read every field of TIME (default: the latest), check it\n\
+    \x20            fits the mesh and print its range";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -34,6 +40,9 @@ fn main() -> ExitCode {
     {
         ["check-mesh"] => check_mesh(Path::new(".")),
         ["check-mesh", case] => check_mesh(Path::new(case)),
+        ["fields"] => fields(Path::new("."), None),
+        ["fields", case] => fields(Path::new(case), None),
+        ["fields", case, time] => fields(Path::new(case), Some(time)),
         ["-h" | "--help" | "help"] => {
             println!("{USAGE}");
             ExitCode::SUCCESS
@@ -113,4 +122,92 @@ fn print_stat(name: &str, s: Option<&Stat>) {
         ),
         None => println!("    {:<18}none", format!("{name}:")),
     }
+}
+
+fn fields(case: &Path, time: Option<&str>) -> ExitCode {
+    let mesh = match PolyMesh::read_case(case) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("vortia: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let time = match time {
+        Some(t) => t.to_owned(),
+        None => match vortia_fields::latest(case) {
+            Ok(Some(t)) => t.name,
+            Ok(None) => {
+                eprintln!("vortia: {} has no time directories", case.display());
+                return ExitCode::FAILURE;
+            }
+            Err(e) => {
+                eprintln!("vortia: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
+    let dir = case.join(&time);
+    let mut entries: Vec<_> = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect(),
+        Err(e) => {
+            eprintln!("vortia: {}: {e}", dir.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    entries.sort();
+    println!("Time {time}");
+    let mut failed = false;
+    for path in entries {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let class = FoamFile::open(&path)
+            .and_then(|f| f.tokens().map(|(h, _)| h.map(|h| h.class)))
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let line = match class.as_str() {
+            "volScalarField" | "surfaceScalarField" => summary::<f64>(&path, &mesh, |v| v),
+            "volVectorField" => summary::<Vec3>(&path, &mesh, Vec3::norm),
+            _ => continue,
+        };
+        match line {
+            Ok(text) => println!("    {name:<12} {class:<20} {text}"),
+            Err(e) => {
+                failed = true;
+                println!("    {name:<12} {class:<20} error: {e}");
+            }
+        }
+    }
+    if failed {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// The range of a field's internal values; vectors by magnitude.
+fn summary<T: FieldValue>(
+    path: &Path,
+    mesh: &PolyMesh,
+    size: impl Fn(T) -> f64,
+) -> Result<String, String> {
+    let field = Field::<T>::read(path).map_err(|e| e.to_string())?;
+    field.check_against(mesh).map_err(|e| e.to_string())?;
+    let values = field
+        .internal
+        .expand(field.internal_len(mesh))
+        .ok_or("internal values do not fit the mesh")?;
+    let Some(stat) = Stat::of(values.into_iter().map(size)) else {
+        return Ok("no values".into());
+    };
+    Ok(format!(
+        "min {:e}  max {:e}  mean {:e}",
+        stat.min, stat.max, stat.mean
+    ))
 }

@@ -246,6 +246,9 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 name = "vortia-cli"
 version = "0.1.0"
 dependencies = [
+ "vortia-core",
+ "vortia-fields",
+ "vortia-foamfile",
  "vortia-mesh",
 ]
 
@@ -256,6 +259,17 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "vortia-fields"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror",
+ "vortia-core",
+ "vortia-foamfile",
+ "vortia-mesh",
 ]
 
 [[package]]

@@ -1,0 +1,15 @@
+[package]
+name = "vortia-fields"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Volume and surface fields of the Vortia engine, read and written in the case format"
+
+[dependencies]
+thiserror = "2"
+vortia-core = { path = "../vortia-core" }
+vortia-foamfile = { path = "../vortia-foamfile" }
+vortia-mesh = { path = "../vortia-mesh" }
+
+[dev-dependencies]
+tempfile = "3"

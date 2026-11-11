@@ -30,7 +30,7 @@ pub struct Stat {
 }
 
 impl Stat {
-    fn of(values: impl Iterator<Item = f64>) -> Option<Self> {
+    pub fn of(values: impl Iterator<Item = f64>) -> Option<Self> {
         let (mut min, mut max, mut sum, mut n) = (f64::INFINITY, f64::NEG_INFINITY, 0.0, 0usize);
         for v in values {
             min = min.min(v);
@@ -56,7 +56,8 @@ pub struct MeshReport {
     pub total_volume: f64,
     pub volume: Option<Stat>,
     pub face_area: Option<Stat>,
-    /// Internal faces only, in degrees.
+    /// Internal faces only, in degrees. The mean is OpenFOAM's: the angle
+    /// whose cosine is the mean cosine, not the mean of the angles.
     pub non_orthogonality: Option<Stat>,
     pub skewness: Option<Stat>,
     pub unused_points: usize,
@@ -215,11 +216,20 @@ pub fn check(mesh: &PolyMesh, geo: &MeshGeometry) -> MeshReport {
         zero_area_faces: geo.face_areas.iter().filter(|a| a.norm() <= VSMALL).count(),
         severely_non_orthogonal: non_orth.iter().filter(|&&a| a > NON_ORTH_THRESHOLD).count(),
         highly_skew: skew.iter().filter(|&&s| s > SKEW_THRESHOLD).count(),
-        non_orthogonality: Stat::of(non_orth.into_iter()),
+        non_orthogonality: Stat::of(non_orth.iter().copied()).map(|s| Stat {
+            mean: mean_angle_by_cosine(&non_orth),
+            ..s
+        }),
         skewness: Stat::of(skew.into_iter()),
         wrongly_oriented,
         upper_triangular,
     }
+}
+
+fn mean_angle_by_cosine(degrees: &[f64]) -> f64 {
+    let n = degrees.len().max(1) as f64;
+    let mean_cos = degrees.iter().map(|d| d.to_radians().cos()).sum::<f64>() / n;
+    mean_cos.clamp(-1.0, 1.0).acos().to_degrees()
 }
 
 /// How far the face centre lies from where the line between the two cell

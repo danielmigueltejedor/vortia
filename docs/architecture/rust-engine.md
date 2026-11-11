@@ -43,18 +43,18 @@ All under [`rust/`](../../rust), one workspace:
 | `vortia-core` | Units, vectors, project manifest, processes | Ported from `src/core` |
 | `vortia-foamfile` | Case format: dictionaries, lists, `polyMesh`; ASCII and `.gz` | Done (binary: next) |
 | `vortia-mesh` | Polyhedral mesh, geometry, quality report, structured boxes | Done |
-| `vortia-fields` | Volume and surface fields, boundary conditions, time directories | Next |
+| `vortia-fields` | Volume and surface fields, boundary conditions, time directories | Read and write done; evaluating conditions comes with E3 |
 | `vortia-fv` | Finite-volume operators (`fvc`, `fvm`), LDU matrices, linear solvers | Planned |
 | `vortia-solvers` | Laplacian, PISO/SIMPLE incompressible, k-ω SST, compressible | Planned |
-| `vortia-cli` | `vortia` command: one subcommand per stage | `check-mesh` |
+| `vortia-cli` | `vortia` command: one subcommand per stage | `check-mesh`, `fields` |
 | app | Interface over the crates | Planned (toolkit below) |
 
 ## Stages
 
 | # | Stage | Done when |
 |---|---|---|
-| E1 | Case format reader, mesh, geometry, `checkMesh` | The nozzle wedge reads with OpenFOAM's counts and its analytic volume to 1e-9 ✅ |
-| E2 | Fields and boundary conditions; writing time directories | A field written by the engine is read back by OpenFOAM and ParaView |
+| E1 | Case format reader, mesh, geometry, `checkMesh` | The nozzle wedge reads with OpenFOAM's counts, its analytic volume to 1e-9, and `checkMesh`'s volumes, areas, non-orthogonality and skewness to the digits it prints ✅ |
+| E2 | Fields and boundary conditions; writing time directories | Every nozzle field round-trips unchanged, and OpenFOAM (`foamToVTK`) reads what the engine wrote. Read/write ✅; evaluating conditions moves to E3 |
 | E3 | Operators: gradient, divergence, Laplacian with non-orthogonal correction, interpolation schemes | Each operator matches its analytic result on boxes and skewed meshes |
 | E4 | LDU matrix and linear solvers: PCG/DIC, PBiCGStab/DILU, Gauss–Seidel, then GAMG | Same iterations and residuals as OpenFOAM on the same system |
 | E5 | First solver: steady diffusion (`laplacianFoam`) | Matches OpenFOAM and the analytic profile |
