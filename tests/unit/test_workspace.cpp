@@ -44,6 +44,7 @@
 #include <QPointingDevice>
 #include <QSurfaceFormat>
 #include <QWheelEvent>
+#include <QAbstractButton>
 #include <QMessageBox>
 #include <QDockWidget>
 #include <QPushButton>
@@ -509,13 +510,42 @@ TEST(Workspace, CancelClosingDirtyTabKeepsDrawing) {
     MainWindow window;
     const auto shape = makeCircleSketch(55).value();
     WorkspaceTestAccess::edit(window, shape, {});
-    QTimer::singleShot(0, [] {
-        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) box->button(QMessageBox::No)->click();
+    // The prompt names its action and offers Cancel; it no longer asks Yes/No.
+    bool asked = false;
+    QTimer::singleShot(0, [&asked] {
+        auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        ASSERT_NE(box, nullptr);
+        ASSERT_EQ(box->button(QMessageBox::No), nullptr);
+        ASSERT_NE(box->button(QMessageBox::Cancel), nullptr);
+        asked = true;
+        box->button(QMessageBox::Cancel)->click();
     });
     WorkspaceTestAccess::close(window, 0);
+    EXPECT_TRUE(asked);
     EXPECT_EQ(WorkspaceTestAccess::count(window), 1U);
     EXPECT_TRUE(WorkspaceTestAccess::dirty(window));
     expectShape(WorkspaceTestAccess::editor(window).sketch(), shape);
+}
+
+TEST(Workspace, DiscardClosingDirtyTabClosesIt) {
+    MainWindow window;
+    WorkspaceTestAccess::add(window, "second");
+    WorkspaceTestAccess::edit(window, makeCircleSketch(55).value(), {});
+    const int active = WorkspaceTestAccess::active(window);
+    QTimer::singleShot(0, [] {
+        auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        ASSERT_NE(box, nullptr);
+        for (QAbstractButton* button : box->buttons()) {
+            if (box->buttonRole(button) == QMessageBox::DestructiveRole) {
+                button->click();
+                return;
+            }
+        }
+        ADD_FAILURE() << "no Discard button";
+        box->reject();
+    });
+    WorkspaceTestAccess::close(window, active);
+    EXPECT_EQ(WorkspaceTestAccess::count(window), 1U);
 }
 
 TEST(Workspace, InvalidSavedSketchDoesNotOpenOrOverwriteCurrentDocument) {
@@ -800,8 +830,9 @@ TEST(WorkspaceResources, RealTranslationContextsAndExplorerIcons) {
     RunMonitor monitor;ASSERT_NE(monitor.findChild<QWidget*>("monitor-detail-plot"),nullptr);EXPECT_TRUE(monitor.findChild<QWidget*>("monitor-detail-plot")->toolTip().contains(QString::fromUtf8("Pellizca")));
     EXPECT_EQ(SketchEditorDialog::tr("Nozzle dimensions"), QStringLiteral("Cotas de la tobera"));
     QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-    EXPECT_EQ(buttons.button(QDialogButtonBox::Ok)->text(), QStringLiteral("Aceptar"));
-    EXPECT_EQ(buttons.button(QDialogButtonBox::Cancel)->text(), QStringLiteral("Cancelar"));
+    // GNOME's platform theme labels these with an accelerator ("&Aceptar"); others do not.
+    EXPECT_EQ(buttons.button(QDialogButtonBox::Ok)->text().remove('&'), QStringLiteral("Aceptar"));
+    EXPECT_EQ(buttons.button(QDialogButtonBox::Cancel)->text().remove('&'), QStringLiteral("Cancelar"));
     QMessageBox confirm(QMessageBox::Question, "Confirm", "Test", QMessageBox::Yes | QMessageBox::No);
     EXPECT_EQ(confirm.button(QMessageBox::Yes)->text().remove('&'), QStringLiteral("Sí"));
     ProjectExplorerPanel explorer;
