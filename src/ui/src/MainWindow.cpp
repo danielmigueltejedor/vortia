@@ -917,17 +917,16 @@ void MainWindow::buildDocks() {
 #ifdef Q_OS_LINUX
         // The desktop's own frame (Preferences › Window controls › System): the menus still go
         // to a top bar that takes them; elsewhere the window keeps its menu bar.
-        if(ndl::globalMenuAvailable()) {
-            std::function<void(const QList<QAction*>&)> keepShortcuts=[&](const QList<QAction*>& actions) {
-                for(QAction* action:actions) {
-                    if(action->menu())keepShortcuts(action->menu()->actions());
-                    else if(!action->isSeparator())addAction(action);
-                }
-            };
-            keepShortcuts(menuBar()->actions());
-            ndl::exportGlobalMenu(menuBar());
-            menuBar()->hide();
-        }
+        // The menu bar goes away only once the bar has accepted the menus, and comes back if it
+        // refuses them later; its shortcuts stay on the window either way.
+        std::function<void(const QList<QAction*>&)> keepShortcuts=[&](const QList<QAction*>& actions) {
+            for(QAction* action:actions) {
+                if(action->menu())keepShortcuts(action->menu()->actions());
+                else if(!action->isSeparator())addAction(action);
+            }
+        };
+        keepShortcuts(menuBar()->actions());
+        ndl::exportGlobalMenu(menuBar(),[this](bool accepted){menuBar()->setVisible(!accepted||!ndl::globalMenuAvailable());});
 #endif
     }
     updateNotice_ = new QLabel(central);

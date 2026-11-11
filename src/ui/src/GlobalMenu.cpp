@@ -1,5 +1,7 @@
 #include "vortia/ui/GlobalMenu.hpp"
 
+#include <functional>
+
 #include <QtGlobal>
 
 #if defined(Q_OS_LINUX)
@@ -180,7 +182,7 @@ public:
             // An empty list asks for every item (the dbusmenu contract).
             QList<int> ids = qdbus_cast<QList<int>>(args.value(0));
             if (ids.isEmpty())
-                ids = actions_.keys();
+                ids = allIds();
             for (int id : ids)
                 if (QAction* action = actions_.value(id))
                     rows.append({id, properties(action)});
@@ -215,7 +217,10 @@ public:
         } else if (member == QStringLiteral("AboutToShowGroup")) {
             // The grouped form of AboutToShow: fill each menu; unknown ids are reported back.
             QList<int> unknown;
-            for (int id : qdbus_cast<QList<int>>(args.value(0))) {
+            QList<int> ids = qdbus_cast<QList<int>>(args.value(0));
+            if (ids.isEmpty())
+                ids = allIds();
+            for (int id : ids) {
                 QAction* action = actions_.value(id);
                 if (action && action->menu())
                     emit action->menu()->aboutToShow();
@@ -228,6 +233,13 @@ public:
             return false;
         }
         return connection.send(reply);
+    }
+
+    /// Every item's id, read from the menu bar as it is now: the id table is otherwise filled
+    /// only by GetLayout, which a client asking for everything may not have called.
+    QList<int> allIds() {
+        layout(0, -1);
+        return actions_.keys();
     }
 
     /// Watches a menu, and every menu inside it, for changes worth re-reading.
@@ -328,8 +340,10 @@ private:
     ChangeFilter changes_;
 };
 
-/// Set when the registrar refused the registration: the menus then stay in the window.
-bool registrationFailed = false;
+/// Set once the registrar has accepted the registration: until then the menus stay in the
+/// window, and they come back to it if a later registration is refused.
+bool registrationAccepted = false;
+std::function<void(bool)> onRegistration;
 
 /// Tells the registrar where the menu is. The window id is this process's id: on Wayland a
 /// window has no global id, and Nodalix's bar finds the menu through the process that owns it.
@@ -342,7 +356,9 @@ void registerWithRegistrar() {
          << QDBusObjectPath(QString::fromLatin1(kMenuPath));
     auto* pending = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(call));
     QObject::connect(pending, &QDBusPendingCallWatcher::finished, [](QDBusPendingCallWatcher* done) {
-        registrationFailed = done->isError();
+        registrationAccepted = !done->isError();
+        if (onRegistration)
+            onRegistration(registrationAccepted);
         done->deleteLater();
     });
 }
@@ -352,7 +368,7 @@ void registerWithRegistrar() {
 namespace vortia::ndl {
 
 bool globalMenuAvailable() {
-    if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")) || registrationFailed)
+    if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")) || !registrationAccepted)
         return false;
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected() || !bus.interface())
@@ -365,7 +381,8 @@ bool globalMenuAvailable() {
     return !registrar.isEmpty() && registrar == nodalix;
 }
 
-void exportGlobalMenu(QMenuBar* menuBar) {
+void exportGlobalMenu(QMenuBar* menuBar, std::function<void(bool)> registered) {
+    onRegistration = std::move(registered);
     // On X11 Qt registers the menu bar by itself; elsewhere there is no top bar to hand it to.
     if (!menuBar || !QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
         return;
@@ -406,7 +423,7 @@ void exportGlobalMenu(QMenuBar* menuBar) {
 
 namespace vortia::ndl {
 
-void exportGlobalMenu(QMenuBar*) {}
+void exportGlobalMenu(QMenuBar*, std::function<void(bool)>) {}
 
 bool globalMenuAvailable() {
     return false;
