@@ -20,20 +20,22 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
   read, checked against the mesh and written back as OpenFOAM writes them.
 - `vortia-fv`: the finite-volume discretisation (gradient, diffusion with
   non-orthogonal correction, upwind and linear convection, Euler time
-  derivative), vector equations with their `A` and `H` for pressure–velocity
-  coupling, and linear solvers (PCG with DIC, PBiCGStab with DILU, the
-  symmetric Gauss–Seidel smoother), with OpenFOAM's residual definition.
+  derivative),
+  vector equations with their `A` and `H` for pressure–velocity coupling and
+  under-relaxation, the explicit viscous stress, and linear solvers (PCG with
+  DIC, PBiCGStab with DILU, the symmetric Gauss–Seidel smoother), with
+  OpenFOAM's residual definition.
 - `vortia-solvers`: solvers run on a case directory: diffusion
   (`laplacianFoam`), convection–diffusion by a given flow
-  (`scalarTransportFoam`) and transient incompressible flow with PISO
-  (`icoFoam`).
+  (`scalarTransportFoam`), transient incompressible flow with PISO
+  (`icoFoam`) and steady laminar flow with SIMPLE (`simpleFoam`).
 - `vortia-cli`: the `vortia` command.
 
 ```bash
 cd rust
 cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
 cargo run -p vortia-cli -- fields ../examples/nozzle-practice-2026
-cargo run -p vortia-cli -- solve path/to/a/case   # laplacianFoam, scalarTransportFoam or icoFoam
+cargo run -p vortia-cli -- solve path/to/a/case   # laplacianFoam, scalarTransportFoam, icoFoam or simpleFoam
 ```
 
 ## Checks

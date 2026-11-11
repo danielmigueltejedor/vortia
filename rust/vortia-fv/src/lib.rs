@@ -24,6 +24,7 @@ pub mod fvgeom;
 pub mod ldu;
 pub mod ops;
 pub mod solve;
+pub mod stress;
 pub mod vector;
 
 pub use bc::{Boundary, ScalarBc};

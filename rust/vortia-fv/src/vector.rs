@@ -194,6 +194,67 @@ impl VectorMatrix {
         add3(&mut self.boundary_coeffs, &other.boundary_coeffs);
     }
 
+    /// Implicit under-relaxation by `alpha`, as `fvMatrix::relax`: the
+    /// diagonal is first made at least as large as the off-diagonals (the
+    /// boundary counted at its largest component), divided by `alpha`, and
+    /// what it gained is balanced in the source with `psi`.
+    pub fn relax(&mut self, mesh: &PolyMesh, psi: &[Vec3], alpha: f64) {
+        if alpha <= 0.0 {
+            return;
+        }
+        let d0 = self.ldu.diag.clone();
+        let mut sum_off = vec![0.0; d0.len()];
+        for (f, (&l, &u)) in self.ldu.l.iter().zip(&self.ldu.u).enumerate() {
+            if let (Some(s), Some(&lo)) = (sum_off.get_mut(u), self.ldu.lower.get(f)) {
+                *s += lo.abs();
+            }
+            if let (Some(s), Some(&up)) = (sum_off.get_mut(l), self.ldu.upper.get(f)) {
+                *s += up.abs();
+            }
+        }
+        let n_internal = mesh.n_internal_faces();
+        let boundary_faces = || {
+            mesh.patches()
+                .iter()
+                .filter(|p| p.kind != PatchKind::Empty)
+                .flat_map(|p| p.faces())
+        };
+        for f in boundary_faces() {
+            let (Some(&c), Some(ic)) = (
+                mesh.owner().get(f),
+                self.internal_coeffs.get(f.saturating_sub(n_internal)),
+            ) else {
+                continue;
+            };
+            if let Some(d) = self.ldu.diag.get_mut(c) {
+                *d += ic.x.abs().max(ic.y.abs()).max(ic.z.abs());
+            }
+        }
+        for (d, &off) in self.ldu.diag.iter_mut().zip(&sum_off) {
+            *d = d.abs().max(off);
+            *d /= alpha;
+        }
+        for f in boundary_faces() {
+            let (Some(&c), Some(ic)) = (
+                mesh.owner().get(f),
+                self.internal_coeffs.get(f.saturating_sub(n_internal)),
+            ) else {
+                continue;
+            };
+            if let Some(d) = self.ldu.diag.get_mut(c) {
+                *d -= ic.x.min(ic.y).min(ic.z);
+            }
+        }
+        for ((s, (&d, &d0)), &p) in self
+            .source
+            .iter_mut()
+            .zip(self.ldu.diag.iter().zip(&d0))
+            .zip(psi)
+        {
+            *s = *s + p * (d - d0);
+        }
+    }
+
     /// `self + other`, term by term.
     pub fn add(&mut self, other: &Self) {
         self.combine(other, 1.0);

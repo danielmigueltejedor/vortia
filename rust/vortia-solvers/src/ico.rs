@@ -36,19 +36,19 @@ pub struct Step {
     pub written: bool,
 }
 
-/// The `PISO` dictionary of `fvSolution`.
+/// The `PISO` (or `SIMPLE`) dictionary of `fvSolution`.
 #[derive(Debug, Clone, PartialEq)]
-struct Piso {
-    n_correctors: usize,
-    n_non_orth: usize,
-    momentum_predictor: bool,
-    ref_cell: usize,
-    ref_value: f64,
+pub(crate) struct Algorithm {
+    pub(crate) n_correctors: usize,
+    pub(crate) n_non_orth: usize,
+    pub(crate) momentum_predictor: bool,
+    pub(crate) ref_cell: usize,
+    pub(crate) ref_value: f64,
 }
 
-impl Piso {
-    fn read(case: &Case, n_cells: usize) -> Result<Self> {
-        let d = case.solution.dict("PISO").cloned().unwrap_or_default();
+impl Algorithm {
+    pub(crate) fn read(case: &Case, name: &str, n_cells: usize) -> Result<Self> {
+        let d = case.solution.dict(name).cloned().unwrap_or_default();
         let count = |k: &str, def: usize| {
             d.label(k)
                 .and_then(|v| usize::try_from(v).ok())
@@ -56,9 +56,9 @@ impl Piso {
                 .min(100)
         };
         if d.get("pRefPoint").is_some() {
-            return Err(SolverError::Setup(
-                "PISO pRefPoint is not supported yet; use pRefCell".into(),
-            ));
+            return Err(SolverError::Setup(format!(
+                "{name} pRefPoint is not supported yet; use pRefCell"
+            )));
         }
         let ref_cell = match d.label("pRefCell") {
             None => 0,
@@ -81,7 +81,7 @@ impl Piso {
 }
 
 /// An OpenFOAM switch: `yes`/`no`, `on`/`off`, `true`/`false`, `1`/`0`.
-fn switch(d: &Dictionary, key: &str) -> Option<bool> {
+pub(crate) fn switch(d: &Dictionary, key: &str) -> Option<bool> {
     match d.value(key)? {
         Value::Word(w) => match w.as_str() {
             "yes" | "on" | "true" | "y" | "t" => Some(true),
@@ -140,7 +140,7 @@ impl Schemes {
     }
 }
 
-fn as_str(w: &[String]) -> Vec<&str> {
+pub(crate) fn as_str(w: &[String]) -> Vec<&str> {
     w.iter().map(String::as_str).collect()
 }
 
@@ -150,7 +150,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let (mesh, fv) = case.mesh()?;
     let nu = transport_property(case, "nu", KINEMATIC_DIFFUSIVITY)?;
     let schemes = Schemes::read(case)?;
-    let piso = Piso::read(case, mesh.n_cells())?;
+    let piso = Algorithm::read(case, "PISO", mesh.n_cells())?;
     let (u_solver, u_controls) = LinearSolver::read(case, "U")?;
     let (p_solver, p_controls) = LinearSolver::read(case, "p")?;
     let (p_final_solver, p_final_controls) = LinearSolver::read(case, "pFinal")?;
@@ -297,7 +297,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
 /// A cell field's own values on every boundary face (`None` on empty faces):
 /// OpenFOAM's `extrapolatedCalculated`.
-fn extrapolated(mesh: &PolyMesh, cells: &[f64]) -> Vec<Option<f64>> {
+pub(crate) fn extrapolated(mesh: &PolyMesh, cells: &[f64]) -> Vec<Option<f64>> {
     let mut out = Vec::with_capacity(mesh.n_faces().saturating_sub(mesh.n_internal_faces()));
     for patch in mesh.patches() {
         for f in patch.faces() {
@@ -313,7 +313,7 @@ fn extrapolated(mesh: &PolyMesh, cells: &[f64]) -> Vec<Option<f64>> {
 
 /// `HbyA` on the boundary: the velocity where the velocity is fixed
 /// (OpenFOAM's `constrainHbyA`), else the cell's own value.
-fn constrained_boundary(
+pub(crate) fn constrained_boundary(
     mesh: &PolyMesh,
     bc: &VectorBoundary,
     u: &[Vec3],
@@ -375,7 +375,7 @@ fn ddt_corr(
 /// Scales the outflow through patches that do not fix the velocity so as
 /// much leaves as enters (OpenFOAM's `adjustPhi`), when the pressure has no
 /// fixed level to let the imbalance out.
-fn adjust_phi(mesh: &PolyMesh, bc: &VectorBoundary, phi: &mut [f64]) -> Result<()> {
+pub(crate) fn adjust_phi(mesh: &PolyMesh, bc: &VectorBoundary, phi: &mut [f64]) -> Result<()> {
     const SMALL: f64 = 1e-15;
     const VSMALL: f64 = 1e-300;
     let (mut mass_in, mut fixed_out, mut adjustable_out) = (0.0, 0.0, 0.0);

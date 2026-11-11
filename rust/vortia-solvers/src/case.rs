@@ -237,7 +237,7 @@ fn expand<'a>(
     Ok(out)
 }
 
-fn key_matches(pattern: &str, name: &str) -> bool {
+pub(crate) fn key_matches(pattern: &str, name: &str) -> bool {
     let inner = pattern
         .strip_prefix('(')
         .and_then(|p| p.strip_suffix(')'))
