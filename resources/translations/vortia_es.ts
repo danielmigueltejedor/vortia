@@ -200,6 +200,7 @@
     <message><source>Unsaved project</source><translation>Proyecto sin guardar</translation></message>
     <message><source>Unsaved projects</source><translation>Proyectos sin guardar</translation></message>
     <message><source>Discard</source><translation>Descartar</translation></message>
+    <message><source>Keyboard Shortcuts</source><translation>Atajos de teclado</translation></message>
     <message><source>Exit without saving</source><translation>Salir sin guardar</translation></message>
     <message><source>Discard unsaved changes in %1?</source><translation>¿Descartar los cambios sin guardar en %1?</translation></message>
     <message><source>Some projects have unsaved changes. Exit without saving?</source><translation>Hay proyectos con cambios sin guardar. ¿Salir sin guardar?</translation></message>

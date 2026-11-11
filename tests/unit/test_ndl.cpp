@@ -3,7 +3,13 @@
 #include "vortia/ui/ThemeManager.hpp"
 #include "vortia/ui/WindowChrome.hpp"
 
+#include <QApplication>
 #include <QColor>
+#include <QDockWidget>
+#include <QLabel>
+#include <QMainWindow>
+#include <QMouseEvent>
+#include <QToolButton>
 #include <QJsonDocument>
 #include <QRegularExpression>
 
@@ -130,4 +136,34 @@ TEST(NdlTheme, EnvironmentOverridesTheSavedThemeForOneRun) {
     qputenv("VORTIA_THEME", "neon");
     EXPECT_EQ(ThemeManager::resolve("dark"), ThemeManager::Theme::Dark);
     qunsetenv("VORTIA_THEME");
+}
+
+namespace {
+void sendMouse(QWidget* target, QEvent::Type type, QPointF at, Qt::MouseButtons buttons) {
+    QMouseEvent event(type, at, target->mapToGlobal(at), Qt::LeftButton, buttons, Qt::NoModifier);
+    QApplication::sendEvent(target, &event);
+}
+} // namespace
+
+// Docked, the title bar does not move the panel (Qt's drag to undock hung under Wayland); only
+// the window-mode button floats it.
+TEST(NdlDock, OnlyTheWindowModeButtonFloatsAPanel) {
+    QMainWindow window;
+    auto* dock = new QDockWidget(QStringLiteral("Inspector"), &window);
+    dock->setWidget(new QLabel(QStringLiteral("content")));
+    vortia::ndl::installDockTitleBar(dock);
+    window.addDockWidget(Qt::RightDockWidgetArea, dock);
+    window.resize(800, 600);
+    window.show();
+    auto* bar = dock->titleBarWidget();
+    ASSERT_NE(bar, nullptr);
+    const QPointF grip(4, bar->height() / 2.0);
+    sendMouse(bar, QEvent::MouseButtonPress, grip, Qt::LeftButton);
+    sendMouse(bar, QEvent::MouseMove, grip + QPointF(-200, 120), Qt::LeftButton);
+    sendMouse(bar, QEvent::MouseButtonRelease, grip + QPointF(-200, 120), Qt::NoButton);
+    EXPECT_FALSE(dock->isFloating());
+    const auto buttons = bar->findChildren<QToolButton*>();
+    ASSERT_EQ(buttons.size(), 2);
+    buttons.front()->click();
+    EXPECT_TRUE(dock->isFloating());
 }

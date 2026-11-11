@@ -74,6 +74,9 @@
     <file alias="camera.svg">icons/ui/camera.svg</file>
     <file alias="undock.svg">icons/ui/undock.svg</file>
     <file alias="warning.svg">icons/ui/warning.svg</file>
+    <file alias="key.svg">icons/ui/key.svg</file>
+    <file alias="menu.svg">icons/ui/menu.svg</file>
+    <file alias="power.svg">icons/ui/power.svg</file>
     <file alias="help.svg">icons/ui/help.svg</file>
     <file alias="info.svg">icons/ui/info.svg</file>
     <file alias="error.svg">icons/ui/error.svg</file>

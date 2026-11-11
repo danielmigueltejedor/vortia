@@ -305,7 +305,8 @@ void MainWindow::buildMenusAndToolbar() {
     connect(generateMesh,&QAction::triggered,this,&MainWindow::onGenerateFlowMesh);
     openResults->setIcon(uiIcon(QStringLiteral(":/vortia/icons/view.svg")));
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
+    quitAction_ = fileMenu->addAction(tr("Exit"), this, &QWidget::close, QKeySequence::Quit);
+    quitAction_->setIcon(uiIcon(QStringLiteral(":/vortia/icons/power.svg")));
 
     auto* simMenu = menuBar()->addMenu(tr("Simulation"));
     fileMenu->removeAction(flowSetup);simMenu->addAction(flowSetup);simMenu->addSeparator();
@@ -323,7 +324,8 @@ void MainWindow::buildMenusAndToolbar() {
     auto* searchTool=new QAction(tr("Find a tool…"),this);searchTool->setObjectName("vortia-find-tool");
     searchTool->setShortcut(QKeySequence("Ctrl+K"));searchTool->setIcon(uiIcon(":/vortia/icons/search.svg"));
     toolsMenu->addAction(searchTool);connect(searchTool,&QAction::triggered,this,&MainWindow::onFindTool);
-    preferences->setObjectName("vortia-preferences-action");preferences->setShortcut(QKeySequence::Preferences);
+    preferences->setObjectName("vortia-preferences-action");// QKeySequence::Preferences is empty on Linux; Ctrl+, is every Nodalia app's.
+    preferences->setShortcut(QKeySequence::keyBindings(QKeySequence::Preferences).value(0, QKeySequence(QStringLiteral("Ctrl+,"))));
     preferences->setIcon(uiIcon(":/vortia/icons/settings.svg"));
 
     auto* viewMenu = menuBar()->addMenu(tr("View"));
@@ -332,7 +334,11 @@ void MainWindow::buildMenusAndToolbar() {
 
     auto* helpMenu = menuBar()->addMenu(tr("Help"));
     helpMenu->addAction(tr("Check for updates…"), this, &MainWindow::onCheckForUpdates);
-    helpMenu->addAction(tr("About Vortia"), this, &MainWindow::onAbout);
+    shortcutsAction_ = helpMenu->addAction(tr("Keyboard Shortcuts"), this, &MainWindow::onShortcuts);
+    shortcutsAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+?")));
+    shortcutsAction_->setIcon(uiIcon(QStringLiteral(":/vortia/icons/key.svg")));
+    aboutAction_ = helpMenu->addAction(tr("About Vortia"), this, &MainWindow::onAbout);
+    aboutAction_->setIcon(uiIcon(QStringLiteral(":/vortia/icons/info.svg")));
 
     // Use Qt style icons so that no third-party icons/fonts or platform-specific
     // assets need bundling, and provide real actions rather than decorative tools.
@@ -398,8 +404,34 @@ void MainWindow::buildMenusAndToolbar() {
     navigator->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
     auto* navLayout = new QVBoxLayout(navigator); navLayout->setContentsMargins(16,12,16,10); // 8 px of it is the side margin the style sheet gives the bar
     navLayout->setSpacing(5);
-    auto* brand = new QLabel(navigator); brand->setObjectName("vortia-sidebar-brand"); brand->setPixmap(QPixmap(":/vortia/app-icon.png").scaled(32,32,Qt::KeepAspectRatio,Qt::SmoothTransformation));
-    brand->setAccessibleName(tr("Vortia")); navLayout->addWidget(brand); navLayout->addSpacing(12);
+    // The side bar opens like every Nodalia app's: the app's icon and name, and the main menu
+    // (Preferences, Keyboard Shortcuts, About, Exit) at its right.
+    auto* sidebarHeader = new QWidget(navigator); sidebarHeader->setObjectName("vortia-sidebar-header");
+    auto* headerRow = new QHBoxLayout(sidebarHeader); headerRow->setContentsMargins(4,0,0,0); headerRow->setSpacing(10);
+    auto* brand = new QLabel(sidebarHeader); brand->setObjectName("vortia-sidebar-brand");
+    brand->setPixmap(QIcon(QStringLiteral(":/vortia/app-icon.png")).pixmap(28,28)); brand->setAccessibleName(tr("Vortia"));
+    auto* appName = new QLabel(QStringLiteral("Vortia"), sidebarHeader); appName->setObjectName("vortia-sidebar-title");
+    auto* appMenu = new QToolButton(sidebarHeader); appMenu->setObjectName("ndl-app-menu");
+    appMenu->setIcon(uiIcon(QStringLiteral(":/vortia/icons/menu.svg"))); appMenu->setIconSize({18,18});
+    appMenu->setToolTip(tr("Main menu")); appMenu->setAccessibleName(tr("Main menu"));
+    appMenu->setPopupMode(QToolButton::InstantPopup); appMenu->setFocusPolicy(Qt::NoFocus);
+    auto* primaryMenu = new QMenu(appMenu); primaryMenu->setObjectName("ndl-primary-menu");
+    connect(primaryMenu, &QMenu::aboutToShow, this, [this, primaryMenu, preferences] {
+        primaryMenu->clear();
+        // Without a top bar to hand the menus to, they stay reachable here.
+        if (menuBar()->isHidden() && !ndl::globalMenuAvailable()) {
+            primaryMenu->addActions(menuBar()->actions());
+            primaryMenu->addSeparator();
+        }
+        primaryMenu->addAction(preferences);
+        primaryMenu->addAction(shortcutsAction_);
+        primaryMenu->addAction(aboutAction_);
+        primaryMenu->addSeparator();
+        primaryMenu->addAction(quitAction_);
+    });
+    appMenu->setMenu(primaryMenu);
+    headerRow->addWidget(brand); headerRow->addWidget(appName); headerRow->addStretch(1); headerRow->addWidget(appMenu);
+    navLayout->addWidget(sidebarHeader); navLayout->addSpacing(12);
     auto* stages = new QButtonGroup(workflow); stages->setObjectName("vortia-workflow-stages");
     const QStringList names{tr("Project"),tr("Geometry"),tr("Mesh"),tr("Physics"),tr("Calculation"),tr("Results")};
     const QStringList glyphs{"open","sketch","mesh","material","solver","chart"};
@@ -418,9 +450,10 @@ void MainWindow::buildMenusAndToolbar() {
         connect(button,&QToolButton::clicked,this,[this,i](){activateWorkflowStage(i);});
     }
     navLayout->addStretch(1);
-    for(auto* action:{searchTool,preferences}) {
+    // Preferences moved to the main menu at the top of the side bar.
+    for(auto* action:{searchTool}) {
         auto* button=new QToolButton(navigator);button->setDefaultAction(action);
-        button->setText(action==searchTool?tr("Search"):tr("Preferences…"));
+        button->setText(tr("Search"));
         button->setAccessibleName(action->text());button->setToolTip(action->text());
         button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);button->setIconSize({18,18});
         button->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);navLayout->addWidget(button);
@@ -850,23 +883,9 @@ void MainWindow::buildDocks() {
             auto* trafficSpace=new QWidget(header);trafficSpace->setObjectName("vortia-native-window-controls-space");
             trafficSpace->setFixedWidth(84);row->addWidget(trafficSpace);
             trafficSpace->installEventFilter(this);
-        } else if(ndl::globalMenuAvailable()) {
-            // The menus live in the desktop's top bar: the header opens with the app's icon where
-            // the menu button would be, and the side bar no longer needs its own.
-            auto* icon=new QLabel(header);icon->setObjectName("vortia-header-icon");
-            icon->setPixmap(QIcon(QStringLiteral(":/vortia/app-icon.png")).pixmap(24,24));
-            icon->setAccessibleName(tr("Vortia"));
-            row->addSpacing(12);row->addWidget(icon);row->addSpacing(10);
-            if(auto* brand=findChild<QLabel*>("vortia-sidebar-brand"))brand->hide();
         } else {
-            // No top bar to hand the menus to: they live behind one button.
-            auto* appMenu=new QToolButton(header);appMenu->setObjectName("ndl-app-menu");
-            appMenu->setText(QStringLiteral("\u2261"));appMenu->setToolTip(tr("Main menu"));
-            appMenu->setPopupMode(QToolButton::InstantPopup);appMenu->setFocusPolicy(Qt::NoFocus);
-            auto* menu=new QMenu(appMenu);
-            connect(menu,&QMenu::aboutToShow,this,[this,menu]{menu->clear();menu->addActions(menuBar()->actions());});
-            appMenu->setMenu(menu);
-            row->addSpacing(8);row->addWidget(appMenu);row->addSpacing(4);
+            // The app's icon and main menu head the side bar, as in every Nodalia app.
+            row->addSpacing(8);
         }
         projectTabs_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);row->addWidget(projectTabs_,1);
         qobject_cast<QVBoxLayout*>(topBar->layout())->insertWidget(0,header);
@@ -2212,6 +2231,79 @@ void MainWindow::ensureOpenFoamInstallation() {
         hasOfInstallation_ = true;
         ofEnvironment_.clear();
     }
+}
+
+void MainWindow::onShortcuts() {
+    // Read from the actions themselves, so the list is the app's real one and never goes stale:
+    // one island per menu, each action with its key on a pill.
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Keyboard Shortcuts"));
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(24, 8, 24, 24);
+    auto* title = new QLabel(tr("Keyboard Shortcuts"), &dialog);
+    title->setObjectName(QStringLiteral("ndl-dialog-title"));
+    layout->addWidget(title);
+    auto* scroll = new QScrollArea(&dialog);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    auto* content = new QWidget(scroll);
+    auto* sections = new QVBoxLayout(content);
+    sections->setContentsMargins(0, 0, 0, 0);
+    sections->setSpacing(16);
+    std::function<void(const QList<QAction*>&, QList<QAction*>&)> collect =
+        [&](const QList<QAction*>& actions, QList<QAction*>& out) {
+            for (QAction* action : actions) {
+                if (action->menu())
+                    collect(action->menu()->actions(), out);
+                else if (!action->isSeparator() && !action->shortcut().isEmpty() && !out.contains(action))
+                    out.append(action);
+            }
+        };
+    for (QAction* top : menuBar()->actions()) {
+        if (!top->menu())
+            continue;
+        QList<QAction*> actions;
+        collect(top->menu()->actions(), actions);
+        if (actions.isEmpty())
+            continue;
+        auto* group = new QGroupBox(top->text().remove(QLatin1Char('&')), content);
+        auto* rows = new QGridLayout(group);
+        rows->setHorizontalSpacing(24);
+        rows->setVerticalSpacing(10);
+        int row = 0;
+        for (QAction* action : actions) {
+            auto* name = new QLabel(action->text().remove(QLatin1Char('&')), group);
+            auto* key = new QLabel(action->shortcut().toString(QKeySequence::NativeText), group);
+            key->setObjectName(QStringLiteral("ndl-key"));
+            rows->addWidget(name, row, 0);
+            rows->addWidget(key, row++, 1, Qt::AlignRight);
+        }
+        sections->addWidget(group);
+    }
+    // The workflow stages carry their keys on the side bar's buttons, not in a menu.
+    auto* stages = new QGroupBox(tr("Workflow"), content);
+    auto* stageRows = new QGridLayout(stages);
+    stageRows->setHorizontalSpacing(24);
+    stageRows->setVerticalSpacing(10);
+    int stageRow = 0;
+    for (int i = 0;; ++i) {
+        auto* button = findChild<QToolButton*>(QStringLiteral("vortia-workflow-stage-%1").arg(i));
+        if (!button)
+            break;
+        auto* key = new QLabel(button->shortcut().toString(QKeySequence::NativeText), stages);
+        key->setObjectName(QStringLiteral("ndl-key"));
+        stageRows->addWidget(new QLabel(button->property("stageTitle").toString(), stages), stageRow, 0);
+        stageRows->addWidget(key, stageRow++, 1, Qt::AlignRight);
+    }
+    if (stageRow > 0)
+        sections->insertWidget(0, stages);
+    else
+        delete stages;
+    sections->addStretch(1);
+    scroll->setWidget(content);
+    layout->addWidget(scroll, 1);
+    dialog.resize(520, 600);
+    dialog.exec();
 }
 
 void MainWindow::onAbout() {

@@ -493,7 +493,7 @@ protected:
 };
 
 /// Moves a floating dock by its title bar. Qt moves it by setting its position, which Wayland
-/// does not allow; the compositor has to move it. A docked panel keeps Qt's own dragging.
+/// does not allow; the compositor has to move it. A docked panel does not move by its title.
 class DockDrag final : public QObject {
 public:
     DockDrag(QDockWidget* dock, QObject* parent) : QObject(parent), dock_(dock) {}
@@ -501,12 +501,23 @@ public:
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override {
         auto* bar = qobject_cast<QWidget*>(watched);
-        if (!dock_->isFloating() || !bar)
+        if (!bar)
             return false;
+        // Docked, the title bar does not move the panel: Qt's own drag to undock hangs under
+        // Wayland. Only the window-mode button floats it; the buttons keep their clicks.
+        if (!dock_->isFloating()) {
+            const bool mouse = event->type() == QEvent::MouseButtonPress
+                               || event->type() == QEvent::MouseButtonDblClick
+                               || event->type() == QEvent::MouseMove
+                               || event->type() == QEvent::MouseButtonRelease;
+            return mouse && !onButton(bar, static_cast<QMouseEvent*>(event));
+        }
         switch (event->type()) {
+        case QEvent::MouseButtonDblClick:
+            return true;
         case QEvent::MouseButtonPress: {
             auto* mouse = static_cast<QMouseEvent*>(event);
-            if (mouse->button() != Qt::LeftButton || bar->childAt(mouse->position().toPoint()))
+            if (mouse->button() != Qt::LeftButton || onButton(bar, mouse))
                 return false;
             origin_ = mouse->globalPosition().toPoint();
             return true;
@@ -533,6 +544,11 @@ protected:
     }
 
 private:
+    /// The title text is part of the bar; only its buttons take their own clicks.
+    static bool onButton(QWidget* bar, QMouseEvent* mouse) {
+        return qobject_cast<QAbstractButton*>(bar->childAt(mouse->position().toPoint())) != nullptr;
+    }
+
     QDockWidget* dock_;
     std::optional<QPoint> origin_;
 };

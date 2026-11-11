@@ -76,6 +76,7 @@ private slots:
     void onFindTool();
     void onDetectOpenFoam();
     void onAbout();
+    void onShortcuts();
     void onCheckForUpdates();
     void onUpdateAvailable(const AppUpdateInfo& info);
     void onUpdateBannerLink(const QString& link);
@@ -172,6 +173,9 @@ private:
     QAction* openCaseAction_{nullptr};
     QAction* cancelAction_{nullptr};
     QAction* themeAction_{nullptr};
+    QAction* quitAction_{nullptr};
+    QAction* shortcutsAction_{nullptr};
+    QAction* aboutAction_{nullptr};
     void refreshFieldTools();
     std::vector<QAction*> fieldActions_;
     QComboBox* fieldCombo_{nullptr};

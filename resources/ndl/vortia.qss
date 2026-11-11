@@ -103,6 +103,14 @@ QPushButton[ndlVariant="neutral"]:hover {background:{{color.controlBgHover}};bor
 QPushButton[ndlVariant="danger"]:hover {background:{{color.windowClose}};border-color:{{color.windowClose}};}
 QLabel#ndl-dialog-header-title {font-family:"Sora";font-size:{{font.body}}px;font-weight:700;color:{{color.textPrimary}};}
 
+/* The side bar's head: the app's icon and name, the main menu at its right. */
+QLabel#vortia-sidebar-title {font-family:"Sora";font-size:{{font.large}}px;font-weight:800;color:{{color.textPrimary}};}
+QWidget#vortia-workflow-navigation QToolButton#ndl-app-menu {min-width:28px;max-width:28px;min-height:28px;max-height:28px;padding:0;border:0;border-radius:14px;background:transparent;}
+QWidget#vortia-workflow-navigation QToolButton#ndl-app-menu:hover,QWidget#vortia-workflow-navigation QToolButton#ndl-app-menu:open {background:{{color.controlBgHover}};}
+QToolButton#ndl-app-menu::menu-indicator {image:none;width:0;}
+/* A shortcut's keys on a pill, as Vinilo shows them. */
+QLabel#ndl-key {background:{{color.controlBg}};color:{{color.textSecondary}};border-radius:{{component.controlRadius}}px;padding:{{space.xxs}}px {{space.sm}}px;font-weight:600;}
+
 /* Dialogs: a title in Sora, heavy, like the view titles of every NDL app. */
 QLabel#ndl-dialog-title {font-family:"Sora";font-size:26px;font-weight:800;padding:{{space.xs}}px 0 {{space.sm}}px 0;}
 /* About: the same layout as every NDL app's. */
