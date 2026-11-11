@@ -40,7 +40,7 @@ constexpr int kResizeMargin = 6;
 
 /// Round window button whose glyph is drawn in the current text colour, so
 /// it follows the theme without separate icon files.
-/// The glyph colour under the pointer: cyan for minimise, amber for maximise, from the tokens of
+/// The glyph colour under the pointer: amber for minimise, cyan for maximise, from the tokens of
 /// the mode ThemeManager applied (the style sheet tints the button to match).
 QColor tokenColor(const QString& name) {
     static const QJsonObject tokens = bundledTokens();
