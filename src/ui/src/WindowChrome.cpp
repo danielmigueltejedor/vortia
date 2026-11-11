@@ -509,8 +509,22 @@ private:
     static bool repeatsVisibleText(QAbstractButton* button) {
         if (!button || button->text().isEmpty())
             return false;
-        auto* tool = qobject_cast<QToolButton*>(button);
-        return !tool || tool->toolButtonStyle() != Qt::ToolButtonIconOnly;
+        if (auto* tool = qobject_cast<QToolButton*>(button); tool && tool->toolButtonStyle() == Qt::ToolButtonIconOnly)
+            return false;
+        // Only a repeat is dropped: the label again, perhaps with its shortcut ("Malla · Alt+3").
+        // A tooltip that explains more than the label keeps showing.
+        const auto plain = [](QString text) {
+            text.remove(QLatin1Char('&'));
+            text = text.trimmed();
+            for (const QString& ellipsis : {QStringLiteral("…"), QStringLiteral("...")}) {
+                if (text.endsWith(ellipsis))
+                    text.chop(ellipsis.size());
+            }
+            return text.trimmed();
+        };
+        const QString label = plain(button->text());
+        const QString tip = plain(button->toolTip());
+        return tip.isEmpty() || tip == label || tip.startsWith(label + QStringLiteral(" · "));
     }
 
     /// Menus, combo lists and tooltips are islands with NDL's radius: their window has to be

@@ -220,6 +220,12 @@ public:
     void watch(QWidget* menu) {
         menu->installEventFilter(&changes_);
         changes_.owner = this;
+        // Submenus already in place (Camera, Display…) are not announced by ActionAdded: walk
+        // them now, or their checks go stale in the desktop's bar.
+        for (QAction* action : menu->actions()) {
+            if (QMenu* sub = action->menu())
+                watch(sub);
+        }
     }
 
 private:

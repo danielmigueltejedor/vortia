@@ -439,7 +439,9 @@ void MainWindow::buildMenusAndToolbar() {
         auto* button = new QToolButton(navigator); button->setObjectName("vortia-workflow-stage-"+QString::number(i));
         button->setProperty("stageTitle",names[i]); button->setProperty("stageIndex",i);
         button->setText(names[i]); button->setAccessibleName(names[i]); button->setCheckable(true);
-        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon); button->setIcon(toolIcon(glyphs[i],QStyle::SP_FileIcon));
+        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        // The current stage is inverted (text-coloured fill): its icon inverts with its label.
+        button->setIcon(uiIcon(QStringLiteral(":/vortia/icons/%1.svg").arg(glyphs[i]),true));
         button->setIconSize({20,20}); button->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
         button->setMinimumHeight(42); button->setShortcut(QKeySequence(QString("Alt+%1").arg(i+1)));
         button->setToolTip(names[i]+" · "+button->shortcut().toString(QKeySequence::NativeText));

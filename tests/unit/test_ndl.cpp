@@ -211,6 +211,16 @@ TEST(NdlTooltips, OnlyIconButtonsShowTheirName) {
         QToolTip::hideText();
         return visible;
     };
+    auto* explained = new QToolButton(&host);
+    explained->setText(QStringLiteral("Preparar reinicio limpio"));
+    explained->setToolTip(QStringLiteral("Guarda el diagnóstico y vuelve a empezar desde la última malla"));
+    explained->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    auto* withShortcut = new QToolButton(&host);
+    withShortcut->setText(QStringLiteral("Geometría"));
+    withShortcut->setToolTip(QStringLiteral("Geometría · Alt+2"));
+    withShortcut->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     EXPECT_FALSE(shown(labelled));
+    EXPECT_FALSE(shown(withShortcut));
+    EXPECT_TRUE(shown(explained));
     EXPECT_TRUE(shown(iconOnly));
 }
