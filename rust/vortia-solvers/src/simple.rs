@@ -236,8 +236,14 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                 vec![nu; mesh.n_faces()],
             ),
         };
-        let mut u_eqn =
-            VectorMatrix::convection(&mesh, &fv, &u_bc, &phi, schemes.convection.interpolation)?;
+        let mut u_eqn = VectorMatrix::convection(
+            &mesh,
+            &fv,
+            &u_bc,
+            &phi,
+            &u,
+            schemes.convection.interpolation,
+        )?;
         if schemes.convection.bounded {
             ops::bounded_correction(&mut u_eqn.ldu, &mesh, &fv, &phi);
         }
@@ -246,6 +252,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             &fv,
             &u_bc,
             &nu_faces,
+            &u,
             schemes.momentum_sn_grad,
         )?);
         let stress = div_dev2_grad_t(&mesh, &fv, &u_bc, &u, &nu_cells, &nu_boundary);

@@ -15,7 +15,7 @@ use vortia_foamfile::{Dictionary, Value};
 use vortia_fv::ops::{self, Convection, SnGrad};
 use vortia_fv::vector::{dot_interpolate, solution_directions};
 use vortia_fv::{
-    Boundary, FvGeometry, LduMatrix, Performance, ScalarBc, VectorBoundary, VectorMatrix,
+    Boundary, FvGeometry, LduMatrix, Performance, ScalarBc, VectorBc, VectorBoundary, VectorMatrix,
 };
 use vortia_mesh::{PatchKind, PolyMesh};
 
@@ -232,8 +232,14 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let mut solves = Vec::new();
 
         let mut u_eqn = VectorMatrix::ddt_euler(&mesh, &fv, &u_old, run.delta_t)?;
-        let mut convection =
-            VectorMatrix::convection(&mesh, &fv, &u_bc, &phi, schemes.convection.interpolation)?;
+        let mut convection = VectorMatrix::convection(
+            &mesh,
+            &fv,
+            &u_bc,
+            &phi,
+            &u,
+            schemes.convection.interpolation,
+        )?;
         if schemes.convection.bounded {
             ops::bounded_correction(&mut convection.ldu, &mesh, &fv, &phi);
         }
@@ -243,6 +249,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             &fv,
             &u_bc,
             &nu_faces,
+            &u,
             schemes.momentum_sn_grad,
         )?);
 
@@ -366,7 +373,15 @@ pub(crate) fn constrained_boundary(
             out.push(match (patch.kind == PatchKind::Empty, bc.fixes_value(i)) {
                 (true, _) => None,
                 (false, true) => v,
-                (false, false) => own,
+                // `rAU*H` is built with the conditions the patch type
+                // forces on a field: a wedge turns the cell's value onto
+                // its side.
+                (false, false) => match (bc.conditions.get(i), own) {
+                    (Some(VectorBc::Wedge { face_t, .. }), Some(o)) => {
+                        Some(vortia_fv::fvgeom::transform(face_t, o))
+                    }
+                    _ => own,
+                },
             });
             k += 1;
         }

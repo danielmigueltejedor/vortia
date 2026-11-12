@@ -90,25 +90,58 @@ impl FvGeometry {
     /// value on its face (OpenFOAM's `wedgePolyPatch::faceT`): from the
     /// wedge's centre plane onto this side.
     pub fn wedge_face_rotation(&self, patch: &Patch) -> [[f64; 3]; 3] {
-        let mut sum = Vec3::default();
-        for f in patch.faces() {
-            let sf = self.geo.face_areas.get(f).copied().unwrap_or_default();
-            let mag = sf.norm();
-            if mag > 0.0 {
-                sum = sum + sf / mag;
+        wedge_face_rotation(&self.geo.face_areas, patch)
+    }
+}
+
+/// [`FvGeometry::wedge_face_rotation`] from the face area vectors alone.
+pub fn wedge_face_rotation(face_areas: &[Vec3], patch: &Patch) -> [[f64; 3]; 3] {
+    let mut sum = Vec3::default();
+    for f in patch.faces() {
+        let sf = face_areas.get(f).copied().unwrap_or_default();
+        let mag = sf.norm();
+        if mag > 0.0 {
+            sum = sum + sf / mag;
+        }
+    }
+    let n = if patch.size > 0 {
+        sum / patch.size as f64
+    } else {
+        sum
+    };
+    let sign = |v: f64| if v >= 0.0 { 1.0 } else { -1.0 };
+    let part = |v: f64| sign(v) * (v.abs().max(0.5) - 0.5);
+    let centre = Vec3::new(part(n.x), part(n.y), part(n.z));
+    let centre = centre / centre.norm().max(f64::MIN_POSITIVE);
+    rotation_tensor(centre, n)
+}
+
+/// `A & B`.
+pub fn mat_mul(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut out = [[0.0; 3]; 3];
+    for (out_row, a_row) in out.iter_mut().zip(a) {
+        for (j, v) in out_row.iter_mut().enumerate() {
+            *v = a_row
+                .iter()
+                .zip(b)
+                .map(|(x, b_row)| x * b_row.get(j).copied().unwrap_or(0.0))
+                .sum();
+        }
+    }
+    out
+}
+
+/// `Aᵀ`.
+pub fn transpose(a: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut out = [[0.0; 3]; 3];
+    for (j, _) in a.iter().enumerate() {
+        for (i, v) in out.iter_mut().enumerate() {
+            if let (Some(slot), Some(x)) = (v.get_mut(j), a.get(j).and_then(|r| r.get(i))) {
+                *slot = *x;
             }
         }
-        let n = if patch.size > 0 {
-            sum / patch.size as f64
-        } else {
-            sum
-        };
-        let sign = |v: f64| if v >= 0.0 { 1.0 } else { -1.0 };
-        let part = |v: f64| sign(v) * (v.abs().max(0.5) - 0.5);
-        let centre = Vec3::new(part(n.x), part(n.y), part(n.z));
-        let centre = centre / centre.norm().max(f64::MIN_POSITIVE);
-        rotation_tensor(centre, n)
     }
+    out
 }
 
 /// The rotation turning unit vector `n1` onto `n2` about their common normal

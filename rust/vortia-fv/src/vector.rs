@@ -16,11 +16,11 @@
 
 use vortia_core::Vec3;
 use vortia_fields::{Data, VectorField};
-use vortia_mesh::{PatchKind, PolyMesh};
+use vortia_mesh::{MeshGeometry, PatchKind, PolyMesh};
 
 use crate::bc::check_solvable;
 use crate::error::{FvError, Result};
-use crate::fvgeom::FvGeometry;
+use crate::fvgeom::{FvGeometry, mat_mul, transform, wedge_face_rotation};
 use crate::ldu::LduMatrix;
 use crate::ops::{Interpolation, SnGrad};
 use crate::solve::Performance;
@@ -40,6 +40,34 @@ pub enum VectorBc {
         mask: Vec<Vec3>,
         ref_value: Vec<Vec3>,
     },
+    /// One side of an axisymmetric wedge: the face takes the cell's vector
+    /// turned by `face_t` onto the side, and `cell_t` (the same turn twice)
+    /// carries it to the other side. OpenFOAM's `wedge`, a `transform`
+    /// condition.
+    Wedge {
+        face_t: [[f64; 3]; 3],
+        cell_t: [[f64; 3]; 3],
+    },
+}
+
+impl VectorBc {
+    /// OpenFOAM's `snGradTransformDiag` for a wedge: the part of the cell
+    /// value the transformed face value takes from the cell's own component,
+    /// `0.5 (I − cellT)` on the diagonal.
+    fn wedge_mask(cell_t: &[[f64; 3]; 3]) -> Vec3 {
+        let [[xx, ..], [_, yy, _], [.., zz]] = *cell_t;
+        Vec3::new(0.5 * (1.0 - xx), 0.5 * (1.0 - yy), 0.5 * (1.0 - zz))
+    }
+
+    /// A wedge's value on its face, from the cell value.
+    fn wedge_face(face_t: &[[f64; 3]; 3], inside: Vec3) -> Vec3 {
+        transform(face_t, inside)
+    }
+
+    /// A wedge's surface-normal gradient, `(cellT·ψ − ψ)·0.5·δ`.
+    pub fn wedge_sn_grad(cell_t: &[[f64; 3]; 3], inside: Vec3, delta: f64) -> Vec3 {
+        (transform(cell_t, inside) - inside) * (0.5 * delta)
+    }
 }
 
 /// One vector condition per mesh patch, in patch order.
@@ -66,6 +94,7 @@ impl VectorBoundary {
         field.check_against(mesh)?;
         let mut conditions = Vec::with_capacity(mesh.patches().len());
         let mut assignable = Vec::with_capacity(mesh.patches().len());
+        let mut areas: Option<Vec<Vec3>> = None;
         for patch in mesh.patches() {
             let pf = field.patch_field(patch).ok_or_else(|| {
                 FvError::Condition(format!("no condition for patch '{}'", patch.name))
@@ -81,11 +110,30 @@ impl VectorBoundary {
                         ))
                     })
             };
+            // A wedge side takes the wedge condition and nothing else does:
+            // OpenFOAM refuses the mismatch, and a zero gradient on a side
+            // would drop the rotation from every term.
+            if (patch.kind == PatchKind::Wedge) != (pf.kind == "wedge") {
+                return Err(FvError::Condition(format!(
+                    "patch '{}' is a {} patch but the field says {}",
+                    patch.name,
+                    patch.kind.name(),
+                    pf.kind
+                )));
+            }
             let bc = match pf.kind.as_str() {
                 "fixedValue" => VectorBc::FixedValue(given()?),
                 "noSlip" => VectorBc::FixedValue(vec![Vec3::default(); patch.size]),
                 "zeroGradient" => VectorBc::ZeroGradient,
                 "empty" => VectorBc::Empty,
+                "wedge" => {
+                    let areas = areas.get_or_insert_with(|| MeshGeometry::compute(mesh).face_areas);
+                    let face_t = wedge_face_rotation(areas, patch);
+                    VectorBc::Wedge {
+                        face_t,
+                        cell_t: mat_mul(&face_t, &face_t),
+                    }
+                }
                 "pressureInletVelocity" if driven.contains(&"pressureInletVelocity") => {
                     VectorBc::FixedValue(given()?)
                 }
@@ -144,6 +192,9 @@ impl VectorBoundary {
                     VectorBc::FixedValue(v) => v.get(i).copied(),
                     VectorBc::ZeroGradient => Some(inside(mesh, cells, f)),
                     VectorBc::Empty => None,
+                    VectorBc::Wedge { face_t, .. } => {
+                        Some(VectorBc::wedge_face(face_t, inside(mesh, cells, f)))
+                    }
                     VectorBc::Mixed { mask, ref_value } => {
                         let pif = inside(mesh, cells, f);
                         let m = mask.get(i).copied().unwrap_or_default();
@@ -159,6 +210,10 @@ impl VectorBoundary {
         }
         out
     }
+}
+
+fn f_owner(mesh: &PolyMesh, f: usize) -> usize {
+    mesh.owner().get(f).copied().unwrap_or(usize::MAX)
 }
 
 fn inside<T: Copy + Default>(mesh: &PolyMesh, cells: &[T], f: usize) -> T {
@@ -341,12 +396,14 @@ impl VectorMatrix {
         Ok(m)
     }
 
-    /// Implicit `∇·(φ ψ)` for the face flux `phi` (every face).
+    /// Implicit `∇·(φ ψ)` for the face flux `phi` (every face). `psi` is the
+    /// field's cell values, which a wedge's explicit part reads.
     pub fn convection(
         mesh: &PolyMesh,
         fv: &FvGeometry,
         bc: &VectorBoundary,
         phi: &[f64],
+        psi: &[Vec3],
         scheme: Interpolation,
     ) -> Result<Self> {
         let mut m = Self::new(mesh);
@@ -366,6 +423,13 @@ impl VectorMatrix {
                             Vec3::new(1.0 - m.x, 1.0 - m.y, 1.0 - m.z),
                             Some(mul_cmpt(m, r)),
                         )
+                    }
+                    VectorBc::Wedge { face_t, cell_t } => {
+                        let pif = psi.get(f_owner(mesh, f)).copied().unwrap_or_default();
+                        let mask = VectorBc::wedge_mask(cell_t);
+                        let internal = Vec3::new(1.0 - mask.x, 1.0 - mask.y, 1.0 - mask.z);
+                        let face = VectorBc::wedge_face(face_t, pif);
+                        (internal, Some(face - mul_cmpt(internal, pif)))
                     }
                     VectorBc::Empty => continue,
                 };
@@ -387,6 +451,7 @@ impl VectorMatrix {
         fv: &FvGeometry,
         bc: &VectorBoundary,
         gamma: &[f64],
+        psi: &[Vec3],
         sn_grad: SnGrad,
     ) -> Result<Self> {
         let gamma = |f: usize| gamma.get(f).copied().unwrap_or(0.0);
@@ -440,6 +505,19 @@ impl VectorMatrix {
                         }
                         if let Some(c) = m.boundary_coeffs.get_mut(k) {
                             *c = mul_cmpt(mk, r) * (-d * gm);
+                        }
+                    }
+                    VectorBc::Wedge { cell_t, .. } => {
+                        let pif = psi.get(f_owner(mesh, f)).copied().unwrap_or_default();
+                        let dc = fv.delta_coeffs.get(f).copied().unwrap_or(0.0);
+                        let mask = VectorBc::wedge_mask(cell_t);
+                        let internal = mask * -dc;
+                        let sn = VectorBc::wedge_sn_grad(cell_t, pif, dc);
+                        if let Some(c) = m.internal_coeffs.get_mut(k) {
+                            *c = internal * gm;
+                        }
+                        if let Some(c) = m.boundary_coeffs.get_mut(k) {
+                            *c = (sn - mul_cmpt(internal, pif)) * -gm;
                         }
                     }
                     VectorBc::ZeroGradient | VectorBc::Empty => {}
@@ -643,4 +721,109 @@ pub fn dot_interpolate(
         });
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The nozzle's wedge mesh, and a boundary giving its two sides the
+    /// wedge condition and everything else a zero gradient.
+    fn wedge_case() -> (PolyMesh, FvGeometry, VectorBoundary) {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/nozzle-practice-2026");
+        let mesh = PolyMesh::read_case(dir).unwrap();
+        let fv = FvGeometry::new(&mesh);
+        let areas = &fv.geo.face_areas;
+        let conditions = mesh
+            .patches()
+            .iter()
+            .map(|p| match p.kind {
+                PatchKind::Wedge => {
+                    let face_t = wedge_face_rotation(areas, p);
+                    VectorBc::Wedge {
+                        face_t,
+                        cell_t: mat_mul(&face_t, &face_t),
+                    }
+                }
+                PatchKind::Empty => VectorBc::Empty,
+                _ => VectorBc::ZeroGradient,
+            })
+            .collect::<Vec<_>>();
+        let assignable = vec![false; conditions.len()];
+        (
+            mesh,
+            fv,
+            VectorBoundary {
+                conditions,
+                assignable,
+            },
+        )
+    }
+
+    /// A vector in the wedge's centre plane (no azimuthal part), which the
+    /// side turns onto itself: it then lies in the side's plane, so it carries
+    /// nothing through it.
+    #[test]
+    fn a_wedge_turns_a_vector_of_the_centre_plane_into_the_side() {
+        let (mesh, fv, bc) = wedge_case();
+        let cells = vec![Vec3::new(2.0, 3.0, 0.0); mesh.n_cells()];
+        let faces = bc.face_values(&mesh, &cells);
+        let n_internal = mesh.n_internal_faces();
+        for name in ["front", "back"] {
+            let patch = mesh.patch(name).unwrap();
+            for f in patch.faces() {
+                let v = faces[f - n_internal].unwrap();
+                let s = fv.geo.face_areas[f];
+                assert!(
+                    (v.norm() - 13f64.sqrt()).abs() < 1e-12,
+                    "turning keeps length"
+                );
+                assert!((v.x - 2.0).abs() < 1e-12, "{name}: {v:?}");
+                // The case file has six digits per point, so its sides are flat to
+                // about that.
+                assert!(s.dot(v).abs() < 1e-5 * s.norm() * v.norm(), "{name}: {v:?}");
+            }
+        }
+    }
+
+    /// What the matrices hold for a wedge face is the face's flux and the
+    /// face's gradient: `internal·ψ − boundary` recovers `φ ψ_f` and
+    /// `Γ |S| ∂ψ/∂n`, as OpenFOAM's `transform` conditions give them.
+    #[test]
+    fn a_wedge_face_carries_its_value_and_gradient_in_the_matrices() {
+        let (mesh, fv, bc) = wedge_case();
+        let cells: Vec<Vec3> = (0..mesh.n_cells())
+            .map(|c| Vec3::new(1.0 + c as f64 * 1e-3, 2.0 - c as f64 * 2e-3, 0.5))
+            .collect();
+        let phi = vec![1.0; mesh.n_faces()];
+        let gamma = vec![2.0; mesh.n_faces()];
+        let conv =
+            VectorMatrix::convection(&mesh, &fv, &bc, &phi, &cells, Interpolation::Upwind).unwrap();
+        let lap =
+            VectorMatrix::laplacian(&mesh, &fv, &bc, &gamma, &cells, SnGrad::Uncorrected).unwrap();
+        let faces = bc.face_values(&mesh, &cells);
+        let n_internal = mesh.n_internal_faces();
+        let mut seen = 0;
+        for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
+            let VectorBc::Wedge { cell_t, .. } = cond else {
+                continue;
+            };
+            for f in patch.faces() {
+                let k = f - n_internal;
+                let pif = cells[mesh.owner()[f]];
+                let got = mul_cmpt(conv.internal_coeffs[k], pif) - conv.boundary_coeffs[k];
+                let want = faces[k].unwrap();
+                assert!((got - want).norm() < 1e-12, "value: {got:?} vs {want:?}");
+
+                let dc = fv.delta_coeffs[f];
+                let sn = VectorBc::wedge_sn_grad(cell_t, pif, dc);
+                let got = mul_cmpt(lap.internal_coeffs[k], pif) - lap.boundary_coeffs[k];
+                let want = sn * (2.0 * fv.mag_sf[f]);
+                assert!((got - want).norm() < 1e-12, "gradient: {got:?} vs {want:?}");
+                seen += 1;
+            }
+        }
+        assert!(seen > 0);
+    }
 }

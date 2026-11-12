@@ -228,6 +228,117 @@ fn write_channel_for_openfoam() {
     channel(Path::new(&dir), setup);
 }
 
+/// The nozzle's wedge mesh (7500 cells, as the example case has it) run
+/// laminar: the inlet driven by a total pressure a little above the outlet's
+/// 1.01325 bar, air moving at 3 m/s to begin with. `uncorrected` stands in for
+/// the non-orthogonal correction the engine does not have yet for vectors.
+fn nozzle(dir: &Path) {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/nozzle-practice-2026");
+    let mesh = dir.join("constant/polyMesh");
+    std::fs::create_dir_all(&mesh).unwrap();
+    for f in ["points", "faces", "owner", "neighbour", "boundary"] {
+        std::fs::copy(source.join("constant/polyMesh").join(f), mesh.join(f)).unwrap();
+    }
+    let field = |name: &str, class: &str, dims: &str, internal: &str, patches: &str| {
+        write(
+            &dir.join("0").join(name),
+            &format!(
+                "FoamFile {{ version 2.0; format ascii; class {class}; object {name}; }}\n\
+                 dimensions {dims}; internalField uniform {internal};\n\
+                 boundaryField {{ axis {{ type empty; }} walls {{ {patches} }} \
+                 front {{ type wedge; }} back {{ type wedge; }} {} }}\n",
+                if name == "U" {
+                    "inlet { type pressureInletVelocity; value uniform (0 0 0); } \
+                     atmosphere { type pressureInletOutletVelocity; value uniform (0 0 0); }"
+                } else if name == "p" {
+                    "inlet { type totalPressure; p0 uniform 101525; gamma 1.4; \
+                     value uniform 101525; } \
+                     atmosphere { type fixedValue; value uniform 101325; }"
+                } else {
+                    "inlet { type totalTemperature; T0 uniform 300; gamma 1.4; \
+                     value uniform 300; } \
+                     atmosphere { type inletOutlet; inletValue uniform 300; value uniform 300; }"
+                }
+            ),
+        );
+    };
+    field(
+        "U",
+        "volVectorField",
+        "[0 1 -1 0 0 0 0]",
+        "(3 0 0)",
+        "type noSlip;",
+    );
+    field(
+        "p",
+        "volScalarField",
+        "[1 -1 -2 0 0 0 0]",
+        "101325",
+        "type zeroGradient;",
+    );
+    field(
+        "T",
+        "volScalarField",
+        "[0 0 0 1 0 0 0]",
+        "300",
+        "type zeroGradient;",
+    );
+    write(
+        &dir.join("system/controlDict"),
+        &format!(
+            "{HEADER}application rhoSimpleFoam; startFrom startTime; startTime 0; \
+             stopAt endTime; endTime 60; deltaT 1; writeControl timeStep; \
+             writeInterval 60; writeFormat ascii; writePrecision 17; timePrecision 6;"
+        ),
+    );
+    write(
+        &dir.join("system/fvSchemes"),
+        &format!(
+            "{HEADER}ddtSchemes {{ default steadyState; }} gradSchemes {{ default Gauss linear; }} \
+             divSchemes {{ default none; div(phi,U) bounded Gauss upwind; \
+             div(phi,e) bounded Gauss upwind; div(phi,Ekp) bounded Gauss upwind; \
+             div(phi,K) bounded Gauss upwind; \
+             div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear; }} \
+             laplacianSchemes {{ default Gauss linear uncorrected; }} \
+             interpolationSchemes {{ default linear; }} snGradSchemes {{ default uncorrected; }}"
+        ),
+    );
+    write(
+        &dir.join("system/fvSolution"),
+        &format!(
+            "{HEADER}solvers {{ \
+               p {{ solver PCG; preconditioner DIC; tolerance 1e-7; relTol 0.01; }} \
+               \"(U|e)\" {{ solver smoothSolver; smoother symGaussSeidel; \
+                 tolerance 1e-8; relTol 0; }} \
+             }} \
+             SIMPLE {{ nNonOrthogonalCorrectors 0; consistent yes; }} \
+             relaxationFactors {{ fields {{ p 0.3; rho 0.5; }} equations {{ U 0.7; e 0.7; }} }}"
+        ),
+    );
+    write(
+        &dir.join("constant/thermophysicalProperties"),
+        &format!(
+            "{HEADER}thermoType {{ type hePsiThermo; mixture pureMixture; transport const; \
+             thermo hConst; equationOfState perfectGas; specie specie; \
+             energy sensibleInternalEnergy; }} \
+             mixture {{ specie {{ molWeight 28.9; }} \
+             thermodynamics {{ Cp 1005; Hf 0; }} transport {{ mu 1.82e-05; Pr 0.71; }} }}"
+        ),
+    );
+    write(
+        &dir.join("constant/turbulenceProperties"),
+        &format!("{HEADER}simulationType laminar;"),
+    );
+}
+
+/// Writes the nozzle case for OpenFOAM:
+/// `VORTIA_NOZZLE=dir cargo test --test rho_simple write_nozzle_for_openfoam -- --ignored`.
+#[test]
+#[ignore]
+fn write_nozzle_for_openfoam() {
+    nozzle(Path::new(&std::env::var("VORTIA_NOZZLE").unwrap()));
+}
+
 struct Reference {
     first_steps: [usize; 8],
     /// Iterations per field over the first `checked` iterations: the rest
@@ -383,6 +494,117 @@ fn rhosimplefoam_pressure_driven_matches_openfoam() {
             face_100_flux: 1.8701887304490299e-07,
         },
     );
+}
+
+/// The wedge's two sides turn the velocity onto themselves, in the matrices
+/// (`transform` conditions' diagonal and explicit parts), in `HbyA`, and in
+/// the gradient behind the viscous stress. The first sixty iterations take
+/// OpenFOAM's iteration count in every solve of `Ux`, `Uy`, `e` and `p`. `Uz`
+/// is the wedge's own noise (some 1e-12 m/s, where the mesh is not exactly
+/// symmetric), so its counts may differ by one in a few solves.
+#[test]
+fn rhosimplefoam_on_a_wedge_matches_openfoam() {
+    let dir = tempfile::tempdir().unwrap();
+    nozzle(dir.path());
+    let case = Case::open(dir.path()).unwrap();
+    let steps = rho_simple::run(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), 60);
+
+    let counts: Vec<usize> = steps
+        .iter()
+        .flat_map(|s| s.solves.iter().map(|(_, p)| p.iterations))
+        .collect();
+    assert_eq!(counts[..8], [15, 16, 13, 18, 47, 14, 14, 12]);
+    let total = |field: &str| -> usize {
+        steps
+            .iter()
+            .flat_map(|s| &s.solves)
+            .filter(|(f, _)| f == field)
+            .map(|(_, p)| p.iterations)
+            .sum()
+    };
+    for (field, want) in [("Ux", 686), ("Uy", 733), ("e", 743), ("p", 2110)] {
+        assert_eq!(total(field), want, "iterations solving {field}");
+    }
+    assert!(total("Uz").abs_diff(721) <= 3, "Uz: {}", total("Uz"));
+
+    let end = dir.path().join("60");
+    let u = VectorField::read(end.join("U"))
+        .unwrap()
+        .internal
+        .expand(7500)
+        .unwrap();
+    let read = |name: &str| {
+        ScalarField::read(end.join(name))
+            .unwrap()
+            .internal
+            .expand(7500)
+            .unwrap()
+    };
+    let (t, p, rho) = (read("T"), read("p"), read("rho"));
+    for (c, [ux, uy], tc, pc, rc) in [
+        (
+            0,
+            [18.474916737963866, -5.2721776281703455e-05],
+            299.8304856451849,
+            101324.0041431037,
+            1.1746257292558537,
+        ),
+        (
+            3749,
+            [3.007140039578203, -0.009169240040166778],
+            299.9997040133394,
+            101325.01654498282,
+            1.173975646321868,
+        ),
+        (
+            7499,
+            [0.009563770478072126, -0.39162831730579856],
+            299.99999653346777,
+            101325.00848236658,
+            1.1739745118901812,
+        ),
+    ] {
+        assert!(
+            (u[c].x - ux).abs() < 1e-8 && (u[c].y - uy).abs() < 1e-8,
+            "U in cell {c}: {:?}",
+            u[c]
+        );
+        assert!(u[c].z.abs() < 1e-10, "Uz in cell {c}: {}", u[c].z);
+        assert!((t[c] - tc).abs() < 1e-9, "T in cell {c}: {}", t[c]);
+        assert!((p[c] - pc).abs() < 1e-8, "p in cell {c}: {}", p[c]);
+        assert!((rho[c] - rc).abs() < 1e-12, "rho in cell {c}: {}", rho[c]);
+    }
+}
+
+/// A wedge side takes the wedge condition, and only a wedge side does:
+/// anything else would silently leave the rotation out of the solution.
+#[test]
+fn a_wedge_patch_and_its_condition_must_agree() {
+    let refused = |file: &str, from: &str, to: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        nozzle(dir.path());
+        let path = dir.path().join(file);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(from), "{from}");
+        std::fs::write(&path, text.replace(from, to)).unwrap();
+        let case = Case::open(dir.path()).unwrap();
+        rho_simple::run(&case, |_| {})
+            .expect_err(&format!("{file}: {from}"))
+            .to_string()
+    };
+    for file in ["0/U", "0/T", "0/p"] {
+        // A wedge side that says zeroGradient.
+        let e = refused(
+            file,
+            "front { type wedge; }",
+            "front { type zeroGradient; }",
+        );
+        assert!(e.contains("front") && e.contains("wedge"), "{file}: {e}");
+    }
+    // A wall that says wedge.
+    let e = refused("0/U", "walls { type noSlip; }", "walls { type wedge; }");
+    assert!(e.contains("walls") && e.contains("wedge"), "{e}");
 }
 
 /// A `totalPressure` or `totalTemperature` without a `value` starts from

@@ -10,7 +10,7 @@
 use vortia_core::Vec3;
 use vortia_mesh::{PatchKind, PolyMesh};
 
-use crate::fvgeom::FvGeometry;
+use crate::fvgeom::{FvGeometry, mat_mul, transpose};
 use crate::vector::{VectorBc, VectorBoundary};
 
 /// A second-rank tensor, row by row: `t[i][j]`.
@@ -46,6 +46,11 @@ fn dot(v: Vec3, t: &Tensor) -> Vec3 {
         v.x * xy + v.y * yy + v.z * zy,
         v.x * xz + v.y * yz + v.z * zz,
     )
+}
+
+/// `T · g · Tᵀ`.
+fn turn(t: &Tensor, g: &Tensor) -> Tensor {
+    mat_mul(&mat_mul(t, g), &transpose(t))
 }
 
 /// `dev2(tᵀ)`: the transpose less two thirds of its trace on the diagonal.
@@ -115,7 +120,12 @@ pub fn grad(
                 continue;
             }
             let c = own.get(f).copied();
-            let gc = c.and_then(|c| g.get(c)).copied().unwrap_or_default();
+            let mut gc = c.and_then(|c| g.get(c)).copied().unwrap_or_default();
+            // A wedge's gradient field takes the wedge condition too: the
+            // cell's tensor turned onto the side, `T · g · Tᵀ`.
+            if let VectorBc::Wedge { face_t, .. } = cond {
+                gc = turn(face_t, &gc);
+            }
             let s = sf.get(f).copied().unwrap_or_default();
             let mag = fv.mag_sf.get(f).copied().unwrap_or(1.0);
             let n = Vec3::new(s.x / mag, s.y / mag, s.z / mag);
@@ -131,6 +141,10 @@ pub fn grad(
                     )
                 }
                 VectorBc::ZeroGradient | VectorBc::Empty => Vec3::default(),
+                VectorBc::Wedge { cell_t, .. } => {
+                    let dc = fv.delta_coeffs.get(f).copied().unwrap_or(0.0);
+                    VectorBc::wedge_sn_grad(cell_t, inside, dc)
+                }
                 VectorBc::Mixed { mask, ref_value } => {
                     let dc = fv.delta_coeffs.get(f).copied().unwrap_or(0.0);
                     let m = mask.get(i).copied().unwrap_or_default();

@@ -65,6 +65,14 @@ impl Boundary {
             let pf = field.patch_field(patch).ok_or_else(|| {
                 FvError::Condition(format!("no condition for patch '{}'", patch.name))
             })?;
+            if (patch.kind == PatchKind::Wedge) != (pf.kind == "wedge") {
+                return Err(FvError::Condition(format!(
+                    "patch '{}' is a {} patch but the field says {}",
+                    patch.name,
+                    patch.kind.name(),
+                    pf.kind
+                )));
+            }
             let bc = match pf.kind.as_str() {
                 "fixedValue" => {
                     ScalarBc::FixedValue(values(pf.value.as_ref(), patch, "fixedValue")?)

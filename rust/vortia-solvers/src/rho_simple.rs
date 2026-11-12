@@ -113,7 +113,10 @@ impl Pressure {
         if let Some(c) = bc.conditions.iter().find(|c| {
             !matches!(
                 c,
-                ScalarBc::FixedValue(_) | ScalarBc::ZeroGradient | ScalarBc::Empty
+                ScalarBc::FixedValue(_)
+                    | ScalarBc::ZeroGradient
+                    | ScalarBc::Reflect
+                    | ScalarBc::Empty
             )
         }) {
             return Err(SolverError::Setup(format!(
@@ -266,7 +269,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             .collect();
         let rho_nu_f = face_diffusivity(&mesh, &fv, &rho_nu, &rho_nu_b);
         let mut u_eqn =
-            VectorMatrix::convection(&mesh, &fv, &u_bc, &phi, schemes.momentum.interpolation)?;
+            VectorMatrix::convection(&mesh, &fv, &u_bc, &phi, &u, schemes.momentum.interpolation)?;
         if schemes.momentum.bounded {
             ops::bounded_correction(&mut u_eqn.ldu, &mesh, &fv, &phi);
         }
@@ -275,6 +278,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             &fv,
             &u_bc,
             &rho_nu_f,
+            &u,
             schemes.momentum_sn_grad,
         )?);
         let stress = div_dev2_grad_t(&mesh, &fv, &u_bc, &u, &rho_nu, &rho_nu_b);
