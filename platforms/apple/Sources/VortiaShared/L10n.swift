@@ -14,7 +14,7 @@ public enum L10n {
         case checks, noIssues, reynolds, courant, openFoam, openFoamMissing, detectAgain
         case runMesh, runSolve, stop, idle, meshing, solving, finished, failed
         case residuals, simulatedTime, log, noResults, noResultsBody, field, statistics
-        case mean, standardDeviation, slice, axis, position, profile, distance, value
+        case mean, standardDeviation, slice, axis, position, profile, distance, value, view, threeD
         case engineStarting, engineLost, engineMissing, dismiss, settings
         case engineering, reportName, centre, direction, references, kinematicPressure
         case useDensityField, constantDensity, referencePressure, referenceDensity, referenceSpeed
@@ -54,7 +54,7 @@ public enum L10n {
         .field: "Field", .statistics: "Statistics", .mean: "Mean",
         .standardDeviation: "Standard deviation", .slice: "Slice", .axis: "Normal axis",
         .position: "Position", .profile: "Profile along the vertical centre line",
-        .distance: "Distance (m)", .value: "Value",
+        .distance: "Distance (m)", .value: "Value", .view: "View", .threeD: "3D surface",
         .engineStarting: "Starting the engine…", .engineLost: "The engine stopped",
         .engineMissing: "The engine is not running.", .dismiss: "Dismiss", .settings: "Settings",
         .engineering: "Section analysis", .reportName: "Report name", .centre: "Centre",
@@ -102,7 +102,7 @@ public enum L10n {
         .field: "Campo", .statistics: "Estadísticas", .mean: "Media",
         .standardDeviation: "Desviación típica", .slice: "Corte", .axis: "Eje normal",
         .position: "Posición", .profile: "Perfil por la línea central vertical",
-        .distance: "Distancia (m)", .value: "Valor",
+        .distance: "Distancia (m)", .value: "Valor", .view: "Vista", .threeD: "Superficie 3D",
         .engineStarting: "Iniciando el motor…", .engineLost: "El motor se detuvo",
         .engineMissing: "El motor no está en marcha.", .dismiss: "Descartar", .settings: "Ajustes",
         .engineering: "Análisis de sección", .reportName: "Nombre del informe", .centre: "Centrar",
