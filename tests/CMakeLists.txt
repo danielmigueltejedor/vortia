@@ -25,7 +25,8 @@ add_executable(test_geometry
     unit/test_sketch_2d.cpp
     unit/test_sketch_snapping.cpp
     unit/test_sketch_arcs.cpp
-    unit/test_sketch_templates.cpp)
+    unit/test_sketch_templates.cpp
+    unit/test_sketch_file.cpp)
 target_include_directories(test_geometry PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
 target_link_libraries(test_geometry PRIVATE vortia::geometry GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_geometry)
@@ -148,7 +149,7 @@ endif()
 if(TARGET vortia)
     add_test(NAME vortia_spanish_catalog
              COMMAND $<TARGET_FILE:vortia> --verify-spanish)
-    add_executable(test_workspace unit/test_workspace.cpp unit/test_engineering.cpp unit/test_run_diagnostics.cpp unit/test_ndl.cpp
+    add_executable(test_workspace unit/test_workspace.cpp unit/test_engineering.cpp unit/test_run_diagnostics.cpp unit/test_ndl.cpp unit/test_flow_configuration.cpp
         "${PROJECT_SOURCE_DIR}/resources/vortia.qrc")
     set_target_properties(test_workspace PROPERTIES AUTORCC ON)
     target_link_libraries(test_workspace PRIVATE vortia::ui GTest::gtest vortia_warnings)
