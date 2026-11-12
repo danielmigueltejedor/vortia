@@ -2,6 +2,7 @@
 #include "vortia/ui/UiIcon.hpp"
 #include "vortia/ui/FlowSetup.hpp"
 #include "vortia/ui/FlowCase.hpp"
+#include "vortia/ui/FlowConfiguration.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
 #include "vortia/ui/BoundaryPreview.hpp"
 #include "vortia/ui/MeshRegionsWidget.hpp"
@@ -303,7 +304,8 @@ void FlowSetupPanel::selectPage(int page) {
     else navigation_->selectPage(std::clamp(page,0,pages_->count()-1));
 }
 QJsonObject defaultFlowConfiguration(const Sketch2D& shape,const QJsonObject& previous,const QJsonObject& defaults) {
-    FlowSetupPanel panel(shape,previous,nullptr,defaults);return panel.configuration();
+    // The same values the panel would show, without building it (test_flow_configuration checks).
+    return flowConfiguration(shape,previous,defaults);
 }
 QJsonObject editFlowSetup(QWidget* parent,const Sketch2D& shape,const QJsonObject& previous,int page,const QJsonObject& defaults) {
     QDialog dialog(parent);dialog.setObjectName("vortia-flow-setup");dialog.setWindowTitle(flowTr("Flow configuration"));dialog.resize(1120,800);
