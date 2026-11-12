@@ -33,11 +33,40 @@ pub const PRISM_FACES: [&[usize]; 5] = [
     &[0, 1, 4, 3],
 ];
 
+/// The six faces of a wedge: two triangles and four quadrilaterals.
+pub const WEDGE_FACES: [&[usize]; 6] = [
+    &[0, 2, 1],
+    &[3, 4, 5, 6],
+    &[0, 3, 6],
+    &[1, 2, 5, 4],
+    &[0, 1, 4, 3],
+    &[0, 6, 5, 2],
+];
+
+/// The faces of a pyramid: the base, then four triangles.
+pub const PYR_FACES: [&[usize]; 5] = [
+    &[0, 3, 2, 1],
+    &[0, 4, 3],
+    &[3, 4, 2],
+    &[1, 2, 4],
+    &[0, 1, 4],
+];
+
+/// The four faces of a tetrahedron.
+pub const TET_FACES: [&[usize]; 4] = [&[1, 2, 3], &[0, 3, 2], &[0, 1, 3], &[0, 2, 1]];
+
+/// The faces of a tetWedge: two triangles and two quadrilaterals.
+pub const TET_WEDGE_FACES: [&[usize]; 4] = [&[0, 2, 1], &[0, 1, 3], &[0, 3, 4, 2], &[1, 2, 4, 3]];
+
 /// A cell's model, with the vertex labels it was matched to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Shape {
     Hex([usize; 8]),
     Prism([usize; 6]),
+    Wedge([usize; 7]),
+    Pyramid([usize; 5]),
+    Tet([usize; 4]),
+    TetWedge([usize; 5]),
 }
 
 impl Shape {
@@ -49,6 +78,10 @@ impl Shape {
         match self {
             Shape::Hex(v) => HEX_FACES.iter().map(|f| pick(f, v)).collect(),
             Shape::Prism(v) => PRISM_FACES.iter().map(|f| pick(f, v)).collect(),
+            Shape::Wedge(v) => WEDGE_FACES.iter().map(|f| pick(f, v)).collect(),
+            Shape::Pyramid(v) => PYR_FACES.iter().map(|f| pick(f, v)).collect(),
+            Shape::Tet(v) => TET_FACES.iter().map(|f| pick(f, v)).collect(),
+            Shape::TetWedge(v) => TET_WEDGE_FACES.iter().map(|f| pick(f, v)).collect(),
         }
     }
 }
@@ -211,17 +244,179 @@ fn next_vert(at: usize, size: usize, right_hand: bool) -> usize {
 /// `degenerateMatcher::match`: the model a cell's collapsed faces make,
 /// tried in the order hex, tet, prism, pyramid, wedge, tetWedge.
 fn match_shape(faces: &[Vec<usize>]) -> Result<Shape> {
-    if let Some(s) = match_hex(faces) {
-        return Ok(s);
+    let found = match_hex(faces)
+        .or_else(|| match_tet(faces))
+        .or_else(|| match_prism(faces))
+        .or_else(|| match_pyramid(faces))
+        .or_else(|| match_wedge(faces))
+        .or_else(|| match_tet_wedge(faces));
+    found.ok_or_else(|| {
+        MeshError::Invalid(format!(
+            "a block cell collapses to something that is no hexahedron, prism, \
+             pyramid, wedge or tetrahedron ({} faces, {} of them triangles)",
+            faces.len(),
+            faces.iter().filter(|f| f.len() == 3).count()
+        ))
+    })
+}
+
+fn count_sizes(faces: &[Vec<usize>]) -> Option<(usize, usize)> {
+    let (mut tris, mut quads) = (0, 0);
+    for f in faces {
+        match f.len() {
+            3 => tris += 1,
+            4 => quads += 1,
+            _ => return None,
+        }
     }
-    if let Some(s) = match_prism(faces) {
-        return Ok(s);
+    Some((tris, quads))
+}
+
+/// `tetMatcher`: four triangles.
+fn match_tet(faces: &[Vec<usize>]) -> Option<Shape> {
+    if faces.len() != 4 || count_sizes(faces)? != (4, 0) {
+        return None;
     }
-    Err(MeshError::Invalid(format!(
-        "a block cell collapses to a shape that is not supported yet ({} faces, {} of them triangles)",
-        faces.len(),
-        faces.iter().filter(|f| f.len() == 3).count()
-    )))
+    let l = Local::new(faces, 4)?;
+    let mut v = [0usize; 4];
+    let face3 = 0usize;
+    let size = l.size(face3);
+    let v30 = 0usize;
+    *v.get_mut(0)? = l.global(face3, v30)?;
+    let v31 = next_vert(v30, size, false);
+    *v.get_mut(1)? = l.global(face3, v31)?;
+    let v32 = next_vert(v31, size, false);
+    *v.get_mut(2)? = l.global(face3, v32)?;
+    let (a0, a1, a2) = (
+        l.vertex(face3, v30)?,
+        l.vertex(face3, v31)?,
+        l.vertex(face3, v32)?,
+    );
+    // The faces across the three edges; the last is the one that holds the
+    // fourth vertex.
+    l.other_face(a0, a1, face3)?;
+    l.other_face(a1, a2, face3)?;
+    let face1 = l.other_face(a2, a0, face3)?;
+    let face1_vert0 = l.place(a0, face1)?;
+    let face1_vert3 = next_vert(face1_vert0, l.size(face1), true);
+    *v.get_mut(3)? = l.global(face1, face1_vert3)?;
+    Some(Shape::Tet(v))
+}
+
+/// `pyrMatcher`: a quadrilateral and four triangles.
+fn match_pyramid(faces: &[Vec<usize>]) -> Option<Shape> {
+    if faces.len() != 5 || count_sizes(faces)? != (4, 1) {
+        return None;
+    }
+    let l = Local::new(faces, 5)?;
+    let mut v = [0usize; 5];
+    let face0 = faces.iter().position(|f| f.len() == 4)?;
+    let size0 = l.size(face0);
+    let v00 = 0usize;
+    *v.get_mut(0)? = l.global(face0, v00)?;
+    let v01 = next_vert(v00, size0, false);
+    *v.get_mut(1)? = l.global(face0, v01)?;
+    let v02 = next_vert(v01, size0, false);
+    *v.get_mut(2)? = l.global(face0, v02)?;
+    let v03 = next_vert(v02, size0, false);
+    *v.get_mut(3)? = l.global(face0, v03)?;
+    let (b0, b1, b2, b3) = (
+        l.vertex(face0, v00)?,
+        l.vertex(face0, v01)?,
+        l.vertex(face0, v02)?,
+        l.vertex(face0, v03)?,
+    );
+    l.other_face(b3, b0, face0)?;
+    l.other_face(b2, b3, face0)?;
+    l.other_face(b1, b2, face0)?;
+    let face4 = l.other_face(b0, b1, face0)?;
+    let face4_vert0 = l.place(b0, face4)?;
+    let face4_vert4 = next_vert(face4_vert0, l.size(face4), false);
+    *v.get_mut(4)? = l.global(face4, face4_vert4)?;
+    Some(Shape::Pyramid(v))
+}
+
+/// `wedgeMatcher`: two triangles and four quadrilaterals, tried from each
+/// rotation of the first triangle.
+fn match_wedge(faces: &[Vec<usize>]) -> Option<Shape> {
+    if faces.len() != 6 || count_sizes(faces)? != (2, 4) {
+        return None;
+    }
+    let l = Local::new(faces, 7)?;
+    let face0 = faces.iter().position(|f| f.len() == 3)?;
+    (0..l.size(face0)).find_map(|v00| wedge_from(&l, face0, v00))
+}
+
+fn wedge_from(l: &Local, face0: usize, v00: usize) -> Option<Shape> {
+    let mut v = [0usize; 7];
+    let size0 = l.size(face0);
+    *v.get_mut(0)? = l.global(face0, v00)?;
+    let v01 = next_vert(v00, size0, false);
+    *v.get_mut(1)? = l.global(face0, v01)?;
+    let (a0, a1) = (l.vertex(face0, v00)?, l.vertex(face0, v01)?);
+    let face4 = l.other_face(a0, a1, face0)?;
+    if l.size(face4) != 4 {
+        return None;
+    }
+    let face4_vert0 = l.place(a0, face4)?;
+    let face4_vert3 = next_vert(face4_vert0, l.size(face4), false);
+    *v.get_mut(3)? = l.global(face4, face4_vert3)?;
+    let (c0, c3) = (l.vertex(face4, face4_vert0)?, l.vertex(face4, face4_vert3)?);
+    let face2 = l.other_face(c0, c3, face4)?;
+    if l.size(face2) != 3 {
+        return None;
+    }
+    let face2_vert3 = l.place(c3, face2)?;
+    let face2_vert6 = next_vert(face2_vert3, l.size(face2), true);
+    *v.get_mut(6)? = l.global(face2, face2_vert6)?;
+    let (d3, d6) = (l.vertex(face2, face2_vert3)?, l.vertex(face2, face2_vert6)?);
+    let face1 = l.other_face(d3, d6, face2)?;
+    let face1_vert6 = l.place(d6, face1)?;
+    let face1_vert5 = next_vert(face1_vert6, l.size(face1), false);
+    *v.get_mut(5)? = l.global(face1, face1_vert5)?;
+    let face1_vert4 = next_vert(face1_vert5, l.size(face1), false);
+    *v.get_mut(4)? = l.global(face1, face1_vert4)?;
+    let v02 = next_vert(v01, size0, false);
+    *v.get_mut(2)? = l.global(face0, v02)?;
+    let a2 = l.vertex(face0, v02)?;
+    l.other_face(a1, a2, face0)?;
+    l.other_face(a2, a0, face0)?;
+    Some(Shape::Wedge(v))
+}
+
+/// `tetWedgeMatcher`: two triangles and two quadrilaterals.
+fn match_tet_wedge(faces: &[Vec<usize>]) -> Option<Shape> {
+    if faces.len() != 4 || count_sizes(faces)? != (2, 2) {
+        return None;
+    }
+    let l = Local::new(faces, 5)?;
+    let face0 = faces.iter().position(|f| f.len() == 3)?;
+    (0..l.size(face0)).find_map(|v00| tet_wedge_from(&l, face0, v00))
+}
+
+fn tet_wedge_from(l: &Local, face0: usize, v00: usize) -> Option<Shape> {
+    let mut v = [0usize; 5];
+    let size0 = l.size(face0);
+    *v.get_mut(0)? = l.global(face0, v00)?;
+    let v01 = next_vert(v00, size0, false);
+    *v.get_mut(1)? = l.global(face0, v01)?;
+    let (a0, a1) = (l.vertex(face0, v00)?, l.vertex(face0, v01)?);
+    let face1 = l.other_face(a0, a1, face0)?;
+    if l.size(face1) != 3 {
+        return None;
+    }
+    let v02 = next_vert(v01, size0, false);
+    *v.get_mut(2)? = l.global(face0, v02)?;
+    let a2 = l.vertex(face0, v02)?;
+    let face3 = l.other_face(a1, a2, face0)?;
+    l.other_face(a2, a0, face0)?;
+    let face3_vert2 = l.place(a2, face3)?;
+    let size3 = l.size(face3);
+    let face3_vert4 = next_vert(face3_vert2, size3, true);
+    *v.get_mut(4)? = l.global(face3, face3_vert4)?;
+    let face3_vert3 = next_vert(face3_vert4, size3, true);
+    *v.get_mut(3)? = l.global(face3, face3_vert3)?;
+    Some(Shape::TetWedge(v))
 }
 
 fn match_hex(faces: &[Vec<usize>]) -> Option<Shape> {

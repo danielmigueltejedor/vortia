@@ -1126,6 +1126,92 @@ fn merge_points(blocks: &[Block], topology: &Topology, corners: &[[Vec3; 8]]) ->
     })
 }
 
+/// `face::centre`: the centre of a polygon, area weighted.
+fn face_centre(p: &[Vec3]) -> Vec3 {
+    if let [a, b, c] = p {
+        return (*a + *b + *c) * (1.0 / 3.0);
+    }
+    let n = p.len() as f64;
+    let estimate = p.iter().fold(Vec3::default(), |s, &q| s + q) / n;
+    let mut sum_area = 0.0;
+    let mut sum_centre = Vec3::default();
+    for (i, &here) in p.iter().enumerate() {
+        let next = p.get((i + 1) % p.len()).copied().unwrap_or(here);
+        let three_centre = here + next + estimate;
+        let area = (here - estimate).cross(next - estimate).norm();
+        sum_area += area;
+        sum_centre = sum_centre + three_centre * area;
+    }
+    if sum_area > 1e-300 {
+        sum_centre / (3.0 * sum_area)
+    } else {
+        estimate
+    }
+}
+
+/// `face::areaNormal`: the vector area of a polygon.
+fn face_area_normal(p: &[Vec3]) -> Vec3 {
+    let tri = |a: Vec3, b: Vec3, c: Vec3| (b - a).cross(c - a) * 0.5;
+    if let [a, b, c] = p {
+        return tri(*a, *b, *c);
+    }
+    let centre = p.iter().fold(Vec3::default(), |s, &q| s + q) / p.len() as f64;
+    let mut n = Vec3::default();
+    for (i, &here) in p.iter().enumerate() {
+        let next = p.get((i + 1) % p.len()).copied().unwrap_or(here);
+        n = n + tri(here, next, centre);
+    }
+    n
+}
+
+/// `blockDescriptor::check`: a block must not be inside out, and each of its
+/// faces must point away from its centre (a face that has collapsed to a
+/// line or a point counts as pointing away).
+fn check_blocks(blocks: &[Block], verts: &[Vec3]) -> Result<()> {
+    for (index, b) in blocks.iter().enumerate() {
+        let at = |i: usize| {
+            b.vertices
+                .get(i)
+                .and_then(|&v| verts.get(v))
+                .copied()
+                .unwrap_or_default()
+        };
+        let faces: Vec<Vec<Vec3>> = HEX_FACES
+            .iter()
+            .map(|f| f.iter().map(|&i| at(i)).collect())
+            .collect();
+        // `cellModel::centre`: pyramids from an estimate of the centre.
+        let estimate = (0..8).fold(Vec3::default(), |s, i| s + at(i)) / 8.0;
+        let (mut sum_v, mut sum_vc) = (0.0, Vec3::default());
+        for f in &faces {
+            let base = face_centre(f);
+            let volume = (1.0 / 3.0) * face_area_normal(f).dot(estimate - base);
+            sum_vc = sum_vc - (base * (3.0 / 4.0) + estimate * (1.0 / 4.0)) * volume;
+            sum_v -= volume;
+        }
+        let centre = sum_vc / (sum_v + 1e-300);
+
+        let mut outward = 0;
+        for f in &faces {
+            let normal = face_area_normal(f);
+            if normal.norm() > 1e-15 {
+                if (face_centre(f) - centre).dot(normal) > 0.0 {
+                    outward += 1;
+                }
+            } else {
+                outward += 1;
+            }
+        }
+        if outward == 0 {
+            return invalid(format!("block {index} is inside-out"));
+        }
+        if outward != faces.len() {
+            return invalid(format!("block {index} has inward-pointing faces"));
+        }
+    }
+    Ok(())
+}
+
 /// Builds the mesh a `blockMeshDict` describes.
 pub fn block_mesh(dict: &Dictionary) -> Result<RawPolyMesh> {
     let scale = dict
@@ -1135,6 +1221,7 @@ pub fn block_mesh(dict: &Dictionary) -> Result<RawPolyMesh> {
         .unwrap_or(1.0);
     let verts = vertices(dict)?;
     let mut blocks = blocks(dict, verts.len())?;
+    check_blocks(&blocks, &verts)?;
     let curves = edges::read(dict, &verts)?;
     if dict.get("faces").is_some_and(|e| match e {
         Entry::Values(v) => v

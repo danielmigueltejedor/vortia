@@ -375,3 +375,160 @@ fn hostile_edges_are_errors_not_panics() {
     );
     assert!(mesh_of_text("novertex", &text).is_err());
 }
+
+const CUBE: &str = "FoamFile { version 2.0; format ascii; class dictionary; object blockMeshDict; }
+vertices ( (0 0 0) (1 0 0) (1 1 0) (0 1 0) (0 0 1) (1 0 1) (1 1 1) (0 1 1) );
+edges ();
+boundary ();
+";
+
+fn collapsed(tag: &str, labels: &str, cells: &str) -> RawPolyMesh {
+    let text = format!("{CUBE}blocks ( hex ({labels}) ({cells}) simpleGrading (1 1 1) );");
+    mesh_of_text(tag, &text).unwrap()
+}
+
+/// A block whose vertices are repeated has cells of the shape the repeats
+/// leave: a tetrahedron, a pyramid, a wedge, a prism or a tetWedge. One cell
+/// of each, against the mesh OpenFOAM v1912 wrote.
+#[test]
+fn one_collapsed_cell_of_each_shape_matches_openfoam() {
+    type Case<'a> = (&'a str, &'a str, &'a [[f64; 3]], &'a [&'a [usize]]);
+    let cases: [Case<'_>; 5] = [
+        (
+            "tet",
+            "0 0 0 0 4 5 6 6",
+            &[[0., 0., 0.], [0., 0., 1.], [1., 0., 1.], [1., 1., 1.]],
+            &[&[0, 1, 3], &[0, 3, 2], &[0, 2, 1], &[3, 1, 2]],
+        ),
+        (
+            "pyramid",
+            "0 0 0 0 4 5 6 7",
+            &[
+                [0., 0., 0.],
+                [0., 0., 1.],
+                [1., 0., 1.],
+                [0., 1., 1.],
+                [1., 1., 1.],
+            ],
+            &[
+                &[1, 3, 0],
+                &[2, 0, 4],
+                &[1, 0, 2],
+                &[3, 4, 0],
+                &[1, 2, 4, 3],
+            ],
+        ),
+        (
+            "wedge",
+            "0 0 2 3 4 5 6 7",
+            &[
+                [0., 0., 0.],
+                [0., 1., 0.],
+                [1., 1., 0.],
+                [0., 0., 1.],
+                [1., 0., 1.],
+                [0., 1., 1.],
+                [1., 1., 1.],
+            ],
+            &[
+                &[0, 3, 5, 1],
+                &[0, 2, 6, 4],
+                &[0, 4, 3],
+                &[1, 5, 6, 2],
+                &[0, 1, 2],
+                &[3, 4, 6, 5],
+            ],
+        ),
+        (
+            "tetwedge",
+            "0 0 2 2 4 5 6 6",
+            &[
+                [0., 0., 0.],
+                [1., 1., 0.],
+                [0., 0., 1.],
+                [1., 0., 1.],
+                [1., 1., 1.],
+            ],
+            &[&[2, 4, 1, 0], &[3, 0, 1, 4], &[2, 0, 3], &[2, 3, 4]],
+        ),
+        (
+            "prism",
+            "0 0 2 3 4 4 6 7",
+            &[
+                [0., 0., 0.],
+                [0., 1., 0.],
+                [1., 1., 0.],
+                [0., 0., 1.],
+                [0., 1., 1.],
+                [1., 1., 1.],
+            ],
+            &[
+                &[0, 3, 4, 1],
+                &[0, 2, 5, 3],
+                &[2, 1, 4, 5],
+                &[0, 1, 2],
+                &[3, 5, 4],
+            ],
+        ),
+    ];
+    for (name, labels, points, faces) in cases {
+        let mesh = collapsed(name, labels, "1 1 1");
+        let got: Vec<[f64; 3]> = mesh.points.iter().map(|p| [p.x, p.y, p.z]).collect();
+        assert_eq!(got, points, "{name}: points");
+        assert_eq!(mesh.faces.len(), faces.len(), "{name}: faces");
+        for (i, want) in faces.iter().enumerate() {
+            assert_eq!(mesh.faces.face(i), *want, "{name}: face {i}");
+        }
+        assert!(mesh.owner.iter().all(|&o| o == 0), "{name}: owner");
+        assert!(mesh.neighbour.is_empty(), "{name}: neighbour");
+    }
+}
+
+/// Twelve cells of each shape: counts and position-weighted sums of the face
+/// vertices and of the owners, which fix the order of OpenFOAM's mesh.
+#[test]
+fn collapsed_blocks_of_several_cells_match_openfoam() {
+    let cases = [
+        ("tet", "0 0 0 0 4 5 6 6", 19, 40, 27202, 5001),
+        ("pyramid", "0 0 0 0 4 5 6 7", 25, 46, 47570, 6899),
+        ("wedge", "0 0 2 3 4 5 6 7", 33, 52, 85923, 7870),
+        ("tetwedge", "0 0 2 2 4 5 6 6", 21, 40, 32829, 5001),
+        ("prism", "0 0 2 3 4 4 6 7", 27, 46, 55006, 6449),
+    ];
+    for (name, labels, n_points, n_faces, face_sum, owner_sum) in cases {
+        let mesh = collapsed(name, labels, "3 2 2");
+        assert_eq!(mesh.points.len(), n_points, "{name}: points");
+        assert_eq!(mesh.faces.len(), n_faces, "{name}: faces");
+        assert_eq!(mesh.neighbour.len(), 20, "{name}: internal faces");
+        let fs: usize = (0..mesh.faces.len())
+            .map(|i| mesh.faces.face(i).iter().sum::<usize>() * (i + 1))
+            .sum();
+        assert_eq!(fs, face_sum, "{name}: faces");
+        let os: usize = mesh
+            .owner
+            .iter()
+            .enumerate()
+            .map(|(i, o)| o * (i + 1))
+            .sum();
+        assert_eq!(os, owner_sum, "{name}: owners");
+        let ns: usize = mesh
+            .neighbour
+            .iter()
+            .enumerate()
+            .map(|(i, o)| o * (i + 1))
+            .sum();
+        assert_eq!(ns, 1777, "{name}: neighbours");
+    }
+}
+
+#[test]
+fn a_block_turned_inside_out_or_flattened_is_refused() {
+    // Its faces point inwards: the top and bottom swapped.
+    let text = format!("{CUBE}blocks ( hex (4 5 6 7 0 1 2 3) (1 1 1) simpleGrading (1 1 1) );");
+    let err = mesh_of_text("inside-out", &text).unwrap_err();
+    assert!(err.contains("inside-out"), "{err}");
+    // Its top is its bottom: some faces point out, the rest back in.
+    let text = format!("{CUBE}blocks ( hex (0 1 2 3 0 1 2 3) (1 1 1) simpleGrading (1 1 1) );");
+    let err = mesh_of_text("flat", &text).unwrap_err();
+    assert!(err.contains("inward-pointing"), "{err}");
+}
