@@ -532,3 +532,139 @@ fn a_block_turned_inside_out_or_flattened_is_refused() {
     let err = mesh_of_text("flat", &text).unwrap_err();
     assert!(err.contains("inward-pointing"), "{err}");
 }
+
+/// Vertices that carry a name stand for their numbers in blocks, edges and
+/// patch faces, so a dictionary written with names makes the mesh its
+/// numbered twin makes (which OpenFOAM v1912 confirmed, to the last digit,
+/// for this very pair).
+#[test]
+fn named_vertices_make_the_mesh_of_their_numbers() {
+    let named = mesh_of_file("named.dict").unwrap();
+    let numbered = mesh_of_file("numbered.dict").unwrap();
+    assert_eq!(named, numbered);
+    assert_eq!((named.points.len(), named.faces.len()), (90, 148));
+    assert_eq!(named.patches.len(), 4);
+}
+
+#[test]
+fn names_may_come_from_namedvertices_and_namedblocks() {
+    let head = "vertices ( (0 0 0) (1 0 0) (1 1 0) (0 1 0) (0 0 1) (1 0 1) (1 1 1) (0 1 1) );\n";
+    let by_number = format!(
+        "{head}blocks ( hex (0 1 2 3 4 5 6 7) (2 2 2) simpleGrading (1 1 1) );\n\
+         boundary ( left {{ type patch; faces ( (0 4 7 3) ); }} );"
+    );
+    let by_name = format!(
+        "namedVertices {{ v0 0; v1 1; }}\nnamedBlocks {{ four 4; }}\n{head}\
+         blocks ( hex (v0 v1 2 3 four 5 6 7) (2 2 2) simpleGrading (1 1 1) );\n\
+         boundary ( left {{ type patch; faces ( (v0 four 7 3) ); }} );"
+    );
+    // A block's own vertices may use `namedVertices` but not `namedBlocks`.
+    let wrong = by_name.replace("(v0 v1 2 3 four 5 6 7)", "(v0 v1 2 3 4 5 6 7)");
+    assert_eq!(
+        mesh_of_text("by-name", &wrong).unwrap(),
+        mesh_of_text("by-number", &by_number).unwrap()
+    );
+    assert!(mesh_of_text("block-name-for-a-vertex", &by_name).is_err());
+}
+
+/// The first meaning of a name stands, as in OpenFOAM, whose dictionary
+/// ignores a later entry of the same name; a name nothing defines, and a
+/// `name` without its point, are errors.
+#[test]
+fn a_repeated_name_keeps_its_first_vertex_and_an_undefined_one_is_refused() {
+    let cube = |vertices: &str, block: &str| {
+        format!("vertices ( {vertices} );\nblocks ( hex ({block}) (1 1 1) simpleGrading (1 1 1) );")
+    };
+    let cube_points = "name a (0 0 0) name b (1 0 0) name c (1 1 0) name d (0 1 0) \
+                       name e (0 0 1) name f (1 0 1) name g (1 1 1) name h (0 1 1)";
+    let ok = mesh_of_text("names-ok", &cube(cube_points, "a b c d e f g h")).unwrap();
+    // `a` again, at a place that would turn the block inside out.
+    let again = format!("{cube_points} name a (9 9 9)");
+    assert_eq!(
+        mesh_of_text("names-again", &cube(&again, "a b c d e f g h")).unwrap(),
+        ok
+    );
+    for (tag, text) in [
+        ("undefined", cube(cube_points, "a b c d e f g z")),
+        ("no-point", cube("name a", "0 0 0 0 0 0 0 0")),
+        ("no-name", cube("name", "0 0 0 0 0 0 0 0")),
+        ("name-and-number", cube("name 3 (0 0 0)", "0 0 0 0 0 0 0 0")),
+        (
+            "projected",
+            cube("project (0 0 0) (surface)", "0 0 0 0 0 0 0 0"),
+        ),
+    ] {
+        assert!(mesh_of_text(tag, &text).is_err(), "{tag}");
+    }
+}
+
+/// Three blocks side by side, the first and the last in zone `b`, the middle
+/// one in zone `a` (checked against OpenFOAM v1912's `cellZones`).
+const ZONE_ORDER: &str = "vertices ( (0 0 0) (1 0 0) (2 0 0) (3 0 0) (0 1 0) (1 1 0) (2 1 0) (3 1 0) \
+    (0 0 1) (1 0 1) (2 0 1) (3 0 1) (0 1 1) (1 1 1) (2 1 1) (3 1 1) );\n\
+    blocks (\n\
+      hex (0 1 5 4 8 9 13 12) b (2 1 1) simpleGrading (1 1 1)\n\
+      hex (1 2 6 5 9 10 14 13) a (3 1 1) simpleGrading (1 1 1)\n\
+      hex (2 3 7 6 10 11 15 14) b (1 1 1) simpleGrading (1 1 1)\n\
+    );";
+
+/// A block that names a zone puts its cells in it. The zones, their order
+/// (as their names first appear) and their cells are those of the
+/// `cellZones` file OpenFOAM v1912 wrote for these dictionaries.
+#[test]
+fn cell_zones_hold_the_cells_of_the_blocks_that_name_them() {
+    // Three blocks of 12, 8 and 16 cells: the first and the last in `hot`,
+    // the middle one in no zone.
+    let named = mesh_of_file("named.dict").unwrap();
+    assert_eq!(named.cell_zones.len(), 1);
+    let hot = named.cell_zones.first().unwrap();
+    assert_eq!(hot.name, "hot");
+    let expected: Vec<usize> = (0..12).chain(20..36).collect();
+    assert_eq!(hot.cells, expected);
+    // No zone, no file.
+    assert!(mesh_of_file("tiny.dict").unwrap().cell_zones.is_empty());
+
+    // Two zones, in the order of their first block, one of them split in two.
+    let mesh = mesh_of_text("zones-order", ZONE_ORDER).unwrap();
+    let zones: Vec<(&str, &[usize])> = mesh
+        .cell_zones
+        .iter()
+        .map(|z| (z.name.as_str(), z.cells.as_slice()))
+        .collect();
+    assert_eq!(zones, [("b", &[0, 1, 5][..]), ("a", &[2, 3, 4][..])],);
+}
+
+#[test]
+fn zones_are_written_as_openfoam_writes_them() {
+    let mesh = mesh_of_file("named.dict").unwrap();
+    let dir = std::env::temp_dir().join(format!("vortia-zones-{}", std::process::id()));
+    mesh.write_dir(&dir).unwrap();
+    let text = std::fs::read_to_string(dir.join("cellZones")).unwrap();
+    let back = RawPolyMesh::read_cell_zones_in(&dir).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(back, mesh.cell_zones);
+    let body = text.split("\n// * ").nth(1).unwrap();
+    assert!(
+        body.contains(
+            "\n1\n(\nhot\n{\n    type cellZone;\ncellLabels      List<label> \n28\n(\n0\n"
+        )
+    );
+}
+
+/// Up to ten labels are written on the line of their count, more one to a
+/// line: the two layouts of OpenFOAM's lists, byte for byte.
+#[test]
+fn short_and_long_zone_lists_are_written_in_openfoams_two_layouts() {
+    let write = |mesh: &RawPolyMesh, tag: &str| {
+        let dir = std::env::temp_dir().join(format!("vortia-zl-{}-{tag}", std::process::id()));
+        mesh.write_dir(&dir).unwrap();
+        let text = std::fs::read_to_string(dir.join("cellZones")).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        text.split("\n// * ").nth(1).unwrap().to_owned()
+    };
+    let short = write(&mesh_of_text("zl-short", ZONE_ORDER).unwrap(), "short");
+    assert!(short.contains(
+        "\n2\n(\nb\n{\n    type cellZone;\ncellLabels      List<label> 3(0 1 5);\n}\n\na\n{"
+    ));
+    assert!(short.contains("cellLabels      List<label> 3(2 3 4);\n}\n)\n"));
+}

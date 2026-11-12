@@ -213,5 +213,6 @@ pub fn structured_box_raw(bounds: Aabb, cells: [usize; 3]) -> Result<RawPolyMesh
         owner,
         neighbour,
         patches,
+        cell_zones: Vec::new(),
     })
 }

@@ -36,6 +36,17 @@ pub struct RawPolyMesh {
     pub owner: Vec<usize>,
     pub neighbour: Vec<usize>,
     pub patches: Vec<RawPatch>,
+    /// The `cellZones` file, if the mesh has one: named lists of cells. Written
+    /// with the mesh; reading a case leaves it empty (see
+    /// [`RawPolyMesh::read_cell_zones_in`]).
+    pub cell_zones: Vec<RawCellZone>,
+}
+
+/// One entry of the `cellZones` file.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RawCellZone {
+    pub name: String,
+    pub cells: Vec<usize>,
 }
 
 impl RawPolyMesh {
@@ -53,7 +64,21 @@ impl RawPolyMesh {
             owner: read_with(&dir.join("owner"), lists::read_labels)?,
             neighbour: read_with(&dir.join("neighbour"), lists::read_labels)?,
             patches: read_with(&dir.join("boundary"), read_boundary)?,
+            // Nothing in the engine uses zones yet, so a case is not refused
+            // for a `cellZones` it cannot read: see `read_cell_zones_in`.
+            cell_zones: Vec::new(),
         })
+    }
+
+    /// Reads the `cellZones` file of a `polyMesh` directory; none if it has
+    /// no such file.
+    pub fn read_cell_zones_in(dir: impl AsRef<Path>) -> Result<Vec<RawCellZone>> {
+        let path = dir.as_ref().join("cellZones");
+        if path.exists() {
+            read_with(&path, read_cell_zones)
+        } else {
+            Ok(Vec::new())
+        }
     }
 }
 
@@ -126,7 +151,40 @@ impl RawPolyMesh {
             body.push_str("    }\n");
         }
         body.push_str(")\n");
-        file("boundary", "polyBoundaryMesh", &body)
+        file("boundary", "polyBoundaryMesh", &body)?;
+
+        if !self.cell_zones.is_empty() {
+            let mut body = format!("{}\n(\n", self.cell_zones.len());
+            for (n, zone) in self.cell_zones.iter().enumerate() {
+                if n > 0 {
+                    body.push('\n');
+                }
+                let _ = writeln!(body, "{}\n{{\n    type cellZone;", zone.name);
+                // OpenFOAM writes up to ten labels on the line of their count.
+                if zone.cells.len() < 11 {
+                    let cells: Vec<String> = zone.cells.iter().map(usize::to_string).collect();
+                    let _ = writeln!(
+                        body,
+                        "cellLabels      List<label> {}({});\n}}",
+                        zone.cells.len(),
+                        cells.join(" ")
+                    );
+                } else {
+                    let _ = writeln!(
+                        body,
+                        "cellLabels      List<label> \n{}\n(",
+                        zone.cells.len()
+                    );
+                    for c in &zone.cells {
+                        let _ = writeln!(body, "{c}");
+                    }
+                    body.push_str(")\n;\n}\n");
+                }
+            }
+            body.push_str(")\n");
+            file("cellZones", "regIOobject", &body)?;
+        }
+        Ok(())
     }
 }
 
@@ -201,6 +259,39 @@ pub fn read_boundary(tok: &mut Tokenizer<'_>) -> Result<Vec<RawPatch>> {
     Ok(patches)
 }
 
+/// The `cellZones` file: `N( name { type cellZone; cellLabels List<label> N(…); } … )`.
+pub fn read_cell_zones(tok: &mut Tokenizer<'_>) -> Result<Vec<RawCellZone>> {
+    let first = tok.expect_any("the cellZones list")?;
+    let value = crate::dict::parse_value(first, tok, 0)?;
+    let Value::List(items) = value else {
+        return Err(FoamError::Invalid(
+            "the cellZones file does not hold a list".into(),
+        ));
+    };
+    let mut zones = Vec::new();
+    for item in items {
+        let Value::Keyed(name, dict) = item else {
+            return Err(FoamError::Invalid(
+                "a cellZones entry is not 'name { ... }'".into(),
+            ));
+        };
+        let bad = || FoamError::Invalid(format!("cell zone '{name}' has no valid 'cellLabels'"));
+        // `List<label> N (…)`: the type word, then the list (the count may or
+        // may not have been folded into it).
+        let labels = dict
+            .values("cellLabels")
+            .and_then(|v| v.iter().rev().find_map(Value::as_list))
+            .ok_or_else(bad)?;
+        let cells = labels
+            .iter()
+            .map(|v| v.as_label().and_then(|l| usize::try_from(l).ok()))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(bad)?;
+        zones.push(RawCellZone { name, cells });
+    }
+    Ok(zones)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +346,10 @@ mod tests {
                 groups: vec!["wall".into()],
                 dict,
             }],
+            cell_zones: vec![RawCellZone {
+                name: "fluid".into(),
+                cells: vec![1, 0],
+            }],
         };
         let dir = tempfile::tempdir().unwrap();
         mesh.write_dir(dir.path()).unwrap();
@@ -269,6 +364,10 @@ mod tests {
         );
         assert_eq!(p.groups, vec!["wall".to_owned()]);
         assert_eq!(p.dict.word("neighbourPatch"), Some("b"));
+        assert_eq!(
+            RawPolyMesh::read_cell_zones_in(dir.path()).unwrap(),
+            mesh.cell_zones
+        );
     }
 
     #[test]

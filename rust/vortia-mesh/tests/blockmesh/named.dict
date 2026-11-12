@@ -1,0 +1,27 @@
+FoamFile { version 2.0; format ascii; class dictionary; object blockMeshDict; }
+convertToMeters 0.5;
+vertices
+(
+  name p0 (0 0 0) name p1 (1 0 0) name p2 (2 0 0) name p3 (3 0 0)
+  name q0 (0 1 0) name q1 (1 1 0) name q2 (2 1 0) name q3 (3 1 0)
+  name r0 (0 0 1) name r1 (1 0 1) name r2 (2 0 1) name r3 (3 0 1)
+  name s0 (0 1 1) name s1 (1 1 1) name s2 (2 1 1) name s3 (3 1 1)
+);
+blocks
+(
+  hex (p0 p1 q1 q0 r0 r1 s1 s0) hot (3 2 2) simpleGrading (1 1 1)
+  hex (p1 p2 q2 q1 r1 r2 s2 s1) (2 2 2) simpleGrading (2 1 1)
+  hex (p2 p3 q3 q2 r2 r3 s3 s2) hot (4 2 2) simpleGrading (1 1 1)
+);
+edges
+(
+  arc p0 p1 (0.5 -0.1 0)
+  arc r0 r1 (0.5 -0.1 1)
+);
+boundary
+(
+  inlet { type patch; faces ( (p0 r0 s0 q0) ); }
+  outlet { type patch; faces ( (p3 q3 s3 r3) ); }
+  walls { type wall; faces ( (p0 p1 r1 r0) (p1 p2 r2 r1) (p2 p3 r3 r2) (q0 s0 s1 q1) (q1 s1 s2 q2) (q2 s2 s3 q3) ); }
+  sides { type empty; faces ( (p0 q0 q1 p1) (p1 q1 q2 p2) (p2 q2 q3 p3) (r0 r1 s1 s0) (r1 r2 s2 s1) (r2 r3 s3 s2) ); }
+);
