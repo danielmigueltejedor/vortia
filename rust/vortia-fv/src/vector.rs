@@ -110,6 +110,17 @@ impl VectorBoundary {
                         ))
                     })
             };
+            // A wedge side takes the wedge condition and nothing else does:
+            // OpenFOAM refuses the mismatch, and a zero gradient on a side
+            // would drop the rotation from every term.
+            if (patch.kind == PatchKind::Wedge) != (pf.kind == "wedge") {
+                return Err(FvError::Condition(format!(
+                    "patch '{}' is a {} patch but the field says {}",
+                    patch.name,
+                    patch.kind.name(),
+                    pf.kind
+                )));
+            }
             let bc = match pf.kind.as_str() {
                 "fixedValue" => VectorBc::FixedValue(given()?),
                 "noSlip" => VectorBc::FixedValue(vec![Vec3::default(); patch.size]),

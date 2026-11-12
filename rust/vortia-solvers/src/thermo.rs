@@ -368,7 +368,9 @@ impl Thermo {
                     )));
                 }
             };
-            if (patch.kind == PatchKind::Empty) != (kind == TKind::Empty) {
+            if (patch.kind == PatchKind::Empty) != (kind == TKind::Empty)
+                || (patch.kind == PatchKind::Wedge) != (pf.kind == "wedge")
+            {
                 return Err(SolverError::Setup(format!(
                     "T: patch '{}' is {} but its condition is '{}'",
                     patch.name,

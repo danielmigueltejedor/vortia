@@ -577,6 +577,36 @@ fn rhosimplefoam_on_a_wedge_matches_openfoam() {
     }
 }
 
+/// A wedge side takes the wedge condition, and only a wedge side does:
+/// anything else would silently leave the rotation out of the solution.
+#[test]
+fn a_wedge_patch_and_its_condition_must_agree() {
+    let refused = |file: &str, from: &str, to: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        nozzle(dir.path());
+        let path = dir.path().join(file);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(from), "{from}");
+        std::fs::write(&path, text.replace(from, to)).unwrap();
+        let case = Case::open(dir.path()).unwrap();
+        rho_simple::run(&case, |_| {})
+            .expect_err(&format!("{file}: {from}"))
+            .to_string()
+    };
+    for file in ["0/U", "0/T", "0/p"] {
+        // A wedge side that says zeroGradient.
+        let e = refused(
+            file,
+            "front { type wedge; }",
+            "front { type zeroGradient; }",
+        );
+        assert!(e.contains("front") && e.contains("wedge"), "{file}: {e}");
+    }
+    // A wall that says wedge.
+    let e = refused("0/U", "walls { type noSlip; }", "walls { type wedge; }");
+    assert!(e.contains("walls") && e.contains("wedge"), "{e}");
+}
+
 /// A `totalPressure` or `totalTemperature` without a `value` starts from
 /// its `p0` or `T0`, as OpenFOAM's does: here the same numbers, so the
 /// same solution.
