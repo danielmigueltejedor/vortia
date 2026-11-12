@@ -170,6 +170,17 @@ jobs:
       # (unpinned, the solver picks the newest one, 2.39): the executable
       # must not need a newer C library than the oldest supported distribution.
 
+      - name: Link against the macOS 26 SDK
+        # AppKit draws the traffic lights in the style of the SDK the app was linked against:
+        # linked against 15, macOS 26 keeps the old flat ones instead of Liquid Glass. The macOS 15
+        # runners carry Xcode 26 beside their default; the deployment target keeps the floor.
+        run: |
+          xcode=$(ls -d /Applications/Xcode_[0-9]*.app | awk -F'[_.]' '$2 >= 26' | sort -V | tail -n 1)
+          test -n "$xcode" || { echo "no Xcode 26 on this runner" >&2; exit 1; }
+          sdk=$(DEVELOPER_DIR="$xcode/Contents/Developer" xcrun --sdk macosx --show-sdk-path)
+          echo "using $sdk"
+          { echo "DEVELOPER_DIR=$xcode/Contents/Developer"; echo "SDKROOT=$sdk"; echo "CONDA_BUILD_SYSROOT=$sdk"; } >> "$GITHUB_ENV"
+
       - name: Setup micromamba (Qt6 + VTK)
         # Pin to the commit currently tagged as v2 (Sonar githubactions:S7637).
         uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
@@ -365,6 +376,7 @@ jobs:
             -DVORTIA_BUILD_UI=ON \
             -DVORTIA_BUILD_TESTS=OFF \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
+            -DCMAKE_OSX_SYSROOT="$SDKROOT" \
             -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
             -DCMAKE_IGNORE_PREFIX_PATH="/opt/homebrew;/usr/local"
 
@@ -373,6 +385,9 @@ jobs:
           cmake --build build --parallel "$(sysctl -n hw.ncpu)"
           cmake --build build --target vortia_macos_bundle
           test -s build/Vortia.app/Contents/Resources/Vortia.icns
+          sdk=$(otool -l build/Vortia.app/Contents/MacOS/vortia | awk '$1 == "sdk" {print $2; exit}')
+          echo "linked against SDK $sdk"
+          test "${sdk%%.*}" -ge 26
 
       - name: Integrate the OpenFOAM engine
         env:
