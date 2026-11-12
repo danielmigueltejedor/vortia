@@ -44,7 +44,7 @@ concurrency:
 
 jobs:
   version:
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     outputs:
       tag: ${{ steps.ver.outputs.tag }}
       version: ${{ steps.ver.outputs.version }}
@@ -82,7 +82,7 @@ jobs:
   linux-openfoam-engine:
     # The CFD engine shipped inside the AppImage. Rebuilt only when its
     # recipe changes.
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v6
@@ -112,7 +112,7 @@ jobs:
     # Poiseuille and the Ghia cavity are solved and compared with their
     # references. A skipped benchmark is a failure here.
     needs: linux-openfoam-engine
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -160,7 +160,7 @@ jobs:
 
   linux-appimage:
     needs: [version, linux-openfoam-engine]
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     defaults:
       run:
         shell: bash -el {0}
@@ -280,7 +280,7 @@ jobs:
     # Bare distribution images plus only what any desktop install has
     # (X server, Mesa, fontconfig). No Qt, no xcb-util, no newer libstdc++.
     needs: [version, linux-appimage]
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     strategy:
       fail-fast: false
       matrix:
@@ -315,7 +315,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        os: [blacksmith-4vcpu-ubuntu-2204, blacksmith-4vcpu-ubuntu-2404]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -347,7 +347,7 @@ jobs:
     # Oldest Apple Silicon runner GitHub still offers. Qt/VTK come from
     # conda-forge (built for old macOS), not Homebrew bottles (built only
     # for the runner's own macOS version).
-    runs-on: macos-26
+    runs-on: blacksmith-6vcpu-macos-26
     defaults:
       run:
         shell: bash -el {0}
@@ -466,7 +466,7 @@ jobs:
     # The SwiftUI edition. Xcode 26 carries Liquid Glass; the code falls back to plain
     # materials with an older SDK, but the DMG people download should have the glass.
     needs: [version, macos-dmg]
-    runs-on: macos-26
+    runs-on: blacksmith-6vcpu-macos-26
     env:
       VERSION: ${{ needs.version.outputs.version }}
       ASSET: ${{ needs.version.outputs.native_dmg }}
@@ -517,7 +517,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-26]
+        os: [blacksmith-6vcpu-macos-15, blacksmith-6vcpu-macos-26]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -540,7 +540,7 @@ jobs:
     # Nothing reaches a release unless every start-up test above passed.
     needs: [version, native-verification, linux-clean-distros, linux-direct-run, macos-clean-machines, macos-native-dmg]
     if: needs.version.outputs.tag != ''
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     permissions:
       contents: write
     steps:
