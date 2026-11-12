@@ -1047,6 +1047,9 @@ Caso fallido conservado: %2
         <name>vortia::FlowSetup</name>
     <message><source>Stops after consecutive successful checks. The safety limit does not imply convergence.</source><translation>Se detiene tras varias comprobaciones correctas. Alcanzar el límite no implica convergencia.</translation></message>
     <message><source>Automatic stop</source><translation>Parada automática</translation></message>
+    <message><source>The bundled mesher is incomplete.</source><translation>El generador de malla incluido está incompleto.</translation></message>
+    <message><source>The bundled flow backend is incomplete.</source><translation>El motor de flujo incluido está incompleto.</translation></message>
+    <message><source>Mesh generation was cancelled.</source><translation>Se ha cancelado la generación de la malla.</translation></message>
     <message><source>Global size (mm)</source><translation>Tamaño global (mm)</translation></message>
     <message><source>Near-wall size (mm)</source><translation>Cerca de pared (mm)</translation></message>
     <message><source>Wedge angle (°)</source><translation>Ángulo de cuña (°)</translation></message>
