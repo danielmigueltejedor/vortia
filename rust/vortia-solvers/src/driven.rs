@@ -380,13 +380,13 @@ mod tests {
         };
         // A mass flux of −3 through a face of area 1 at a density of 2
         // enters along −n = +x at 1.5.
-        driven.update(&mesh, &fv, &mut bc, &vec![Some(2.0); 6], &flux(&mesh, -3.0));
+        driven.update(&mesh, &fv, &mut bc, &[Some(2.0); 6], &flux(&mesh, -3.0));
         assert_eq!(
             bc.conditions[0],
             VectorBc::FixedValue(vec![Vec3::new(1.5, 0.0, 0.0)])
         );
         // No density: no velocity, rather than a division by zero.
-        driven.update(&mesh, &fv, &mut bc, &vec![Some(0.0); 6], &flux(&mesh, -3.0));
+        driven.update(&mesh, &fv, &mut bc, &[Some(0.0); 6], &flux(&mesh, -3.0));
         assert_eq!(
             bc.conditions[0],
             VectorBc::FixedValue(vec![Vec3::default()])
