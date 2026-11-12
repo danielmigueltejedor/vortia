@@ -204,7 +204,7 @@ private struct Frame {
     /// The segment whose midpoint is nearest, within 30 points.
     func segment(near location: CGPoint) -> Int? {
         guard let sketch, sketch.points.count >= 2 else { return nil }
-        var best: (Int, Double)?
+        var best: (Int, CGFloat)?
         for index in sketch.segments.indices {
             guard let (a, b) = sketch.ends(of: index) else { continue }
             let p = screen([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])
