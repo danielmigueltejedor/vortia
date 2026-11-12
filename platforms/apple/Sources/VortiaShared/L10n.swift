@@ -16,6 +16,17 @@ public enum L10n {
         case residuals, simulatedTime, log, noResults, noResultsBody, field, statistics
         case mean, standardDeviation, slice, axis, position, profile, distance, value
         case engineStarting, engineLost, engineMissing, dismiss, settings
+        case contour, flowSetup, nozzle, inletDiameter, throatDiameter, outletDiameter
+        case convergingLength, divergingLength, makeNozzle, nozzleInvalid, segment, length, onAxis
+        case curvature, straighten, bendOut, bendIn, removeVertex, contourHint, dragToMove
+        case inlet, outlet, axisBoundary, reservoir, unassigned, wall, noContour, noContourBody
+        case globalSize, wallSize, wedgeAngle, gasModel, flowModel, inviscid, molecularWeight
+        case specificHeat, dynamicViscosity, conductivity, boundaryHint, initialPressure
+        case initialTemperature, calculation, automaticStop, iterationLimit, saveEvery
+        case acousticCourant, processes, processesHint, advancedCriteria, checkEvery
+        case minimumIterations, stableChecks, massTolerance, fieldTolerance, equationTolerance
+        case regionName, pressurePa, temperatureK, viscosityRatio, convergence, iteration
+        case massError, localMassError, fieldChange, updateRate, compressibleTitle, compressibleBody
     }
 
     private static let english: [Key: String] = [
@@ -54,6 +65,37 @@ public enum L10n {
         .distance: "Distance (m)", .value: "Value",
         .engineStarting: "Starting the engine…", .engineLost: "The engine stopped",
         .engineMissing: "The engine is not running.", .dismiss: "Dismiss", .settings: "Settings",
+        .contour: "Contour", .flowSetup: "Flow setup", .nozzle: "Parametric nozzle",
+        .inletDiameter: "Inlet diameter (mm)", .throatDiameter: "Throat diameter (mm)",
+        .outletDiameter: "Outlet diameter (mm)", .convergingLength: "Converging length (mm)",
+        .divergingLength: "Diverging length (mm)", .makeNozzle: "Make the nozzle",
+        .nozzleInvalid: "The throat must be the narrowest section, and every size positive.",
+        .segment: "Segment", .length: "Length", .onAxis: "On Y = 0: this segment is the axis.",
+        .curvature: "Curvature (bulge)", .straighten: "Straight", .bendOut: "Bend out", .bendIn: "Bend in",
+        .removeVertex: "Remove its end vertex",
+        .contourHint: "Drag a vertex to move it. Click a segment to bend it or remove a vertex. X is the axis of rotation, Y the radius.",
+        .dragToMove: "Drag to move", .inlet: "Total-pressure inlet", .outlet: "Pressure outlet",
+        .axisBoundary: "Axis", .reservoir: "Open reservoir", .unassigned: "Unassigned", .wall: "Wall",
+        .noContour: "No contour yet", .noContourBody: "Make a nozzle in Contour to set up compressible flow.",
+        .globalSize: "Global size (mm)", .wallSize: "Near-wall size (mm)", .wedgeAngle: "Wedge angle (°)",
+        .gasModel: "Gas and model", .flowModel: "Flow model", .inviscid: "Inviscid (Euler · slip walls)",
+        .molecularWeight: "Molecular weight (kg/kmol)", .specificHeat: "Specific heat Cp (J/kg/K)",
+        .dynamicViscosity: "Dynamic viscosity (Pa s)", .conductivity: "Thermal conductivity (W/m/K)",
+        .boundaryHint: "Pressures are absolute Pa. Inlet pressure and temperature are total values; outlet pressure is static.",
+        .initialPressure: "Initial absolute pressure (Pa)", .initialTemperature: "Initial temperature (K)",
+        .calculation: "Calculation", .automaticStop: "Stop automatically when the flow stabilizes",
+        .iterationLimit: "Safety iteration limit", .saveEvery: "Save every N iterations",
+        .acousticCourant: "Acoustic Courant limit", .processes: "CPU processes (0 = automatic)",
+        .processesHint: "Parallel runs use an isolated working folder; small meshes may run faster with fewer processes.",
+        .advancedCriteria: "Advanced convergence criteria", .checkEvery: "Check every N iterations",
+        .minimumIterations: "Minimum iterations before acceptance", .stableChecks: "Consecutive successful checks",
+        .massTolerance: "Relative mass error limit", .fieldTolerance: "Relative field change limit",
+        .equationTolerance: "Normalized update rate limit", .regionName: "Region name",
+        .pressurePa: "Pressure (Pa)", .temperatureK: "Temperature (K)", .viscosityRatio: "Viscosity ratio",
+        .convergence: "Convergence", .iteration: "Iteration", .massError: "Global mass error",
+        .localMassError: "Local mass error", .fieldChange: "Field change", .updateRate: "Update rate",
+        .compressibleTitle: "Compressible flow",
+        .compressibleBody: "For an axisymmetric nozzle or duct, draw its contour instead of a box. This project switches to the contour workflow.",
     ]
 
     private static let spanish: [Key: String] = [
@@ -94,6 +136,37 @@ public enum L10n {
         .distance: "Distancia (m)", .value: "Valor",
         .engineStarting: "Iniciando el motor…", .engineLost: "El motor se detuvo",
         .engineMissing: "El motor no está en marcha.", .dismiss: "Descartar", .settings: "Ajustes",
+        .contour: "Contorno", .flowSetup: "Configuración del flujo", .nozzle: "Tobera paramétrica",
+        .inletDiameter: "Diámetro de entrada (mm)", .throatDiameter: "Diámetro de garganta (mm)",
+        .outletDiameter: "Diámetro de salida (mm)", .convergingLength: "Longitud convergente (mm)",
+        .divergingLength: "Longitud divergente (mm)", .makeNozzle: "Crear la tobera",
+        .nozzleInvalid: "La garganta debe ser la sección más estrecha y todas las medidas positivas.",
+        .segment: "Tramo", .length: "Longitud", .onAxis: "Está en Y = 0: este tramo es el eje.",
+        .curvature: "Curvatura (bulge)", .straighten: "Recto", .bendOut: "Curvar hacia fuera", .bendIn: "Curvar hacia dentro",
+        .removeVertex: "Quitar su vértice final",
+        .contourHint: "Arrastra un vértice para moverlo. Pulsa un tramo para curvarlo o quitar un vértice. X es el eje de giro e Y el radio.",
+        .dragToMove: "Arrastra para mover", .inlet: "Entrada de presión total", .outlet: "Salida de presión",
+        .axisBoundary: "Eje", .reservoir: "Depósito abierto", .unassigned: "Sin asignar", .wall: "Pared",
+        .noContour: "Aún no hay contorno", .noContourBody: "Crea una tobera en Contorno para configurar el flujo compresible.",
+        .globalSize: "Tamaño global (mm)", .wallSize: "Cerca de pared (mm)", .wedgeAngle: "Ángulo de cuña (°)",
+        .gasModel: "Gas y modelo", .flowModel: "Modelo de flujo", .inviscid: "No viscoso (Euler · paredes deslizantes)",
+        .molecularWeight: "Masa molecular (kg/kmol)", .specificHeat: "Calor específico Cp (J/kg/K)",
+        .dynamicViscosity: "Viscosidad dinámica (Pa s)", .conductivity: "Conductividad térmica (W/m/K)",
+        .boundaryHint: "Las presiones son absolutas en Pa. En la entrada, presión y temperatura son totales; en la salida, la presión es estática.",
+        .initialPressure: "Presión absoluta inicial (Pa)", .initialTemperature: "Temperatura inicial (K)",
+        .calculation: "Cálculo", .automaticStop: "Parar automáticamente cuando el flujo se estabilice",
+        .iterationLimit: "Límite de iteraciones de seguridad", .saveEvery: "Guardar cada N iteraciones",
+        .acousticCourant: "Límite de Courant acústico", .processes: "Procesos de CPU (0 = automático)",
+        .processesHint: "Los cálculos en paralelo usan una carpeta de trabajo aislada; las mallas pequeñas pueden ir más rápido con menos procesos.",
+        .advancedCriteria: "Criterios de convergencia avanzados", .checkEvery: "Comprobar cada N iteraciones",
+        .minimumIterations: "Iteraciones mínimas antes de aceptar", .stableChecks: "Comprobaciones correctas seguidas",
+        .massTolerance: "Límite de error relativo de masa", .fieldTolerance: "Límite de cambio relativo de campo",
+        .equationTolerance: "Límite de ritmo de actualización normalizado", .regionName: "Nombre de la región",
+        .pressurePa: "Presión (Pa)", .temperatureK: "Temperatura (K)", .viscosityRatio: "Relación de viscosidad",
+        .convergence: "Convergencia", .iteration: "Iteración", .massError: "Error global de masa",
+        .localMassError: "Error local de masa", .fieldChange: "Cambio de campo", .updateRate: "Ritmo de actualización",
+        .compressibleTitle: "Flujo compresible",
+        .compressibleBody: "Para una tobera o un conducto axisimétrico, dibuja su contorno en lugar de una caja. El proyecto pasa al flujo de trabajo por contorno.",
     ]
 
     public static func t(
