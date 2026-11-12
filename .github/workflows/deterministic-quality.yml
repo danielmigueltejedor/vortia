@@ -12,7 +12,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2604
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Patch integrity
