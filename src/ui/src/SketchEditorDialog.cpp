@@ -1,5 +1,6 @@
 #include "vortia/ui/UiIcon.hpp"
 #include "vortia/ui/SketchEditorDialog.hpp"
+#include "vortia/geometry/SketchFile.hpp"
 #include "vortia/geometry/SketchTemplates.hpp"
 #include "vortia/geometry/SketchSnapping.hpp"
 #include <QApplication>
@@ -951,30 +952,11 @@ void SketchEditorDialog::setReadOnly(bool readOnly) {
 }
 
 bool SketchEditorDialog::writeSketchFile(const QString& path) const {
-    QJsonObject root{{QStringLiteral("schemaVersion"), sketch_.hasArcs() ? 2 : 1},
-                     {QStringLiteral("units"), QStringLiteral("mm")},
-                     {QStringLiteral("closed"), sketch_.closed()}};
-    QJsonArray vertices;
-    for (const auto& p : sketch_.points())
-        vertices.append(QJsonArray{p.xMm, p.yMm});
-    root.insert(QStringLiteral("vertices"), vertices);
-    if (sketch_.hasArcs()) {
-        QJsonArray bulges;
-        for (std::size_t i = 0; i < sketch_.segmentCount(); ++i) bulges.append(sketch_.segmentBulge(i));
-        root.insert(QStringLiteral("segmentBulges"), bulges);
-    }
-    root.insert(QStringLiteral("nozzleDimensions"), QJsonObject{
-        {QStringLiteral("inletDiameterMm"), nozzleDims_.inletDiameterMm},
-        {QStringLiteral("throatDiameterMm"), nozzleDims_.throatDiameterMm},
-        {QStringLiteral("outletDiameterMm"), nozzleDims_.outletDiameterMm},
-        {QStringLiteral("convergingLengthMm"), nozzleDims_.convergingLengthMm},
-        {QStringLiteral("divergingLengthMm"), nozzleDims_.divergingLengthMm}
-    });
     const QFileInfo info(path);
     if (!QDir().mkpath(info.absolutePath()))
         return false;
     QSaveFile file(path);
-    const auto contents = QJsonDocument(root).toJson(QJsonDocument::Indented);
+    const auto contents = QByteArray::fromStdString(sketchToJson({sketch_, nozzleDims_}));
     return file.open(QIODevice::WriteOnly)
         && file.write(contents) == contents.size()
         && file.commit();
@@ -1001,64 +983,11 @@ bool SketchEditorDialog::readSketchFile(const QString& path) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly) || file.size() > 4 * 1024 * 1024)
         return false;
-    QJsonParseError parse;
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parse);
-    const QJsonObject root = document.object();
-    const double version = root.value(QStringLiteral("schemaVersion")).toDouble(-1);
-    if (parse.error != QJsonParseError::NoError || !document.isObject() ||
-        !root.value(QStringLiteral("schemaVersion")).isDouble() ||
-        (version != 1.0 && version != 2.0) ||
-        root.value(QStringLiteral("units")).toString() != QStringLiteral("mm") ||
-        !root.value(QStringLiteral("vertices")).isArray() ||
-        !root.value(QStringLiteral("closed")).isBool())
+    auto document = sketchFromJson(file.readAll().toStdString());
+    if (!document)
         return false;
-    Sketch2D next;
-    const QJsonArray vertices = root.value(QStringLiteral("vertices")).toArray();
-    if (vertices.size() > 10000)
-        return false;
-    for (const auto& row : vertices) {
-        const QJsonArray coords = row.toArray();
-        if (coords.size() != 2 || !coords[0].isDouble() || !coords[1].isDouble()
-            // Covers the UI coordinate range and the sum of both maximum
-            // nozzle lengths. Extreme imported doubles cannot fit the canvas.
-            || std::abs(coords[0].toDouble()) > 2000000.0
-            || std::abs(coords[1].toDouble()) > 2000000.0
-            || !next.addPoint({coords[0].toDouble(), coords[1].toDouble()}))
-            return false;
-    }
-    if (root.value(QStringLiteral("closed")).toBool() && !next.close())
-        return false;
-    if (version == 2.0) {
-        const auto value = root.value(QStringLiteral("segmentBulges"));
-        if (!value.isArray() || static_cast<std::size_t>(value.toArray().size()) != next.segmentCount()) return false;
-        const auto bulges = value.toArray();
-        for (qsizetype i = 0; i < bulges.size(); ++i)
-            if (!bulges[i].isDouble() || !next.setSegmentBulge(static_cast<std::size_t>(i), bulges[i].toDouble())) return false;
-    } else if (root.contains(QStringLiteral("segmentBulges"))) {
-        return false;
-    }
-    NozzleDimensions nextDimensions;
-    if (root.contains(QStringLiteral("nozzleDimensions"))) {
-        const auto value = root.value(QStringLiteral("nozzleDimensions"));
-        if (!value.isObject()) return false;
-        const auto n = value.toObject();
-        const QStringList keys{
-            QStringLiteral("inletDiameterMm"), QStringLiteral("throatDiameterMm"),
-            QStringLiteral("outletDiameterMm"), QStringLiteral("convergingLengthMm"),
-            QStringLiteral("divergingLengthMm")
-        };
-        for (const auto& key : keys)
-            if (!n.value(key).isDouble()) return false;
-        const NozzleDimensions loaded{
-            n.value(keys[0]).toDouble(), n.value(keys[1]).toDouble(),
-            n.value(keys[2]).toDouble(), n.value(keys[3]).toDouble(),
-            n.value(keys[4]).toDouble()
-        };
-        if (!makeNozzleProfile(loaded)) return false;
-        nextDimensions = loaded;
-    }
-    nozzleDims_ = nextDimensions;
-    setSketch(next);
+    nozzleDims_ = document->nozzle;
+    setSketch(document->sketch);
     return true;
 }
 

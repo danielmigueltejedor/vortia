@@ -3,6 +3,7 @@
 add_library(vortia_geometry STATIC
     src/BoxDomain.cpp
     src/Sketch2D.cpp
+    src/SketchFile.cpp
     src/SketchSnapping.cpp
     src/StlReader.cpp
     src/TriangleMesh.cpp)
@@ -16,6 +17,6 @@ target_include_directories(vortia_geometry
 
 target_link_libraries(vortia_geometry
     PUBLIC vortia::core
-    PRIVATE vortia_warnings)
+    PRIVATE nlohmann_json::nlohmann_json vortia_warnings)
 
 target_compile_features(vortia_geometry PUBLIC cxx_std_20)
