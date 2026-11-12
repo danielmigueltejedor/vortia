@@ -37,7 +37,8 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20      vortia solve [CASE]\n\
     \x20      vortia blockmesh [CASE]\n\
     \x20      vortia gmshtofoam [-keepOrientation] FILE [CASE]\n\
-    \x20      vortia fluenttofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\n\
+    \x20      vortia fluenttofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\
+    \x20      vortia cgnstofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\n\
     check-mesh   read CASE/constant/polyMesh (default: the current directory)\n\
     \x20            and report its size, geometry and quality\n\
     fields       read every field of TIME (default: the latest), check it\n\
@@ -45,7 +46,8 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     solve        run the solver controlDict names (laplacianFoam today)\n\
     blockmesh    mesh CASE/system/blockMeshDict into CASE/constant/polyMesh\n\
     gmshtofoam   convert a Gmsh .msh file into CASE/constant/polyMesh\n\
-    fluenttofoam convert a Fluent .msh file into CASE/constant/polyMesh";
+    fluenttofoam convert a Fluent .msh file into CASE/constant/polyMesh\n\
+    cgnstofoam   convert a CGNS (ADF) file into CASE/constant/polyMesh";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -67,7 +69,10 @@ fn main() -> ExitCode {
         }
         ["gmshtofoam", file] => gmshtofoam(Path::new(file), Path::new("."), false),
         ["gmshtofoam", file, case] => gmshtofoam(Path::new(file), Path::new(case), false),
-        ["fluenttofoam", rest @ ..] => fluenttofoam(rest),
+        ["fluenttofoam", rest @ ..] => import("fluenttofoam", rest, |bytes, options| {
+            vortia_mesh::fluent::fluent_to_foam(&String::from_utf8_lossy(bytes), options)
+        }),
+        ["cgnstofoam", rest @ ..] => import("cgnstofoam", rest, vortia_mesh::cgns::cgns_to_foam),
         ["solve"] => solve(Path::new(".")),
         ["solve", case] => solve(Path::new(case)),
         ["fields"] => fields(Path::new("."), None),
@@ -114,7 +119,15 @@ fn gmshtofoam(file: &Path, case: &Path, keep_orientation: bool) -> ExitCode {
     }
 }
 
-fn fluenttofoam(args: &[&str]) -> ExitCode {
+/// `fluenttofoam` and `cgnstofoam`: the same options, a different reader.
+fn import(
+    name: &str,
+    args: &[&str],
+    convert: fn(
+        &[u8],
+        vortia_mesh::fluent::Options,
+    ) -> vortia_mesh::Result<vortia_foamfile::RawPolyMesh>,
+) -> ExitCode {
     let mut options = vortia_mesh::fluent::Options::default();
     let mut files = Vec::new();
     let mut it = args.iter();
@@ -137,14 +150,11 @@ fn fluenttofoam(args: &[&str]) -> ExitCode {
     let (file, case) = match files.as_slice() {
         [file] => (*file, "."),
         [file, case] => (*file, *case),
-        _ => return usage_error("fluenttofoam takes a file and, optionally, a case"),
+        _ => return usage_error(&format!("{name} takes a file and, optionally, a case")),
     };
     let result = std::fs::read(file)
         .map_err(|e| format!("cannot read {file}: {e}"))
-        .and_then(|bytes| {
-            vortia_mesh::fluent::fluent_to_foam(&String::from_utf8_lossy(&bytes), options)
-                .map_err(|e| e.to_string())
-        })
+        .and_then(|bytes| convert(&bytes, options).map_err(|e| e.to_string()))
         .and_then(|mesh| {
             mesh.write_case(Path::new(case))
                 .map(|()| mesh)

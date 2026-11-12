@@ -20,6 +20,7 @@
 
 pub mod blockmesh;
 pub mod blocks;
+pub mod cgns;
 pub mod check;
 pub mod error;
 pub mod fluent;
