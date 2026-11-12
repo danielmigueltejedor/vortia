@@ -30,8 +30,9 @@ use crate::control::{LinearSolver, RunControl, solve_line};
 use crate::driven::{PRESSURE_KINDS, PressureVelocity, TotalPressure, VELOCITY_KINDS};
 use crate::error::{Result, SolverError};
 use crate::ico::{Algorithm, Step, constrained_boundary, extrapolated, switch};
+use crate::komegasst::{KOmegaSst, Medium};
 use crate::laplacian::Ddt;
-use crate::rans::{Model, face_diffusivity};
+use crate::rans::{Kind, Model, ModelField, face_diffusivity};
 use crate::simple::{Relaxation, check_options, residual_control};
 use crate::thermo::{DENSITY, Flow, Gas, PRESSURE, Thermo};
 
@@ -53,7 +54,7 @@ struct Schemes {
 }
 
 impl Schemes {
-    fn read(case: &Case, gas: &Gas, consistent: bool) -> Result<Self> {
+    fn read(case: &Case, gas: &Gas, consistent: bool, ras: bool) -> Result<Self> {
         if Ddt::read(case, "ddt(rho,U)")? != Ddt::Steady {
             return Err(SolverError::Setup(
                 "rhoSimpleFoam is steady: ddt(rho,U) must be steadyState".into(),
@@ -80,7 +81,12 @@ impl Schemes {
             velocity_grad: case.grad_scheme("grad(U)")?,
             energy_grad: case.grad_scheme(&format!("grad({e})"))?,
             momentum_sn_grad: case.laplacian_sn_grad("laplacian((rho*nuEff),U)")?,
-            energy_sn_grad: case.laplacian_sn_grad(&format!("laplacian(alphahe,{e})"))?,
+            // The laminar energy equation asks for `alphahe`, a modelled one
+            // for `alphaEff`.
+            energy_sn_grad: case.laplacian_sn_grad(&format!(
+                "laplacian({},{e})",
+                if ras { "alphaEff" } else { "alphahe" }
+            ))?,
             // pEqn.H names the pressure diffusivity rhorAUf, pcEqn.H rhorAtU;
             // SIMPLEC's flux correction is fvc::snGrad(p), a scheme of its own.
             pressure_sn_grad: case.laplacian_sn_grad(if consistent {
@@ -147,14 +153,12 @@ impl Pressure {
 }
 
 /// Refuses a turbulence model or source the engine does not have.
-fn check_models(case: &Case) -> Result<()> {
-    match Model::read(case)? {
-        Model::Laminar => {}
-        _ => {
-            return Err(SolverError::Setup(
-                "rhoSimpleFoam with a RAS model is not supported yet; use laminar".into(),
-            ));
-        }
+fn check_models(case: &Case) -> Result<Model> {
+    let model = Model::read(case)?;
+    if matches!(model, Model::KEpsilon(_)) {
+        return Err(SolverError::Setup(
+            "rhoSimpleFoam with kEpsilon is not supported yet; use kOmegaSST or laminar".into(),
+        ));
     }
     check_options(case)?;
     let pressure = case.solution.dict("SIMPLE").cloned().unwrap_or_default();
@@ -170,14 +174,100 @@ fn check_models(case: &Case) -> Result<()> {
             )));
         }
     }
-    Ok(())
+    Ok(model)
+}
+
+/// The turbulence of a run: the k-ω SST model and the turbulent thermal
+/// diffusivity `αt = ρ ν_t / Prt` it gives the energy equation.
+struct Ras {
+    model: KOmegaSst,
+    alphat: ModelField,
+    /// `Prt` of the cells and of the faces that follow `ν_t`.
+    prt: f64,
+}
+
+/// `[1 -1 -1 0 0 0 0]`.
+const DYNAMIC_DIFFUSIVITY: [i32; 7] = [1, -1, -1, 0, 0, 0, 0];
+
+impl Ras {
+    fn read(
+        case: &Case,
+        (mesh, fv): (&PolyMesh, &FvGeometry),
+        dir: &std::path::Path,
+        coeffs: Option<&Dictionary>,
+        gas: (&WithBoundary, &WithBoundary),
+        flow: (&VectorBoundary, &[Vec3], &[usize]),
+        relaxation: &Relaxation,
+    ) -> Result<Self> {
+        let ((rho, rho_b), (mu, mu_b)) = gas;
+        let model = KOmegaSst::read(
+            case,
+            mesh,
+            fv,
+            dir,
+            coeffs,
+            Medium::Gas {
+                rho,
+                rho_b,
+                mu,
+                mu_b,
+            },
+            [relaxation.equation("k"), relaxation.equation("omega")],
+            flow,
+        )?;
+        let alphat = ModelField::read(mesh, dir, "alphat", DYNAMIC_DIFFUSIVITY, |pf| {
+            match pf.kind.as_str() {
+                "calculated" => Some(Kind::Calculated),
+                "compressible::alphatWallFunction" => Some(Kind::AlphatWall {
+                    prt: pf.settings.scalar("Prt").unwrap_or(0.85),
+                }),
+                _ => None,
+            }
+        })?;
+        let mut ras = Self {
+            model,
+            alphat,
+            prt: coeffs.and_then(|d| d.scalar("Prt")).unwrap_or(1.0),
+        };
+        ras.correct_alphat(mesh, rho, rho_b);
+        Ok(ras)
+    }
+
+    /// `alphat = ρ ν_t / Prt`, on the walls with their own `Prt`.
+    fn correct_alphat(&mut self, mesh: &PolyMesh, rho: &[f64], rho_b: &[Option<f64>]) {
+        let nut = self.model.nut();
+        for ((a, &r), &t) in self.alphat.cells.iter_mut().zip(rho).zip(&nut.cells) {
+            *a = (r * t) / self.prt;
+        }
+        let n_internal = mesh.n_internal_faces();
+        for (patch, kind) in mesh.patches().iter().zip(&self.alphat.kinds) {
+            let prt = match kind {
+                Kind::Calculated => self.prt,
+                Kind::AlphatWall { prt } => *prt,
+                _ => continue,
+            };
+            for f in patch.faces() {
+                let b = f - n_internal;
+                let value = rho_b
+                    .get(b)
+                    .copied()
+                    .flatten()
+                    .zip(nut.faces.get(b).copied().flatten())
+                    .map(|(r, t)| (r * t) / prt);
+                if let Some(v) = self.alphat.faces.get_mut(b) {
+                    *v = value;
+                }
+            }
+        }
+        self.alphat.follow_cells(mesh);
+    }
 }
 
 /// Runs the case and returns what each iteration did. `log` receives the
 /// lines OpenFOAM would print.
 pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let (mesh, fv) = case.mesh()?;
-    check_models(case)?;
+    let model = check_models(case)?;
     let gas = Gas::read(case)?;
     let simple = Algorithm::read(case, "SIMPLE", mesh.n_cells())?;
     let consistent = case
@@ -185,7 +275,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         .dict("SIMPLE")
         .and_then(|d| switch(d, "consistent"))
         .unwrap_or(false);
-    let schemes = Schemes::read(case, &gas, consistent)?;
+    let schemes = Schemes::read(case, &gas, consistent, matches!(model, Model::KOmegaSst(_)))?;
     let relaxation = Relaxation::read(case);
     let residuals = residual_control(case);
     let energy = gas.energy.name();
@@ -242,6 +332,22 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         dot_interpolate(&mesh, &fv, &rho_u, &rho_u_b)
     };
 
+    let (u_init, u_unevaluated) = u_driven.initial_boundary(&u_bc);
+    let mut ras = match &model {
+        Model::KOmegaSst(coeffs) => Some(Ras::read(
+            case,
+            (&mesh, &fv),
+            &start,
+            coeffs.as_ref(),
+            (
+                &(rho.clone(), rho_b.clone()),
+                &(thermo.mu.clone(), thermo.mu_b.clone()),
+            ),
+            (&u_init, &u, &u_unevaluated),
+            &relaxation,
+        )?),
+        _ => None,
+    };
     let valid = solution_directions(&mesh, &fv);
     let names = ["Ux", "Uy", "Uz"];
     let alpha_u = relaxation.equation("U");
@@ -263,15 +369,26 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         // Its matrices update the velocity conditions that follow the flow
         // first, from the flux and density of the last iteration.
         u_driven.update(&mesh, &fv, &mut u_bc, &rho_b, &phi);
+        // ρ ν_eff, with ν_eff = ν_t + μ/ρ.
+        let nut = ras.as_ref().map(|r| r.model.nut());
         let rho_nu: Vec<f64> = rho
             .iter()
             .zip(&thermo.mu)
-            .map(|(&r, &m)| r * (m / r))
+            .enumerate()
+            .map(|(c, (&r, &m))| {
+                r * (nut.map_or(0.0, |n| n.cells.get(c).copied().unwrap_or(0.0)) + m / r)
+            })
             .collect();
         let rho_nu_b: Vec<Option<f64>> = rho_b
             .iter()
             .zip(&thermo.mu_b)
-            .map(|(r, m)| r.zip(*m).map(|(r, m)| r * (m / r)))
+            .enumerate()
+            .map(|(b, (r, m))| {
+                r.zip(*m).map(|(r, m)| {
+                    r * (nut.map_or(0.0, |n| n.faces.get(b).copied().flatten().unwrap_or(0.0))
+                        + m / r)
+                })
+            })
             .collect();
         let rho_nu_f = face_diffusivity(&mesh, &fv, &rho_nu, &rho_nu_b);
         let mut u_eqn =
@@ -373,11 +490,26 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             .collect();
         let div_k = explicit_div(&mesh, &fv, &phi, &k_cells, &k_b, schemes.kinetic);
         let cp_by_cpv = gas.cp_by_cpv();
-        let alpha_eff: Vec<f64> = thermo.alpha.iter().map(|&a| cp_by_cpv * a).collect();
+        let alphat = ras.as_ref().map(|r| &r.alphat);
+        let alpha_eff: Vec<f64> = thermo
+            .alpha
+            .iter()
+            .enumerate()
+            .map(|(c, &a)| {
+                cp_by_cpv * (a + alphat.map_or(0.0, |t| t.cells.get(c).copied().unwrap_or(0.0)))
+            })
+            .collect();
         let alpha_eff_b: Vec<Option<f64>> = thermo
             .alpha_b
             .iter()
-            .map(|a| a.map(|a| cp_by_cpv * a))
+            .enumerate()
+            .map(|(b, a)| {
+                a.map(|a| {
+                    cp_by_cpv
+                        * (a + alphat
+                            .map_or(0.0, |t| t.faces.get(b).copied().flatten().unwrap_or(0.0)))
+                })
+            })
             .collect();
         let alpha_eff_f = face_diffusivity(&mesh, &fv, &alpha_eff, &alpha_eff_b);
         let mut e_eqn =
@@ -551,6 +683,19 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             }
         }
 
+        // turbulence->correct(), with the flux, density and viscosity just
+        // computed, then the turbulent thermal diffusivity.
+        if let Some(r) = ras.as_mut() {
+            r.model.set_medium(Medium::Gas {
+                rho: &rho,
+                rho_b: &rho_b,
+                mu: &thermo.mu,
+                mu_b: &thermo.mu_b,
+            });
+            solves.extend(r.model.correct(&mesh, &fv, &u, &u_bc, &phi, &mut log)?);
+            r.correct_alphat(&mesh, &rho, &rho_b);
+        }
+
         let converged = !residuals.is_empty() && converged(&residuals, &solves);
         let written = run.writes(step) || converged;
         if written {
@@ -563,6 +708,12 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             p.file.store_patch_values(&mesh, PRESSURE_KINDS, &p_b);
             p.file.write(&case.dir, &name)?;
             thermo.to_write(&mesh).write(&case.dir, &name)?;
+            if let Some(r) = &ras {
+                r.model.write(&mesh, &case.dir, &name)?;
+                let mut alphat = r.alphat.to_write(&mesh);
+                alphat.drop_zero_gradient_values();
+                alphat.write(&case.dir, &name)?;
+            }
             calculated_field(&mesh, "rho", Location::Cells, DENSITY, &rho, &rho_b)
                 .write(&case.dir, &name)?;
             let (phi_cells, phi_b) = split_faces(&mesh, &phi);

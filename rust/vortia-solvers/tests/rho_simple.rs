@@ -922,7 +922,7 @@ fn unsupported_settings_are_refused() {
         "constant/turbulenceProperties",
         "simulationType laminar;",
         "simulationType RAS; RAS { RASModel kEpsilon; }",
-        "RAS",
+        "kEpsilon",
     );
     refuse(
         "system/fvSolution",
@@ -1036,4 +1036,168 @@ fn a_run_restarts_from_what_it_wrote() {
     let case = Case::open(dir.path()).unwrap();
     let steps = rho_simple::run(&case, |_| {}).unwrap();
     assert_eq!(steps.len(), 2);
+}
+
+/// The example nozzle with its own settings, k-ω SST and wall functions and
+/// all, run for three iterations: every solve's iteration count and the
+/// fields in four cells match OpenFOAM v1912 on the same files
+/// (`rhoSimpleFoam`, `writePrecision 17`, the residual control taken out so
+/// both stop at 3). Later iterations drift apart slowly (1e-5 in k after 100):
+/// OpenFOAM's limited gradients carry state between iterations that is not
+/// in the files it writes.
+#[test]
+fn rhosimplefoam_komegasst_nozzle_matches_openfoam() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/nozzle-practice-2026");
+    let dir = tempfile::tempdir().unwrap();
+    let copy = |from: &Path, to: &Path| {
+        std::fs::create_dir_all(to).unwrap();
+        for f in std::fs::read_dir(from).unwrap() {
+            let f = f.unwrap();
+            std::fs::copy(f.path(), to.join(f.file_name())).unwrap();
+        }
+    };
+    copy(
+        &source.join("constant/polyMesh"),
+        &dir.path().join("constant/polyMesh"),
+    );
+    copy(&source.join("system"), &dir.path().join("system"));
+    copy(&source.join("0.orig"), &dir.path().join("0"));
+    for f in ["thermophysicalProperties", "turbulenceProperties"] {
+        std::fs::copy(
+            source.join("constant").join(f),
+            dir.path().join("constant").join(f),
+        )
+        .unwrap();
+    }
+    edit(
+        dir.path(),
+        "system/controlDict",
+        "endTime         500;",
+        "endTime 3;",
+    );
+    edit(
+        dir.path(),
+        "system/controlDict",
+        "writeInterval   100;",
+        "writeInterval 3;",
+    );
+    edit(
+        dir.path(),
+        "system/controlDict",
+        "writePrecision  6;",
+        "writePrecision 17;",
+    );
+    let solution = dir.path().join("system/fvSolution");
+    let text = std::fs::read_to_string(&solution).unwrap();
+    let from = text.find("residualControl").unwrap();
+    let to = from + text[from..].find('}').unwrap() + 1;
+    std::fs::write(&solution, format!("{}{}", &text[..from], &text[to..])).unwrap();
+
+    let case = Case::open(dir.path()).unwrap();
+    let steps = rho_simple::run(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), 3);
+    let solves: Vec<(&str, usize)> = steps
+        .iter()
+        .flat_map(|s| s.solves.iter().map(|(f, p)| (f.as_str(), p.iterations)))
+        .collect();
+    let want = [
+        ("Ux", 15),
+        ("Uy", 13),
+        ("Uz", 14),
+        ("e", 1000),
+        ("p", 43),
+        ("omega", 11),
+        ("k", 14),
+        ("Ux", 14),
+        ("Uy", 14),
+        ("Uz", 13),
+        ("e", 14),
+        ("p", 32),
+        ("omega", 8),
+        ("k", 12),
+        ("Ux", 11),
+        ("Uy", 13),
+        ("Uz", 13),
+        ("e", 12),
+        ("p", 38),
+        ("omega", 8),
+        ("k", 11),
+    ];
+    assert_eq!(solves, want);
+
+    let end = dir.path().join("3");
+    let u = VectorField::read(end.join("U"))
+        .unwrap()
+        .internal
+        .expand(7500)
+        .unwrap();
+    let read = |name: &str| {
+        ScalarField::read(end.join(name))
+            .unwrap()
+            .internal
+            .expand(7500)
+            .unwrap()
+    };
+    let [t, p, k, omega, nut, alphat] = ["T", "p", "k", "omega", "nut", "alphat"].map(read);
+    // cell, Ux, Uy, T, p, k, ω, ν_t, α_t
+    let cells = [
+        (
+            0,
+            178.97800590576114,
+            1.060740433183268,
+            281.4119710080525,
+            110143.66295144777,
+            43.4538447496524,
+            8941.15530288965,
+            5.613547355203146e-06,
+            7.2783447111093786e-06,
+        ),
+        (
+            450,
+            244.88112424474377,
+            7.331213316677902,
+            279.47690538712436,
+            109889.58569215988,
+            71.71067201168964,
+            973.3865562313393,
+            8.383898865039531e-05,
+            0.00010868895824085071,
+        ),
+        (
+            3749,
+            2.420131092006474e-05,
+            4.282296829982279e-08,
+            300.0,
+            101325.00419906573,
+            0.9999655722606323,
+            999.951832480909,
+            0.0010000137404415663,
+            0.0011739905569131627,
+        ),
+        (
+            7499,
+            1.1490198643377826e-05,
+            1.1609578297981772e-05,
+            300.0,
+            101325.00008259571,
+            0.9995977950725543,
+            999.4372592592199,
+            0.0010001606262042436,
+            0.001174162970655231,
+        ),
+    ];
+    for (c, ux, uy, tc, pc, kc, wc, nc, ac) in cells {
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-7 * b.abs().max(1e-3);
+        assert!(
+            close(u[c].x, ux) && close(u[c].y, uy),
+            "U in cell {c}: {:?}",
+            u[c]
+        );
+        assert!(close(t[c], tc), "T in cell {c}: {}", t[c]);
+        assert!(close(p[c], pc), "p in cell {c}: {}", p[c]);
+        assert!(close(k[c], kc), "k in cell {c}: {}", k[c]);
+        assert!(close(omega[c], wc), "omega in cell {c}: {}", omega[c]);
+        assert!(close(nut[c], nc), "nut in cell {c}: {}", nut[c]);
+        assert!(close(alphat[c], ac), "alphat in cell {c}: {}", alphat[c]);
+    }
 }

@@ -9,6 +9,8 @@
 use vortia_core::Vec3;
 use vortia_fields::{Data, PatchField, ScalarField};
 use vortia_foamfile::Dictionary;
+use vortia_fv::correction;
+use vortia_fv::limited::{self, GradScheme};
 use vortia_fv::ops::{Convection, SnGrad};
 use vortia_fv::vector::{VectorBc, VectorBoundary};
 use vortia_fv::{Boundary, FvGeometry, Performance, ScalarBc, ScalarMatrix};
@@ -19,7 +21,7 @@ use crate::control::{LinearSolver, solve_line};
 use crate::error::{Result, SolverError};
 use crate::ico::switch_or;
 use crate::kepsilon::KEpsilon;
-use crate::komegasst::KOmegaSst;
+use crate::komegasst::{KOmegaSst, Medium};
 
 /// OpenFOAM's `SMALL`, the floor `bound` holds k, ε and ω to.
 pub(crate) const SMALL: f64 = 1.0e-15;
@@ -75,6 +77,29 @@ pub(crate) enum Kind {
     },
     /// `nutkWallFunction`.
     NutWall(LogLaw),
+    /// `inletOutlet` and the inlets built on it: `ref_value` where the flow
+    /// comes in, a zero gradient where it leaves. The reference and the
+    /// fraction are updated when an equation in the field is assembled.
+    Mixed {
+        source: InletSource,
+        ref_value: Vec<f64>,
+        fraction: Vec<f64>,
+    },
+    /// `compressible::alphatWallFunction`: `ρ ν_t / Prt` on the wall.
+    AlphatWall {
+        prt: f64,
+    },
+}
+
+/// Where a `Mixed` condition takes its reference value from.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum InletSource {
+    /// `inletOutlet`: its `inletValue`.
+    Value,
+    /// `turbulentIntensityKineticEnergyInlet`: `1.5 (I |U|)²`.
+    Intensity(f64),
+    /// `turbulentMixingLengthFrequencyInlet`: `√k / (Cmu^¼ L)`.
+    MixingLength(f64),
 }
 
 impl PartialEq for LogLaw {
@@ -116,6 +141,8 @@ impl ModelField {
             })?;
             let mut kind = if pf.kind == "empty" {
                 Kind::Empty
+            } else if pf.kind == "wedge" {
+                Kind::ZeroGradient
             } else {
                 kind_of(pf).ok_or_else(|| {
                     SolverError::Setup(format!(
@@ -132,7 +159,39 @@ impl ModelField {
                     pf.kind
                 )));
             }
+            if (patch.kind == PatchKind::Wedge) != (pf.kind == "wedge") {
+                return Err(SolverError::Setup(format!(
+                    "{name}: patch '{}' is {} but its condition is '{}'",
+                    patch.name,
+                    patch.kind.name(),
+                    pf.kind
+                )));
+            }
             let given = pf.value.as_ref().and_then(|d| d.expand(patch.size));
+            if let Kind::Mixed {
+                source,
+                ref_value,
+                fraction,
+            } = &mut kind
+            {
+                // As OpenFOAM's constructors: no inflow until the first update.
+                *fraction = vec![0.0; patch.size];
+                *ref_value = if *source == InletSource::Value {
+                    pf.settings
+                        .values("inletValue")
+                        .map(|v| Data::<f64>::parse(v, "inletValue"))
+                        .transpose()?
+                        .and_then(|d| d.expand(patch.size))
+                        .ok_or_else(|| {
+                            SolverError::Setup(format!(
+                                "{name}: patch '{}' needs 'inletValue' with {} items",
+                                patch.name, patch.size
+                            ))
+                        })?
+                } else {
+                    vec![0.0; patch.size]
+                };
+            }
             if matches!(kind, Kind::Fixed(_)) {
                 let v = given.clone().ok_or_else(|| {
                     SolverError::Setup(format!(
@@ -174,7 +233,16 @@ impl ModelField {
                 Kind::Fixed(v) => ScalarBc::FixedValue(v.clone()),
                 Kind::ZeroGradient => ScalarBc::ZeroGradient,
                 Kind::Empty => ScalarBc::Empty,
-                Kind::EpsilonWall(_)
+                Kind::Mixed {
+                    ref_value,
+                    fraction,
+                    ..
+                } => ScalarBc::Mixed {
+                    fraction: fraction.clone(),
+                    ref_value: ref_value.clone(),
+                },
+                Kind::AlphatWall { .. }
+                | Kind::EpsilonWall(_)
                 | Kind::OmegaWall { .. }
                 | Kind::Calculated
                 | Kind::NutWall(_) => ScalarBc::FixedValue(
@@ -198,17 +266,74 @@ impl ModelField {
     pub(crate) fn follow_cells(&mut self, mesh: &PolyMesh) {
         let n_internal = mesh.n_internal_faces();
         for (patch, kind) in mesh.patches().iter().zip(&self.kinds) {
-            if *kind != Kind::ZeroGradient {
-                continue;
-            }
-            for f in patch.faces() {
+            for (i, f) in patch.faces().enumerate() {
                 let inside = mesh
                     .owner()
                     .get(f)
                     .and_then(|&c| self.cells.get(c))
                     .copied();
+                let value = match kind {
+                    Kind::ZeroGradient => inside,
+                    Kind::Mixed {
+                        ref_value,
+                        fraction,
+                        ..
+                    } => inside.map(|inside| {
+                        let r = ref_value.get(i).copied().unwrap_or(0.0);
+                        let w = fraction.get(i).copied().unwrap_or(0.0);
+                        w * r + (1.0 - w) * inside
+                    }),
+                    _ => continue,
+                };
                 if let Some(v) = self.faces.get_mut(f - n_internal) {
-                    *v = inside;
+                    *v = value;
+                }
+            }
+        }
+    }
+
+    /// What an equation in this field does when it is assembled, for the
+    /// conditions that follow the flow: the reference value of each inlet and
+    /// the fraction taken from it, which is 1 where the mass flux `phi` comes
+    /// in. `u_b` is the velocity and `k_b` the turbulent kinetic energy on
+    /// the boundary faces; `cmu` is the model's `Cmu`.
+    pub(crate) fn update_inlets(
+        &mut self,
+        mesh: &PolyMesh,
+        phi: &[f64],
+        u_b: &[Option<Vec3>],
+        k_b: Option<&[Option<f64>]>,
+        cmu: f64,
+    ) {
+        let n_internal = mesh.n_internal_faces();
+        for (patch, kind) in mesh.patches().iter().zip(&mut self.kinds) {
+            let Kind::Mixed {
+                source,
+                ref_value,
+                fraction,
+            } = kind
+            else {
+                continue;
+            };
+            for (i, f) in patch.faces().enumerate() {
+                let b = f - n_internal;
+                let flux = phi.get(f).copied().unwrap_or(0.0);
+                if let Some(w) = fraction.get_mut(i) {
+                    *w = 1.0 - if flux >= 0.0 { 1.0 } else { 0.0 };
+                }
+                let value = match source {
+                    InletSource::Value => None,
+                    InletSource::Intensity(intensity) => {
+                        let u = u_b.get(b).copied().flatten().unwrap_or_default();
+                        Some((1.5 * (*intensity * *intensity)) * u.dot(u))
+                    }
+                    InletSource::MixingLength(length) => {
+                        let k = k_b.and_then(|k| k.get(b)).copied().flatten().unwrap_or(0.0);
+                        Some(k.sqrt() / (pow025(cmu) * *length))
+                    }
+                };
+                if let (Some(v), Some(r)) = (value, ref_value.get_mut(i)) {
+                    *r = v;
                 }
             }
         }
@@ -254,12 +379,19 @@ impl ModelField {
 pub(crate) struct EquationSetup {
     convection: Convection,
     sn_grad: SnGrad,
+    /// `grad(<field>)`, the gradient the non-orthogonal correction takes.
+    grad: GradScheme,
     solver: LinearSolver,
     controls: vortia_fv::Controls,
     relax: Option<f64>,
 }
 
 impl EquationSetup {
+    /// Whether the Laplacian is corrected for non-orthogonality.
+    pub(crate) fn is_corrected(&self) -> bool {
+        self.sn_grad == SnGrad::Corrected
+    }
+
     pub(crate) fn read(
         case: &Case,
         field: &str,
@@ -267,11 +399,16 @@ impl EquationSetup {
         relax: Option<f64>,
     ) -> Result<Self> {
         let convection = case.convection(&format!("div(phi,{field})"))?;
-        let sn_grad = case.uncorrected_sn_grad(&format!("laplacian({diffusivity},{field})"))?;
+        let sn_grad = case.laplacian_sn_grad(&format!("laplacian({diffusivity},{field})"))?;
+        let grad = match sn_grad {
+            SnGrad::Corrected => case.grad_scheme(&format!("grad({field})"))?,
+            _ => GradScheme::GaussLinear,
+        };
         let (solver, controls) = LinearSolver::read(case, field)?;
         Ok(Self {
             convection,
             sn_grad,
+            grad,
             solver,
             controls,
             relax,
@@ -312,7 +449,10 @@ impl Model {
                 let coeffs = |name: &str| ras.dict(&format!("{name}Coeffs")).cloned();
                 let model = match model {
                     Some("kEpsilon") => Self::KEpsilon(coeffs("kEpsilon")),
-                    Some("kOmegaSST") => Self::KOmegaSst(coeffs("kOmegaSST")),
+                    // `coeffDict()` is the model's own dictionary, or the RAS one.
+                    Some("kOmegaSST") => {
+                        Self::KOmegaSst(coeffs("kOmegaSST").or_else(|| Some(ras.clone())))
+                    }
                     other => {
                         return Err(SolverError::Setup(format!(
                             "RAS model '{}' is not supported yet; use kEpsilon or kOmegaSST",
@@ -337,8 +477,8 @@ impl Model {
 
 /// The turbulence model of a run.
 pub(crate) enum Turbulence {
-    KEpsilon(KEpsilon),
-    KOmegaSst(KOmegaSst),
+    KEpsilon(Box<KEpsilon>),
+    KOmegaSst(Box<KOmegaSst>),
 }
 
 impl Turbulence {
@@ -350,12 +490,12 @@ impl Turbulence {
         fv: &FvGeometry,
         dir: &std::path::Path,
         nu: f64,
-        flow: (&VectorBoundary, &[Vec3]),
+        flow: (&VectorBoundary, &[Vec3], &[usize]),
         relax: impl Fn(&str) -> Option<f64>,
     ) -> Result<Option<Self>> {
         Ok(match Model::read(case)? {
             Model::Laminar => None,
-            Model::KEpsilon(coeffs) => Some(Self::KEpsilon(KEpsilon::read(
+            Model::KEpsilon(coeffs) => Some(Self::KEpsilon(Box::new(KEpsilon::read(
                 case,
                 mesh,
                 fv,
@@ -364,17 +504,17 @@ impl Turbulence {
                 nu,
                 relax("k"),
                 relax("epsilon"),
-            )?)),
-            Model::KOmegaSst(coeffs) => Some(Self::KOmegaSst(KOmegaSst::read(
+            )?))),
+            Model::KOmegaSst(coeffs) => Some(Self::KOmegaSst(Box::new(KOmegaSst::read(
                 case,
                 mesh,
                 fv,
                 dir,
                 coeffs.as_ref(),
-                nu,
+                Medium::Uniform(nu),
                 [relax("k"), relax("omega")],
                 flow,
-            )?)),
+            )?))),
         })
     }
 
@@ -385,12 +525,16 @@ impl Turbulence {
         mesh: &PolyMesh,
         fv: &FvGeometry,
     ) -> (Vec<f64>, Vec<Option<f64>>, Vec<f64>) {
-        let (nut, nu) = match self {
-            Self::KEpsilon(m) => (m.nut(), m.nu()),
-            Self::KOmegaSst(m) => (m.nut(), m.nu()),
+        let (cells, boundary): (Vec<f64>, Vec<Option<f64>>) = match self {
+            Self::KEpsilon(m) => {
+                let (nut, nu) = (m.nut(), m.nu());
+                (
+                    nut.cells.iter().map(|&t| t + nu).collect(),
+                    nut.faces.iter().map(|t| t.map(|t| t + nu)).collect(),
+                )
+            }
+            Self::KOmegaSst(m) => (m.nu_eff_cells(), m.nu_eff_faces()),
         };
-        let cells: Vec<f64> = nut.cells.iter().map(|&t| t + nu).collect();
-        let boundary: Vec<Option<f64>> = nut.faces.iter().map(|t| t.map(|t| t + nu)).collect();
         let faces = face_diffusivity(mesh, fv, &cells, &boundary);
         (cells, boundary, faces)
     }
@@ -459,13 +603,15 @@ pub(crate) fn transport(
     if setup.convection.bounded {
         m.bound_convection(mesh, fv, phi);
     }
-    m.sub(&ScalarMatrix::laplacian(
-        mesh,
-        fv,
-        &bc,
-        gamma,
-        setup.sn_grad,
-    )?);
+    let mut lap =
+        ScalarMatrix::laplacian(mesh, fv, &bc, gamma, setup.sn_grad.without_correction())?;
+    if setup.is_corrected() {
+        let g = limited::grad(setup.grad, mesh, fv, &field.cells, &field.faces);
+        let corr = correction::sn_grad_correction(mesh, fv, &g);
+        let flux = correction::scale_by_gamma_mag_sf(fv, gamma, &corr);
+        correction::subtract_divergence(&mut lap.ldu.source, mesh, &flux);
+    }
+    m.sub(&lap);
     Ok(m)
 }
 
@@ -523,7 +669,7 @@ pub(crate) fn correct_nut_walls(
     nut: &mut ModelField,
     k: &[f64],
     y: &[Vec<f64>],
-    nu: f64,
+    nu: impl Fn(usize) -> f64,
 ) {
     let n_internal = mesh.n_internal_faces();
     for ((patch, kind), y) in mesh.patches().iter().zip(&nut.kinds).zip(y) {
@@ -536,6 +682,7 @@ pub(crate) fn correct_nut_walls(
                 .copied()
                 .unwrap_or(0.0);
             let y = y.get(i).copied().unwrap_or(0.0);
+            let nu = nu(f - n_internal);
             let y_plus = ((pow025(law.cmu) * y) * k.sqrt()) / nu;
             let value = if law.y_plus_lam < y_plus {
                 nu * ((y_plus * law.kappa) / (law.e * y_plus).ln() - 1.0)
@@ -575,7 +722,7 @@ pub(crate) fn wall_function(
     nut: &ModelField,
     k: &[f64],
     y: &[Vec<f64>],
-    nu: f64,
+    nu: impl Fn(usize) -> f64,
     (u, u_bc): (&[Vec3], &VectorBoundary),
     g: &mut [f64],
     per_face: impl Fn(&Kind, &LogLaw, &WallFace) -> (f64, f64),
@@ -622,7 +769,7 @@ pub(crate) fn wall_function(
             let face = WallFace {
                 k: k.get(cell).copied().unwrap_or(0.0),
                 y: y.get(i).copied().unwrap_or(0.0),
-                nuw: nu,
+                nuw: nu(f - n_internal),
                 nutw: nut
                     .faces
                     .get(f - n_internal)
