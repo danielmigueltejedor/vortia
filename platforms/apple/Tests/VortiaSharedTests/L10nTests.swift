@@ -4,9 +4,9 @@ import Testing
 
 @Suite("L10n")
 struct L10nTests {
-    /// Names and symbols, the same in both languages.
+    /// Names, symbols and loanwords (Spanish CFD texts say "solver"), the same in both languages.
     private static let sameInBoth: Set<L10n.Key> = [
-        .appName, .edition, .laminar, .kOmegaSST, .reynolds, .courant, .openFoam,
+        .appName, .edition, .laminar, .kOmegaSST, .reynolds, .courant, .openFoam, .solver,
     ]
 
     @Test("every key has English words")
