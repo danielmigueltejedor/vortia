@@ -5,21 +5,24 @@
 //! Derived from OpenFOAM's `blockMesh` (GPL-3.0-or-later, like Vortia), so
 //! that the same dictionary gives the same mesh, point for point and face for
 //! face: the transfinite interpolation of each block's points from its twelve
-//! edges, the merge of the points along shared faces (by the blocks'
-//! topology, or `mergeType points` by distance), and the order of cells,
+//! edges, the merge of the points along shared faces (by distance, or with
+//! `fastMerge` by the blocks' topology), and the order of cells,
 //! faces and patches.
 //!
-//! Supported: straight edges, `simpleGrading` and `edgeGrading` (with
-//! several sections), `boundary` patches, `defaultPatch`, `scale`. The
-//! rest (curved edges, faces projected on geometry, named vertices,
-//! `mergePatchPairs`, zones) is refused with a message that says which.
+//! Supported: `line`, `arc`, `polyLine`, `spline`, `BSpline` and `bezier`
+//! edges, `simpleGrading` and `edgeGrading` (with several sections),
+//! `boundary` patches, `defaultPatch`, `scale`. The rest (faces projected on
+//! geometry, projected edges, named vertices, `mergePatchPairs`, zones) is
+//! refused with a message that says which.
 
+mod edges;
 mod shapes;
 
 use vortia_core::Vec3;
 use vortia_foamfile::{Dictionary, Entry, FaceList, RawPatch, RawPolyMesh, Value};
 
 use crate::error::{MeshError, Result};
+use edges::CurvedEdge;
 use shapes::{Cells, HEX_FACES, Shape, collapse_hex};
 
 /// The most cells a dictionary may ask for in all.
@@ -56,6 +59,37 @@ impl Section {
         }
     }
 }
+
+/// `gradingDescriptors::inv`: the sections of the same edge walked the
+/// other way round.
+fn inverse(sections: &[Section]) -> Vec<Section> {
+    sections
+        .iter()
+        .rev()
+        .map(|s| Section {
+            block_fraction: s.block_fraction,
+            div_fraction: s.div_fraction,
+            expansion: 1.0 / s.expansion,
+        })
+        .collect()
+}
+
+/// The vertices (by place in the block) each of a block's twelve edges runs
+/// between: four along x, four along y, four along z.
+const EDGE_ENDS: [(usize, usize); 12] = [
+    (0, 1),
+    (3, 2),
+    (7, 6),
+    (4, 5),
+    (0, 3),
+    (1, 2),
+    (5, 6),
+    (4, 7),
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),
+];
 
 /// The fractions along an edge where its `n_div` divisions fall
 /// (`lineDivide`).
@@ -145,20 +179,46 @@ impl Block {
         self.n[0] * self.n[1] * self.n[2]
     }
 
-    /// `block::createPoints` for straight edges: the points of the twelve
-    /// edges, and each point of the block a blend of them.
-    fn create_points(&mut self, corners: &[Vec3; 8]) {
+    /// The points and fractions of edge `e` (`blockDescriptor::edgePointsWeights`):
+    /// where a listed curve runs between its two vertices the points are the
+    /// curve's, otherwise there are none (the edge is straight).
+    fn edge(&self, e: usize, curves: &[CurvedEdge]) -> (Option<Vec<Vec3>>, Vec<f64>) {
+        let n = match e {
+            0..=3 => self.n[0],
+            4..=7 => self.n[1],
+            _ => self.n[2],
+        };
+        let sections = self.expansion.get(e).map_or(&[][..], |s| &s[..]);
+        let label = |local: usize| self.vertices.get(local).copied().unwrap_or(usize::MAX);
+        let Some(&(a, b)) = EDGE_ENDS.get(e) else {
+            return (None, divisions(n, sections));
+        };
+        for curve in curves {
+            match curve.compare(label(a), label(b)) {
+                0 => {}
+                1 => {
+                    let d = divisions(n, sections);
+                    let p = d.iter().map(|&l| curve.position(l)).collect();
+                    return (Some(p), d);
+                }
+                _ => {
+                    let d = divisions(n, &inverse(sections));
+                    let p: Vec<Vec3> = d.iter().rev().map(|&l| curve.position(l)).collect();
+                    let w = d.iter().rev().map(|&l| 1.0 - l).collect();
+                    return (Some(p), w);
+                }
+            }
+        }
+        (None, divisions(n, sections))
+    }
+
+    /// `block::createPoints`: the points of the twelve edges, and each point
+    /// of the block a blend of them, corrected towards the curved edges.
+    fn create_points(&mut self, corners: &[Vec3; 8], curves: &[CurvedEdge]) -> Result<()> {
         let [ni, nj, nk] = self.n;
-        let w: Vec<Vec<f64>> = (0..12)
-            .map(|e| {
-                let n = match e {
-                    0..=3 => ni,
-                    4..=7 => nj,
-                    _ => nk,
-                };
-                divisions(n, self.expansion.get(e).map_or(&[][..], |s| &s[..]))
-            })
-            .collect();
+        let (curved, w): (Vec<Option<Vec<Vec3>>>, Vec<Vec<f64>>) =
+            (0..12).map(|e| self.edge(e, curves)).unzip();
+        let any_curved = curved.iter().any(Option::is_some);
         let c = |i: usize| corners.get(i).copied().unwrap_or_default();
         let (p000, p100, p110, p010) = (c(0), c(1), c(2), c(3));
         let (p001, p101, p111, p011) = (c(4), c(5), c(6), c(7));
@@ -233,7 +293,7 @@ impl Block {
                         let edgez3 = p110 + (p111 - p110) * w10;
                         let edgez4 = p010 + (p011 - p010) * w11;
 
-                        (edgex1 * wx1
+                        let straight = (edgex1 * wx1
                             + edgex2 * wx2
                             + edgex3 * wx3
                             + edgex4 * wx4
@@ -245,7 +305,39 @@ impl Block {
                             + edgez2 * wz2
                             + edgez3 * wz3
                             + edgez4 * wz4)
-                            / 3.0
+                            / 3.0;
+                        if any_curved {
+                            let at = |e: usize, i: usize| {
+                                curved
+                                    .get(e)
+                                    .and_then(Option::as_ref)
+                                    .and_then(|p| p.get(i))
+                                    .copied()
+                            };
+                            let terms = [
+                                (at(0, i), edgex1, wx1),
+                                (at(1, i), edgex2, wx2),
+                                (at(2, i), edgex3, wx3),
+                                (at(3, i), edgex4, wx4),
+                                (at(4, j), edgey1, wy1),
+                                (at(5, j), edgey2, wy2),
+                                (at(6, j), edgey3, wy3),
+                                (at(7, j), edgey4, wy4),
+                                (at(8, k), edgez1, wz1),
+                                (at(9, k), edgez2, wz2),
+                                (at(10, k), edgez3, wz3),
+                                (at(11, k), edgez4, wz4),
+                            ];
+                            let mut correction = Vec3::default();
+                            for (on_curve, on_line, weight) in terms {
+                                if let Some(p) = on_curve {
+                                    correction = correction + (p - on_line) * weight;
+                                }
+                            }
+                            straight + correction
+                        } else {
+                            straight
+                        }
                     };
                     if let Some(slot) = points.get_mut(label) {
                         *slot = value;
@@ -253,7 +345,14 @@ impl Block {
                 }
             }
         }
+        if points
+            .iter()
+            .any(|p| !(p.x.is_finite() && p.y.is_finite() && p.z.is_finite()))
+        {
+            return invalid("a block has points that are not numbers; check its edges");
+        }
         self.points = points;
+        Ok(())
     }
 
     /// The quadrilaterals on one of the block's six sides, as the block's
@@ -880,7 +979,7 @@ fn dist2(a: Vec3, b: Vec3) -> f64 {
     d.x * d.x + d.y * d.y + d.z * d.z
 }
 
-/// `blockMesh::calcGeometricalMerge` (`mergeType points`): points that lie
+/// `blockMesh::calcGeometricalMerge` (the default): points that lie
 /// on each other, on a block's own faces (edges and faces that collapse)
 /// and across the faces of two blocks, are one point.
 fn merge_points(blocks: &[Block], topology: &Topology, corners: &[[Vec3; 8]]) -> Result<Merge> {
@@ -1036,13 +1135,7 @@ pub fn block_mesh(dict: &Dictionary) -> Result<RawPolyMesh> {
         .unwrap_or(1.0);
     let verts = vertices(dict)?;
     let mut blocks = blocks(dict, verts.len())?;
-    if let Some(Entry::Values(v)) = dict.get("edges")
-        && v.first()
-            .and_then(Value::as_list)
-            .is_some_and(|l| !l.is_empty())
-    {
-        return invalid("curved block edges are not supported yet");
-    }
+    let curves = edges::read(dict, &verts)?;
     if dict.get("faces").is_some_and(|e| match e {
         Entry::Values(v) => v
             .first()
@@ -1070,14 +1163,21 @@ pub fn block_mesh(dict: &Dictionary) -> Result<RawPolyMesh> {
                 .copied()
                 .unwrap_or_default()
         });
-        b.create_points(&c);
+        b.create_points(&c, &curves)?;
         corners.push(c);
     }
     let patches = boundary(dict, verts.len())?;
     let topology = Topology::new(&blocks, &patches)?;
-    let merge = match dict.word("mergeType") {
-        Some("points") => merge_points(&blocks, &topology, &corners)?,
-        _ => merge_topology(&blocks, &topology, &corners)?,
+    // `fastMerge` merges the points by the blocks' topology, trusting the
+    // gradings to agree; otherwise (the default) by their distance.
+    let fast = matches!(
+        dict.word("fastMerge"),
+        Some("true" | "yes" | "on" | "y" | "t" | "1")
+    ) || dict.scalar("fastMerge").is_some_and(|v| v != 0.0);
+    let merge = if fast {
+        merge_topology(&blocks, &topology, &corners)?
+    } else {
+        merge_points(&blocks, &topology, &corners)?
     };
     let offs = offsets(&blocks);
 

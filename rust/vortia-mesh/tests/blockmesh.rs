@@ -170,9 +170,9 @@ fn a_dictionary_without_a_default_patch_name_gets_default_faces() {
 fn what_is_not_supported_yet_is_refused_with_its_name() {
     for (tag, extra, word) in [
         (
-            "arc",
-            "blocks ( hex (0 1 2 3 4 5 6 7) (1 1 1) simpleGrading (1 1 1) ); edges ( arc 0 1 (0.5 -0.1 0) );",
-            "curved",
+            "project",
+            "blocks ( hex (0 1 2 3 4 5 6 7) (1 1 1) simpleGrading (1 1 1) ); edges ( project 0 1 (surface) );",
+            "project",
         ),
         (
             "tet",
@@ -216,4 +216,162 @@ fn hostile_dictionaries_are_errors_not_panics() {
         let text = BOX.replace("boundary ();", "") + tail;
         assert!(mesh_of_text("bad", &text).is_err(), "{tail}");
     }
+}
+
+/// Counts, the sums of the coordinates in file order, and two points of the
+/// mesh OpenFOAM v1912's `blockMesh` wrote for a dictionary with curved edges.
+/// The points matched OpenFOAM's to the last digit, so the sums do too.
+fn check_curved(
+    name: &str,
+    n_points: usize,
+    n_faces: usize,
+    n_internal: usize,
+    sums: [f64; 3],
+    spots: [(usize, [f64; 3]); 2],
+) {
+    let mesh = mesh_of_file(name).unwrap();
+    assert_eq!(mesh.points.len(), n_points, "{name}: points");
+    assert_eq!(mesh.faces.len(), n_faces, "{name}: faces");
+    assert_eq!(mesh.neighbour.len(), n_internal, "{name}: internal faces");
+    let sum = mesh
+        .points
+        .iter()
+        .fold([0.0; 3], |a, p| [a[0] + p.x, a[1] + p.y, a[2] + p.z]);
+    assert_eq!(sum, sums, "{name}: the sum of the points");
+    for (i, want) in spots {
+        let got = mesh.points[i];
+        assert_eq!([got.x, got.y, got.z], want, "{name}: point {i}");
+    }
+}
+
+#[test]
+fn arcs_with_grading_match_openfoam_exactly() {
+    check_curved(
+        "arc1.dict",
+        168,
+        333,
+        207,
+        [135.67335464947664, 160.0929268846488, 22.345584412271606],
+        [
+            (
+                56,
+                [0.7071067811865481, 0.7071067811865479, 0.06796227589829591],
+            ),
+            (163, [0.0, 1.3333333333333333, 0.3]),
+        ],
+    );
+}
+
+#[test]
+fn every_kind_of_edge_on_two_blocks_matches_openfoam_exactly() {
+    // spline (with its tangents), BSpline, polyLine, bezier, arc and line,
+    // listed against and along the direction of the blocks' edges, on graded
+    // edges.
+    check_curved(
+        "curve2.dict",
+        160,
+        306,
+        180,
+        [1.6863894776845916, 0.8023940215261227, 0.8579497050157822],
+        [
+            (
+                53,
+                [
+                    0.006261292678333823,
+                    0.006909047769324247,
+                    0.007434384435267171,
+                ],
+            ),
+            (
+                155,
+                [
+                    0.012900182823493034,
+                    0.010414311831927576,
+                    0.010828623663855152,
+                ],
+            ),
+        ],
+    );
+}
+
+#[test]
+fn an_arc_of_more_than_half_a_circle_with_edge_grading_matches_openfoam_exactly() {
+    check_curved(
+        "arc2.dict",
+        180,
+        356,
+        220,
+        [357.96878379367257, 270.41093345633686, 84.62445460092114],
+        [
+            (
+                60,
+                [0.9021628955538787, 0.9510814477769394, 0.44811002230083147],
+            ),
+            (175, [3.0, 2.5, 1.0]),
+        ],
+    );
+}
+
+#[test]
+fn fast_merge_by_topology_gives_the_same_mesh_when_the_gradings_agree() {
+    let by_distance = mesh_of_file("tiny.dict").unwrap();
+    let text = std::fs::read_to_string(here("tiny.dict")).unwrap();
+    let fast = mesh_of_text(
+        "fast",
+        &text.replace("scale 0.5;", "scale 0.5; fastMerge true;"),
+    )
+    .unwrap();
+    assert_eq!(fast, by_distance);
+}
+
+#[test]
+fn blocks_whose_gradings_disagree_on_a_shared_face_are_refused_by_fast_merge() {
+    let text = "FoamFile { version 2.0; format ascii; class dictionary; object blockMeshDict; }
+fastMerge true;
+vertices ( (0 0 0) (1 0 0) (1 1 0) (0 1 0) (0 0 1) (1 0 1) (1 1 1) (0 1 1) (2 0 0) (2 1 0) (2 0 1) (2 1 1) );
+blocks ( hex (0 1 2 3 4 5 6 7) (2 2 2) simpleGrading (1 1 3) hex (1 8 9 2 5 10 11 6) (2 2 2) simpleGrading (1 1 1) );
+boundary ();";
+    let err = mesh_of_text("grading", text).unwrap_err();
+    assert!(err.contains("grading"), "{err}");
+}
+
+#[test]
+fn hostile_edges_are_errors_not_panics() {
+    let blocks = "blocks ( hex (0 1 2 3 4 5 6 7) (2 2 2) simpleGrading (1 1 1) );";
+    for (i, edges) in [
+        // The three points of an arc on a line.
+        "arc 0 1 (0.5 0 0)",
+        // A vertex that does not exist, a vertex joined to itself, a missing
+        // middle point, a point of two numbers, a name for a vertex.
+        "arc 0 99 (0.5 0.5 0)",
+        "arc 0 0 (0.5 0.5 0)",
+        "arc 0 1",
+        "polyLine 0 1 ((0.5 0.5))",
+        "arc a b (0.5 0.5 0)",
+        // A line that goes nowhere, and one through coincident points.
+        "polyLine 0 1 ()",
+        "spline 0 1 ((0 0 0) (0 0 0))",
+        "spline 0 1 ((nan 0 0))",
+        "bezier 0 1 ()",
+        "arc 0 1 (1e300 1e300 1e300)",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let text = format!(
+            "{}{blocks} edges ( {edges} );",
+            BOX.replace("edges ();", "")
+        );
+        let _ = mesh_of_text(&format!("edge{i}"), &text);
+    }
+    let text = format!(
+        "{}{blocks} edges ( arc 0 1 (0.5 0 0) );",
+        BOX.replace("edges ();", "")
+    );
+    assert!(mesh_of_text("online", &text).is_err());
+    let text = format!(
+        "{}{blocks} edges ( arc 0 99 (0.5 0.5 0) );",
+        BOX.replace("edges ();", "")
+    );
+    assert!(mesh_of_text("novertex", &text).is_err());
 }
