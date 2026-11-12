@@ -31,7 +31,9 @@ public struct RootView: View {
         return NavigationSplitView {
             List(selection: Binding(get: { store.stage }, set: { if let s = $0 { store.stage = s } })) {
                 Section(store.project?.name ?? "") {
-                    ForEach([VortiaStore.Stage.geometry, .mesh, .physics, .time]) { stage in
+                    ForEach(store.isFlowProject
+                        ? [VortiaStore.Stage.contour, .flowSetup]
+                        : [VortiaStore.Stage.geometry, .mesh, .physics, .time]) { stage in
                         Label(stage.title, systemImage: stage.symbol).tag(stage)
                     }
                 }
@@ -74,6 +76,8 @@ extension VortiaStore.Stage {
         case .time: L10n.t(.time)
         case .run: L10n.t(.run)
         case .results: L10n.t(.results)
+        case .contour: L10n.t(.contour)
+        case .flowSetup: L10n.t(.flowSetup)
         case .engineering: L10n.t(.engineering)
         }
     }
@@ -86,6 +90,8 @@ extension VortiaStore.Stage {
         case .time: "clock"
         case .run: "play.circle"
         case .results: "chart.xyaxis.line"
+        case .contour: "scribble.variable"
+        case .flowSetup: "wind.circle"
         case .engineering: "ruler"
         }
     }
@@ -106,6 +112,8 @@ private struct StageView: View {
             case .time: TimeView()
             case .run: RunView()
             case .results: ResultsView()
+            case .contour: ContourView()
+            case .flowSetup: FlowSetupView()
             case .engineering: EngineeringView()
             }
         }

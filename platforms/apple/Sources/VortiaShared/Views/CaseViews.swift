@@ -29,6 +29,11 @@ struct GeometryView: View {
                     .frame(height: 260)
                     .listRowInsets(EdgeInsets())
             }
+            Section(L10n.t(.compressibleTitle)) {
+                Text(L10n.t(.compressibleBody)).font(.callout).foregroundStyle(.secondary)
+                Button(L10n.t(.makeNozzle)) { Task { await store.makeNozzle(NozzleDimensions()) } }
+                    .disabled(store.job.isRunning)
+            }
         }
         .formStyle(.grouped)
     }

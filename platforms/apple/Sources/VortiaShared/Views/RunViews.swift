@@ -12,6 +12,9 @@ struct RunView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 status.card()
+                if let convergence = store.convergence {
+                    ConvergenceCard(convergence: convergence).card()
+                }
                 ResidualChart(points: store.residuals)
                     .frame(height: 280)
                     .card()

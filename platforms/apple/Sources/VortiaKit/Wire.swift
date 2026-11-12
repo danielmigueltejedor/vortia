@@ -17,6 +17,13 @@ public enum EngineRequest: Equatable, Sendable {
     case line(field: String, start: [Double], end: [Double], points: Int = 120)
     case slice(field: String, axis: Int, position: Double)
     case surface(field: String)
+    case sketch
+    case saveSketch(JSONValue)
+    case nozzle(NozzleDimensions)
+    case flow
+    case saveFlow(JSONValue)
+    case flowMesh
+    case flowSolve
     case section(options: SectionOptions, label: String)
     case quit
 
@@ -36,6 +43,13 @@ public enum EngineRequest: Equatable, Sendable {
         case .line: "line"
         case .slice: "slice"
         case .surface: "surface"
+        case .sketch: "sketch"
+        case .saveSketch: "saveSketch"
+        case .nozzle: "nozzle"
+        case .flow: "flow"
+        case .saveFlow: "saveFlow"
+        case .flowMesh: "flowMesh"
+        case .flowSolve: "flowSolve"
         case .section: "section"
         case .quit: "quit"
         }
@@ -65,7 +79,7 @@ public enum EngineRequest: Equatable, Sendable {
             try c.encode(id, forKey: Key("id"))
             try c.encode(request.command, forKey: Key("cmd"))
             switch request {
-            case .hello, .detect, .mesh, .cancel, .results, .quit:
+            case .hello, .detect, .mesh, .cancel, .results, .quit, .sketch, .flow, .flowMesh, .flowSolve:
                 break
             case .create(let path, let name):
                 try c.encode(path, forKey: Key("path"))
@@ -93,6 +107,12 @@ public enum EngineRequest: Equatable, Sendable {
                 try c.encode(position, forKey: Key("position"))
             case .surface(let field):
                 try c.encode(field, forKey: Key("field"))
+            case .saveSketch(let sketch):
+                try c.encode(sketch, forKey: Key("sketch"))
+            case .nozzle(let dimensions):
+                try c.encode(dimensions, forKey: Key("dimensions"))
+            case .saveFlow(let flow):
+                try c.encode(flow, forKey: Key("flow"))
             case .section(let options, let label):
                 try c.encode(options, forKey: Key("options"))
                 try c.encode(label, forKey: Key("label"))
@@ -270,12 +290,18 @@ public struct Progress: Codable, Equatable, Sendable {
     public var courantMean: Double?
     public var courantMax: Double?
     public var residuals: [Residual]
+    /// Only from the compressible solver.
+    public var convergence: Convergence?
 
-    public init(time: Double?, courantMean: Double?, courantMax: Double?, residuals: [Residual]) {
+    public init(
+        time: Double?, courantMean: Double?, courantMax: Double?, residuals: [Residual],
+        convergence: Convergence? = nil
+    ) {
         self.time = time
         self.courantMean = courantMean
         self.courantMax = courantMax
         self.residuals = residuals
+        self.convergence = convergence
     }
 }
 

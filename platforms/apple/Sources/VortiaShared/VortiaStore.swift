@@ -18,6 +18,8 @@ public final class VortiaStore {
 
     public enum Stage: String, CaseIterable, Identifiable, Sendable {
         case geometry, mesh, physics, time, run, results, engineering
+        /// The compressible workflow over a sketched, axisymmetric domain.
+        case contour, flowSetup
         public var id: String { rawValue }
     }
 
@@ -56,6 +58,21 @@ public final class VortiaStore {
     public private(set) var surface: FieldTriangles?
     public private(set) var profile: LineProfile?
     public private(set) var error: String?
+    /// The fluid contour of a compressible project; nil for a box-domain case.
+    public private(set) var sketch: Sketch?
+    /// Where the compressible solver says it is on the way to convergence.
+    public private(set) var convergence: Convergence?
+    /// The compressible setup being edited, saved after a pause like the box setup.
+    public var flow: JSONValue? {
+        didSet {
+            guard flow != oldValue, !applyingFromEngine, flow != nil else { return }
+            scheduleFlowSave()
+        }
+    }
+    @ObservationIgnored private var flowSync: Task<Void, Never>?
+
+    /// A project with a contour runs the compressible workflow.
+    public var isFlowProject: Bool { sketch != nil }
     /// The section to analyse, and the report of the last one.
     public var section = SectionOptions()
     public var sectionLabel = ""
@@ -137,6 +154,7 @@ public final class VortiaStore {
             if log.count > Self.logLimit { log = String(log.suffix(Self.logLimit * 3 / 4)) }
         case .progress(let progress):
             latest = progress
+            if let convergence = progress.convergence { self.convergence = convergence }
             let time = progress.time ?? Double(residualCount)
             for residual in progress.residuals {
                 guard let value = residual.initial, value > 0 else { continue }
@@ -207,8 +225,14 @@ public final class VortiaStore {
         latest = nil
         log = ""
         job = .idle
+        sketch = nil
+        flow = nil
+        convergence = nil
         stage = project.state == "solved" ? .results : .geometry
-        Task { await validateNow() }
+        Task {
+            await validateNow()
+            await loadSketch()
+        }
     }
 
     private func refreshProject() async {
@@ -240,15 +264,79 @@ public final class VortiaStore {
     // MARK: Running
 
     public var canRun: Bool {
-        connection == .ready && project != nil && !job.isRunning && validation?.hasErrors != true
+        guard connection == .ready, project != nil, !job.isRunning else { return false }
+        return isFlowProject || validation?.hasErrors != true
     }
 
     public func mesh() async {
-        await start(.mesh)
+        await start(isFlowProject ? .flowMesh : .mesh)
     }
 
     public func solve() async {
-        await start(.solve(processes: 1))
+        await start(isFlowProject ? .flowSolve : .solve(processes: 1))
+    }
+
+    // MARK: Contour and compressible flow
+
+    private func loadSketch() async {
+        guard let client else { return }
+        struct Answer: Decodable { var sketch: Sketch? }
+        guard let answer = try? await client.call(.sketch, as: Answer.self) else { return }
+        sketch = answer.sketch
+        if sketch != nil {
+            await loadFlow()
+            if stage == .geometry { stage = .contour }
+        }
+    }
+
+    private func loadFlow() async {
+        guard let client else { return }
+        struct Answer: Decodable { var flow: JSONValue }
+        guard let answer = try? await client.call(.flow, as: Answer.self) else { return }
+        applyingFromEngine = true
+        flow = answer.flow
+        applyingFromEngine = false
+    }
+
+    /// Replaces the contour with the parametric nozzle of these dimensions.
+    public func makeNozzle(_ dimensions: NozzleDimensions) async {
+        struct Answer: Decodable { var sketch: Sketch }
+        await perform {
+            self.sketch = try await $0.call(.nozzle(dimensions), as: Answer.self).sketch
+            await self.loadFlow()
+            self.stage = .contour
+        }
+    }
+
+    /// Saves an edited contour; boundaries follow their segments in the engine.
+    public func updateContour(points: [[Double]], closed: Bool, bulges: [Double]) async {
+        guard let sketch else { return }
+        struct Answer: Decodable { var sketch: Sketch }
+        let file = sketch.file(points: points, closed: closed, bulges: bulges)
+        await perform {
+            self.sketch = try await $0.call(.saveSketch(file), as: Answer.self).sketch
+            await self.loadFlow()
+        }
+    }
+
+    private func scheduleFlowSave() {
+        flowSync?.cancel()
+        flowSync = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, !job.isRunning, let flow, let client else { return }
+            struct Answer: Decodable { var flow: JSONValue }
+            do {
+                let saved = try await client.call(.saveFlow(flow), as: Answer.self)
+                // The engine normalises (names, limits); show what it kept.
+                if saved.flow != flow {
+                    applyingFromEngine = true
+                    self.flow = saved.flow
+                    applyingFromEngine = false
+                }
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
     }
 
     public func cancel() async {
@@ -257,8 +345,14 @@ public final class VortiaStore {
     }
 
     private func start(_ request: EngineRequest) async {
-        await save()
+        if isFlowProject {
+            flowSync?.cancel()
+            if let flow, let client { _ = try? await client.send(.saveFlow(flow)) }
+        } else {
+            await save()
+        }
         guard canRun else { return }
+        convergence = nil
         residuals = []
         residualCount = 0
         latest = nil
@@ -266,7 +360,7 @@ public final class VortiaStore {
         stage = .run
         await perform {
             _ = try await $0.send(request)
-            self.job = .running(phase: request == .mesh ? "mesh" : "solve")
+            self.job = .running(phase: request == .mesh || request == .flowMesh ? "mesh" : "solve")
         }
     }
 
