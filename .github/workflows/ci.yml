@@ -139,7 +139,7 @@ jobs:
       # CTest SKIP_RETURN_CODE=2 cover the path when a complete install exists.
 
   macos:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies

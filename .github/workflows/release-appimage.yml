@@ -332,7 +332,7 @@ jobs:
     # Oldest Apple Silicon runner GitHub still offers. Qt/VTK come from
     # conda-forge (built for old macOS), not Homebrew bottles (built only
     # for the runner's own macOS version).
-    runs-on: macos-15
+    runs-on: macos-26
     defaults:
       run:
         shell: bash -el {0}
