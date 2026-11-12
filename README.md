@@ -6,7 +6,7 @@
     </picture>
   </a>
   <br><br>
-  <img src="https://raw.githubusercontent.com/danielmigueltejedor/vortia/main/resources/icons/vortia.png" width="200" alt="Vortia">
+  <img src="https://raw.githubusercontent.com/danielmigueltejedor/vortia/main/resources/icons/vortia.png" width="192" alt="Vortia">
   <h1>Vortia</h1>
   <p><strong>A free desktop application for CFD simulation with OpenFOAM, from geometry to 3D post-processing.</strong></p>
 
