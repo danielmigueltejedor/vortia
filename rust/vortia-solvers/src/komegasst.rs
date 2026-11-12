@@ -15,8 +15,9 @@
 use vortia_core::Vec3;
 use vortia_foamfile::Dictionary;
 use vortia_fv::limited::GradScheme;
-use vortia_fv::ops::{grad as scalar_grad, surface_integrate};
-use vortia_fv::stress::{Tensor, grad, production};
+use vortia_fv::limited::grad as limited_grad;
+use vortia_fv::ops::surface_integrate;
+use vortia_fv::stress::{Tensor, grad, grad_with, production};
 use vortia_fv::vector::VectorBoundary;
 use vortia_fv::{FvGeometry, Performance, ScalarMatrix};
 use vortia_mesh::PolyMesh;
@@ -27,8 +28,8 @@ use crate::error::{Result, SolverError};
 use crate::ico::switch_or;
 use crate::kepsilon::{calculated_faces, read_k, read_nut};
 use crate::rans::{
-    EquationSetup, Kind, LogLaw, ModelField, WallFace, bound, correct_nut_walls, face_diffusivity,
-    near_wall, pow025, rhs, solve, transport, wall_function,
+    EquationSetup, InletSource, Kind, LogLaw, ModelField, WallFace, bound, correct_nut_walls,
+    face_diffusivity, near_wall, pow025, rhs, solve, transport, wall_function,
 };
 
 /// `[0 0 -1 0 0 0 0]`.
@@ -49,6 +50,7 @@ struct Coeffs {
     a1: f64,
     b1: f64,
     c1: f64,
+    cmu: f64,
     f3: bool,
 }
 
@@ -74,8 +76,18 @@ impl Coeffs {
             a1: get("a1", 0.31),
             b1: get("b1", 1.0),
             c1: get("c1", 10.0),
+            cmu: get("Cmu", 0.09),
             f3: flag("F3")?,
         })
+    }
+}
+
+/// An `inletOutlet`-style condition, filled in as the field is read.
+fn mixed(source: InletSource) -> Kind {
+    Kind::Mixed {
+        source,
+        ref_value: Vec::new(),
+        fraction: Vec::new(),
     }
 }
 
@@ -100,7 +112,16 @@ fn s2(g: &Tensor) -> f64 {
 /// The k-ω SST model of a run: its fields and how it solves them.
 pub(crate) struct KOmegaSst {
     c: Coeffs,
-    nu: f64,
+    /// ν in the cells and on the boundary faces: one number, or `μ/ρ`.
+    nu: Vec<f64>,
+    nu_b: Vec<Option<f64>>,
+    /// The gas the model runs in, when the equations are ρ-weighted and the
+    /// flux is a mass flux.
+    density: Option<Density>,
+    /// `grad(U)`, `grad(k)` and `grad(omega)`.
+    u_grad: GradScheme,
+    k_grad: GradScheme,
+    omega_grad: GradScheme,
     k: ModelField,
     omega: ModelField,
     nut: ModelField,
@@ -112,6 +133,25 @@ pub(crate) struct KOmegaSst {
     y_wall: Vec<Vec<f64>>,
     k_eqn: EquationSetup,
     omega_eqn: EquationSetup,
+}
+
+/// The density of the gas, in the cells and on the boundary faces.
+struct Density {
+    cells: Vec<f64>,
+    faces: Vec<Option<f64>>,
+}
+
+/// What the model runs in: a liquid of constant kinematic viscosity, or a
+/// gas with its density and dynamic viscosity.
+#[derive(Clone, Copy)]
+pub(crate) enum Medium<'a> {
+    Uniform(f64),
+    Gas {
+        rho: &'a [f64],
+        rho_b: &'a [Option<f64>],
+        mu: &'a [f64],
+        mu_b: &'a [Option<f64>],
+    },
 }
 
 /// A field in the cells and on the boundary faces.
@@ -130,18 +170,25 @@ impl KOmegaSst {
         fv: &FvGeometry,
         dir: &std::path::Path,
         coeffs: Option<&Dictionary>,
-        nu: f64,
+        medium: Medium,
         [relax_k, relax_omega]: [Option<f64>; 2],
-        (u_bc, u): (&VectorBoundary, &[Vec3]),
+        (u_bc, u, unevaluated): (&VectorBoundary, &[Vec3], &[usize]),
     ) -> Result<Self> {
         check_wall_dist(case)?;
-        // CDkω and F1 take these gradients, and only Gauss linear is built.
-        case.require_gauss_linear_grad("k")?;
-        case.require_gauss_linear_grad("omega")?;
-        let k = read_k(mesh, dir)?;
+        let k = read_k(mesh, dir, true)?;
         let omega = ModelField::read(mesh, dir, "omega", FREQUENCY, |pf| match pf.kind.as_str() {
             "fixedValue" => Some(Kind::Fixed(Vec::new())),
             "zeroGradient" => Some(Kind::ZeroGradient),
+            "inletOutlet" => Some(mixed(InletSource::Value)),
+            "turbulentMixingLengthFrequencyInlet" => {
+                let length = pf.settings.scalar("mixingLength")?;
+                if pf.settings.word("k").is_some_and(|k| k != "k")
+                    || pf.settings.word("phi").is_some_and(|p| p != "phi")
+                {
+                    return None;
+                }
+                Some(mixed(InletSource::MixingLength(length)))
+            }
             "omegaWallFunction" => {
                 let blended = switch_or(&pf.settings, "blended", true, "").ok()?;
                 let beta1 = pf.settings.scalar("beta1").unwrap_or(0.075);
@@ -153,7 +200,12 @@ impl KOmegaSst {
         let y = wall_distance(mesh, &fv.geo.cell_centres, &fv.geo.face_centres)?;
         let mut model = Self {
             c: Coeffs::read(coeffs)?,
-            nu,
+            nu: Vec::new(),
+            nu_b: Vec::new(),
+            density: None,
+            u_grad: case.grad_scheme("grad(U)")?,
+            k_grad: case.grad_scheme("grad(k)")?,
+            omega_grad: case.grad_scheme("grad(omega)")?,
             k,
             omega,
             y_cells: y.cells,
@@ -163,10 +215,11 @@ impl KOmegaSst {
             k_eqn: EquationSetup::read(case, "k", "DkEff", relax_k)?,
             omega_eqn: EquationSetup::read(case, "omega", "DomegaEff", relax_omega)?,
         };
+        model.set_medium(medium);
         let mut sink = |_: &str| {};
         bound(mesh, fv, "k", &mut model.k, &mut sink);
         bound(mesh, fv, "omega", &mut model.omega, &mut sink);
-        let (grad_u, grad_u_b) = grad(GradScheme::GaussLinear, mesh, fv, u_bc, u);
+        let (grad_u, grad_u_b) = grad_with(model.u_grad, mesh, fv, u_bc, u, unevaluated);
         model.correct_nut(mesh, &strain(&grad_u, &grad_u_b));
         Ok(model)
     }
@@ -175,8 +228,63 @@ impl KOmegaSst {
         &self.nut
     }
 
-    pub(crate) fn nu(&self) -> f64 {
-        self.nu
+    /// The medium the model runs in, as of this iteration: `ν` is `μ/ρ`
+    /// with the density the gas has now.
+    pub(crate) fn set_medium(&mut self, medium: Medium) {
+        match medium {
+            Medium::Uniform(nu) => {
+                self.nu = vec![nu; self.k.cells.len()];
+                self.nu_b = self.k.faces.iter().map(|f| f.map(|_| nu)).collect();
+                self.density = None;
+            }
+            Medium::Gas {
+                rho,
+                rho_b,
+                mu,
+                mu_b,
+            } => {
+                self.nu = mu.iter().zip(rho).map(|(&m, &r)| m / r).collect();
+                self.nu_b = mu_b
+                    .iter()
+                    .zip(rho_b)
+                    .map(|(m, r)| m.zip(*r).map(|(m, r)| m / r))
+                    .collect();
+                self.density = Some(Density {
+                    cells: rho.to_vec(),
+                    faces: rho_b.to_vec(),
+                });
+            }
+        }
+    }
+
+    /// `ν_t + ν` in the cells.
+    pub(crate) fn nu_eff_cells(&self) -> Vec<f64> {
+        self.nut
+            .cells
+            .iter()
+            .zip(&self.nu)
+            .map(|(&t, &nu)| t + nu)
+            .collect()
+    }
+
+    /// `ν_t + ν` on the boundary faces.
+    pub(crate) fn nu_eff_faces(&self) -> Vec<Option<f64>> {
+        self.nut
+            .faces
+            .iter()
+            .zip(&self.nu_b)
+            .map(|(t, nu)| t.zip(*nu).map(|(t, nu)| t + nu))
+            .collect()
+    }
+
+    /// Writes k, ω and ν_t into `dir/time`.
+    pub(crate) fn write(&self, mesh: &PolyMesh, dir: &std::path::Path, time: &str) -> Result<()> {
+        for field in self.fields() {
+            let mut out = field.to_write(mesh);
+            out.drop_zero_gradient_values();
+            out.write(dir, time)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn fields(&self) -> [&ModelField; 3] {
@@ -184,13 +292,13 @@ impl KOmegaSst {
     }
 
     /// `F2`, times `F3` when the model asks for it, in a cell or on a face.
-    fn f23(&self, k: f64, omega: f64, y: f64) -> f64 {
+    fn f23(&self, k: f64, omega: f64, y: f64, nu: f64) -> f64 {
         let c = &self.c;
-        let viscous = (500.0 * self.nu) / ((y * y) * omega);
+        let viscous = (500.0 * nu) / ((y * y) * omega);
         let arg2 = ((((2.0 / c.beta_star) * k.sqrt()) / (omega * y)).max(viscous)).min(100.0);
         let f2 = (arg2 * arg2).tanh();
         if c.f3 {
-            let arg3 = ((150.0 * self.nu) / (omega * (y * y))).min(10.0);
+            let arg3 = ((150.0 * nu) / (omega * (y * y))).min(10.0);
             f2 * (1.0 - pow4(arg3).tanh())
         } else {
             f2
@@ -198,11 +306,11 @@ impl KOmegaSst {
     }
 
     /// `F1` in a cell or on a face, from `CDkω` there.
-    fn f1(&self, k: f64, omega: f64, y: f64, cd_k_omega: f64) -> f64 {
+    fn f1(&self, k: f64, omega: f64, y: f64, nu: f64, cd_k_omega: f64) -> f64 {
         let c = &self.c;
         let plus = cd_k_omega.max(1.0e-10);
         let arg1 = ((((1.0 / c.beta_star) * k.sqrt()) / (omega * y))
-            .max((500.0 * self.nu) / ((y * y) * omega)))
+            .max((500.0 * nu) / ((y * y) * omega)))
         .min(((4.0 * c.alpha_omega2) * k) / (plus * (y * y)))
         .min(10.0);
         pow4(arg1).tanh()
@@ -217,6 +325,7 @@ impl KOmegaSst {
                         self.k.cells.get(c).copied().unwrap_or(0.0),
                         self.omega.cells.get(c).copied().unwrap_or(0.0),
                         self.y_cells.get(c).copied().unwrap_or(0.0),
+                        self.nu.get(c).copied().unwrap_or(0.0),
                     )
                 })
                 .collect(),
@@ -226,6 +335,7 @@ impl KOmegaSst {
                         self.k.faces.get(b).copied().flatten()?,
                         self.omega.faces.get(b).copied().flatten()?,
                         self.y_faces.get(b).copied().flatten()?,
+                        self.nu_b.get(b).copied().flatten()?,
                     ))
                 })
                 .collect(),
@@ -253,7 +363,11 @@ impl KOmegaSst {
             let get = |v: &[Option<f64>]| v.get(b).copied().flatten();
             Some(nut(get(k)?, get(omega)?, get(&f23.faces)?, get(&s2.faces)?))
         });
-        correct_nut_walls(mesh, &mut self.nut, &self.k.cells, &self.y_wall, self.nu);
+        let nu_b = &self.nu_b;
+        let nu = |b: usize| nu_b.get(b).copied().flatten().unwrap_or(0.0);
+        correct_nut_walls(mesh, &mut self.nut, &self.k.cells, &self.y_wall, nu);
+        // The wedge faces take the cell values the way `correctBoundaryConditions` does.
+        self.nut.follow_cells(mesh);
     }
 
     /// `α(F1) ν_t + ν` linearly on every face, `α` blended between
@@ -266,23 +380,42 @@ impl KOmegaSst {
         alpha1: f64,
         alpha2: f64,
     ) -> Vec<f64> {
+        let rho =
+            |v: Option<&Vec<f64>>, i: usize| v.map_or(1.0, |v| v.get(i).copied().unwrap_or(1.0));
         let cells: Vec<f64> = f1
             .cells
             .iter()
             .zip(&self.nut.cells)
-            .map(|(&f, &t)| blend(f, alpha1, alpha2) * t + self.nu)
+            .zip(&self.nu)
+            .enumerate()
+            .map(|(i, ((&f, &t), &nu))| {
+                let d = blend(f, alpha1, alpha2) * t + nu;
+                match &self.density {
+                    Some(r) => rho(Some(&r.cells), i) * d,
+                    None => d,
+                }
+            })
             .collect();
         let faces: Vec<Option<f64>> = f1
             .faces
             .iter()
             .zip(&self.nut.faces)
-            .map(|(f, t)| Some(blend((*f)?, alpha1, alpha2) * (*t)? + self.nu))
+            .zip(&self.nu_b)
+            .enumerate()
+            .map(|(b, ((f, t), nu))| {
+                let d = blend((*f)?, alpha1, alpha2) * (*t)? + (*nu)?;
+                match &self.density {
+                    Some(r) => Some(r.faces.get(b).copied().flatten()? * d),
+                    None => Some(d),
+                }
+            })
             .collect();
         face_diffusivity(mesh, fv, &cells, &faces)
     }
 
     /// One `turbulence->correct()`: the ω and k equations, then ν_t. Logs
-    /// each solve and returns it.
+    /// each solve and returns it. `phi` is the mass flux in a gas and the
+    /// volumetric flux otherwise.
     pub(crate) fn correct(
         &mut self,
         mesh: &PolyMesh,
@@ -293,8 +426,22 @@ impl KOmegaSst {
         log: &mut dyn FnMut(&str),
     ) -> Result<Vec<(String, Performance)>> {
         let c = self.c;
-        let div_u = surface_integrate(mesh, fv, phi);
-        let (grad_u, grad_u_b) = grad(GradScheme::GaussLinear, mesh, fv, u_bc, u);
+        let n = mesh.n_cells();
+        // ρ in a gas, 1 otherwise: the equations are ρ times the liquid's.
+        let rho: Vec<f64> = match &self.density {
+            Some(d) => d.cells.clone(),
+            None => vec![1.0; n],
+        };
+        // `divU`, from the volumetric flux `phi/ρ_f`.
+        let div_u = match &self.density {
+            Some(d) => {
+                let rho_f = face_diffusivity(mesh, fv, &d.cells, &d.faces);
+                let phi_vol: Vec<f64> = phi.iter().zip(&rho_f).map(|(&f, &r)| f / r).collect();
+                surface_integrate(mesh, fv, &phi_vol)
+            }
+            None => surface_integrate(mesh, fv, phi),
+        };
+        let (grad_u, grad_u_b) = grad(self.u_grad, mesh, fv, u_bc, u);
         let s2 = strain(&grad_u, &grad_u_b);
         let g_by_nu0: Vec<f64> = grad_u.iter().map(production).collect();
         let mut g: Vec<f64> = self
@@ -304,7 +451,12 @@ impl KOmegaSst {
             .zip(&g_by_nu0)
             .map(|(&t, &p)| t * p)
             .collect();
+        let u_b = u_bc.face_values(mesh, u);
 
+        // ω's conditions that follow the flow take the k of the faces now.
+        self.omega
+            .update_inlets(mesh, phi, &u_b, Some(&self.k.faces), c.cmu);
+        let nu_b = &self.nu_b;
         let wall_cells = wall_function(
             mesh,
             fv,
@@ -312,18 +464,18 @@ impl KOmegaSst {
             &self.nut,
             &self.k.cells,
             &self.y_wall,
-            self.nu,
+            |b| nu_b.get(b).copied().flatten().unwrap_or(0.0),
             (u, u_bc),
             &mut g,
             omega_wall,
         );
 
         // CDkω = 2 αω2 (∇k · ∇ω)/ω, then F1 and F23.
-        let (gk, gk_b) = boundary_grad(mesh, fv, &self.k);
-        let (gw, gw_b) = boundary_grad(mesh, fv, &self.omega);
+        let (gk, gk_b) = boundary_grad(mesh, fv, self.k_grad, &self.k);
+        let (gw, gw_b) = boundary_grad(mesh, fv, self.omega_grad, &self.omega);
         let cd = |a: Vec3, b: Vec3, omega: f64| ((2.0 * c.alpha_omega2) * a.dot(b)) / omega;
         let f1 = Both {
-            cells: (0..mesh.n_cells())
+            cells: (0..n)
                 .map(|i| {
                     let get = |v: &[f64]| v.get(i).copied().unwrap_or(0.0);
                     let at = |v: &[Vec3]| v.get(i).copied().unwrap_or_default();
@@ -332,6 +484,7 @@ impl KOmegaSst {
                         get(&self.k.cells),
                         omega,
                         get(&self.y_cells),
+                        get(&self.nu),
                         cd(at(&gk), at(&gw), omega),
                     )
                 })
@@ -345,12 +498,13 @@ impl KOmegaSst {
                         get(&self.k.faces)?,
                         omega,
                         get(&self.y_faces)?,
+                        get(&self.nu_b)?,
                         cd(at(&gk_b)?, at(&gw_b)?, omega),
                     ))
                 })
                 .collect(),
         };
-        let cd_cells: Vec<f64> = (0..mesh.n_cells())
+        let cd_cells: Vec<f64> = (0..n)
             .map(|i| {
                 cd(
                     gk.get(i).copied().unwrap_or_default(),
@@ -361,25 +515,25 @@ impl KOmegaSst {
             .collect();
         let f23 = self.f23_field();
 
-        // ω: (div − laplacian) − (γ GbyNu − SuSp − Sp − SuSp).
+        // ω: (div − laplacian) − (ρ γ GbyNu − SuSp − Sp − SuSp).
         let gamma = self.diffusivity(mesh, fv, &f1, c.alpha_omega1, c.alpha_omega2);
         let mut omega_eqn = transport(mesh, fv, &self.omega, &self.omega_eqn, phi, &gamma)?;
-        let n = mesh.n_cells();
         let mut su = Vec::with_capacity(n);
         let mut susp = Vec::with_capacity(n);
         let mut sp = Vec::with_capacity(n);
         let mut cross = Vec::with_capacity(n);
         for i in 0..n {
             let get = |v: &[f64]| v.get(i).copied().unwrap_or(0.0);
-            let (f1c, omega) = (get(&f1.cells), get(&self.omega.cells));
+            let (f1c, omega, rho) = (get(&f1.cells), get(&self.omega.cells), get(&rho));
             let gamma_c = blend(f1c, c.gamma1, c.gamma2);
             let beta_c = blend(f1c, c.beta1, c.beta2);
             let limit = (((c.c1 / c.a1) * c.beta_star) * omega)
                 * (c.a1 * omega).max((c.b1 * get(&f23.cells)) * get(&s2.cells).sqrt());
-            su.push(gamma_c * get(&g_by_nu0).min(limit));
-            susp.push(((2.0 / 3.0) * gamma_c) * get(&div_u));
-            sp.push(beta_c * omega);
-            cross.push(((f1c - 1.0) * get(&cd_cells)) / omega);
+            let weighted = rho * gamma_c;
+            su.push(weighted * get(&g_by_nu0).min(limit));
+            susp.push((((2.0 / 3.0) * rho) * gamma_c) * get(&div_u));
+            sp.push((rho * beta_c) * omega);
+            cross.push(((rho * (f1c - 1.0)) * get(&cd_cells)) / omega);
         }
         let mut source = rhs(mesh, fv, &su, &susp, &sp, &self.omega.cells);
         source.sub(&ScalarMatrix::su_sp(mesh, fv, &cross, &self.omega.cells));
@@ -395,16 +549,28 @@ impl KOmegaSst {
         )?];
         bound(mesh, fv, "omega", &mut self.omega, log);
 
-        // k: (div − laplacian) − (min(G, c1 β* k ω) − SuSp − Sp).
+        // k: (div − laplacian) − (ρ min(G, c1 β* k ω) − SuSp − Sp).
+        self.k.update_inlets(mesh, phi, &u_b, None, c.cmu);
         let gamma = self.diffusivity(mesh, fv, &f1, c.alpha_k1, c.alpha_k2);
         let mut k_eqn = transport(mesh, fv, &self.k, &self.k_eqn, phi, &gamma)?;
         let pk: Vec<f64> = g
             .iter()
             .zip(self.k.cells.iter().zip(&self.omega.cells))
-            .map(|(&g, (&k, &omega))| g.min(((c.c1 * c.beta_star) * k) * omega))
+            .zip(&rho)
+            .map(|((&g, (&k, &omega)), &rho)| rho * g.min(((c.c1 * c.beta_star) * k) * omega))
             .collect();
-        let susp: Vec<f64> = div_u.iter().map(|&d| (2.0 / 3.0) * d).collect();
-        let sp: Vec<f64> = self.omega.cells.iter().map(|&w| c.beta_star * w).collect();
+        let susp: Vec<f64> = div_u
+            .iter()
+            .zip(&rho)
+            .map(|(&d, &rho)| ((2.0 / 3.0) * rho) * d)
+            .collect();
+        let sp: Vec<f64> = self
+            .omega
+            .cells
+            .iter()
+            .zip(&rho)
+            .map(|(&w, &rho)| rho * (c.beta_star * w))
+            .collect();
         k_eqn.sub(&rhs(mesh, fv, &pk, &susp, &sp, &self.k.cells));
         solves.push(solve(mesh, k_eqn, &mut self.k, &self.k_eqn, &[], "k", log)?);
         bound(mesh, fv, "k", &mut self.k, log);
@@ -450,9 +616,10 @@ fn omega_wall(kind: &Kind, law: &LogLaw, f: &WallFace) -> (f64, f64) {
 fn boundary_grad(
     mesh: &PolyMesh,
     fv: &FvGeometry,
+    scheme: GradScheme,
     field: &ModelField,
 ) -> (Vec<Vec3>, Vec<Option<Vec3>>) {
-    let cells = scalar_grad(mesh, fv, &field.boundary(mesh), &field.cells);
+    let cells = limited_grad(scheme, mesh, fv, &field.cells, &field.faces);
     let n_internal = mesh.n_internal_faces();
     let mut faces = Vec::with_capacity(field.faces.len());
     for (patch, kind) in mesh.patches().iter().zip(&field.kinds) {

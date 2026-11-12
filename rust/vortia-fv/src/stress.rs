@@ -76,6 +76,21 @@ pub fn grad(
     bc: &VectorBoundary,
     u: &[Vec3],
 ) -> (Vec<Tensor>, Vec<Option<Tensor>>) {
+    grad_with(scheme, mesh, fv, bc, u, &[])
+}
+
+/// [`grad`] where the patches in `unevaluated` have a normal gradient of
+/// zero whatever their face values are: a `directionMixed` condition that
+/// has not been updated yet holds the `value` of its file but no value
+/// fraction, so its `snGrad` is zero.
+pub fn grad_with(
+    scheme: GradScheme,
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    bc: &VectorBoundary,
+    u: &[Vec3],
+    unevaluated: &[usize],
+) -> (Vec<Tensor>, Vec<Option<Tensor>>) {
     let mut g = vec![[[0.0; 3]; 3]; mesh.n_cells()];
     let sf = &fv.geo.face_areas;
     let own = mesh.owner();
@@ -118,7 +133,7 @@ pub fn grad(
     }
 
     let mut out = Vec::with_capacity(boundary.len());
-    for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
+    for (index, (patch, cond)) in mesh.patches().iter().zip(&bc.conditions).enumerate() {
         for (i, f) in patch.faces().enumerate() {
             if patch.kind == PatchKind::Empty {
                 out.push(None);
@@ -136,6 +151,7 @@ pub fn grad(
             let n = Vec3::new(s.x / mag, s.y / mag, s.z / mag);
             let inside = cell(c.as_ref());
             let sn = match cond {
+                _ if unevaluated.contains(&index) => Vec3::default(),
                 VectorBc::FixedValue(v) => {
                     let dc = fv.delta_coeffs.get(f).copied().unwrap_or(0.0);
                     let b = v.get(i).copied().unwrap_or_default();
@@ -351,5 +367,46 @@ mod tests {
         let g = faces[k].unwrap();
         let normal = dot(Vec3::new(0.0, -1.0, 0.0), &g);
         assert!((normal.x - 2.0).abs() < 1e-12, "{normal:?}");
+    }
+
+    /// A patch that has not been evaluated yet (an outlet condition before
+    /// its first update) has a normal gradient of zero, whatever value it
+    /// holds.
+    #[test]
+    fn a_patch_not_yet_evaluated_has_no_normal_gradient() {
+        use vortia_core::Aabb;
+        use vortia_mesh::blocks::structured_box_raw;
+
+        let bounds = Aabb {
+            min: Vec3::default(),
+            max: Vec3::new(1.0, 1.0, 1.0),
+        };
+        let mesh = PolyMesh::from_raw(structured_box_raw(bounds, [1, 1, 1]).unwrap()).unwrap();
+        let fv = FvGeometry::new(&mesh);
+        let conditions: Vec<VectorBc> = mesh
+            .patches()
+            .iter()
+            .map(|p| match p.name.as_str() {
+                "yMin" => VectorBc::FixedValue(vec![Vec3::new(1.0, 0.0, 0.0); p.size]),
+                _ => VectorBc::ZeroGradient,
+            })
+            .collect();
+        let bc = VectorBoundary {
+            assignable: vec![false; conditions.len()],
+            conditions,
+        };
+        let index = mesh
+            .patches()
+            .iter()
+            .position(|p| p.name == "yMin")
+            .unwrap();
+        let k = mesh.patch("yMin").unwrap().start - mesh.n_internal_faces();
+        let u = [Vec3::default()];
+        let normal = |unevaluated: &[usize]| {
+            let (_, faces) = grad_with(GradScheme::GaussLinear, &mesh, &fv, &bc, &u, unevaluated);
+            dot(Vec3::new(0.0, -1.0, 0.0), &faces[k].unwrap()).x
+        };
+        assert!((normal(&[]) - 2.0).abs() < 1e-12);
+        assert!(normal(&[index]).abs() < 1e-12);
     }
 }

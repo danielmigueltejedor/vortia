@@ -22,8 +22,8 @@ use crate::case::{Case, KINEMATIC_DIFFUSIVITY, KINEMATIC_PRESSURE};
 use crate::error::{Result, SolverError};
 use crate::ico::switch_or;
 use crate::rans::{
-    EquationSetup, Kind, LogLaw, ModelField, bound, correct_nut_walls, face_diffusivity, near_wall,
-    pow025, rhs, solve, transport, wall_function,
+    EquationSetup, InletSource, Kind, LogLaw, ModelField, bound, correct_nut_walls,
+    face_diffusivity, near_wall, pow025, rhs, solve, transport, wall_function,
 };
 
 /// `[0 2 -3 0 0 0 0]`.
@@ -81,7 +81,7 @@ impl KEpsilon {
         relax_k: Option<f64>,
         relax_epsilon: Option<f64>,
     ) -> Result<Self> {
-        let k = read_k(mesh, dir)?;
+        let k = read_k(mesh, dir, false)?;
         let epsilon = ModelField::read(mesh, dir, "epsilon", DISSIPATION, |pf| {
             match pf.kind.as_str() {
                 "fixedValue" => Some(Kind::Fixed(Vec::new())),
@@ -103,6 +103,13 @@ impl KEpsilon {
             k_eqn: EquationSetup::read(case, "k", "DkEff", relax_k)?,
             epsilon_eqn: EquationSetup::read(case, "epsilon", "DepsilonEff", relax_epsilon)?,
         };
+        for (setup, key) in [(&model.k_eqn, "k"), (&model.epsilon_eqn, "epsilon")] {
+            if setup.is_corrected() {
+                return Err(SolverError::Setup(format!(
+                    "a corrected laplacian for {key} is not supported yet; use uncorrected"
+                )));
+            }
+        }
         let mut sink = |_: &str| {};
         bound(mesh, fv, "k", &mut model.k, &mut sink);
         bound(mesh, fv, "epsilon", &mut model.epsilon, &mut sink);
@@ -162,7 +169,8 @@ impl KEpsilon {
                 _ => None,
             }
         });
-        correct_nut_walls(mesh, &mut self.nut, &self.k.cells, &self.y, self.nu);
+        let nu = self.nu;
+        correct_nut_walls(mesh, &mut self.nut, &self.k.cells, &self.y, |_| nu);
     }
 
     /// One `turbulence->correct()`: the ε and k equations, then ν_t. Logs
@@ -195,7 +203,7 @@ impl KEpsilon {
             &self.nut,
             &self.k.cells,
             &self.y,
-            self.nu,
+            |_| self.nu,
             (u, u_bc),
             &mut g,
             epsilon_wall,
@@ -269,11 +277,30 @@ fn epsilon_wall(kind: &Kind, law: &LogLaw, f: &crate::rans::WallFace) -> (f64, f
 }
 
 /// Reads k: fixed, zero-gradient or `kqRWallFunction` on each patch.
-pub(crate) fn read_k(mesh: &PolyMesh, dir: &std::path::Path) -> Result<ModelField> {
+///
+/// `inlets` lets the conditions that follow the flow through, for the models
+/// that update them.
+pub(crate) fn read_k(mesh: &PolyMesh, dir: &std::path::Path, inlets: bool) -> Result<ModelField> {
+    let mixed = |source| Kind::Mixed {
+        source,
+        ref_value: Vec::new(),
+        fraction: Vec::new(),
+    };
     ModelField::read(mesh, dir, "k", KINEMATIC_PRESSURE, |pf| {
         match pf.kind.as_str() {
             "fixedValue" => Some(Kind::Fixed(Vec::new())),
             "zeroGradient" | "kqRWallFunction" => Some(Kind::ZeroGradient),
+            "inletOutlet" if inlets => Some(mixed(InletSource::Value)),
+            "turbulentIntensityKineticEnergyInlet" if inlets => {
+                if pf.settings.word("U").is_some_and(|u| u != "U")
+                    || pf.settings.word("phi").is_some_and(|p| p != "phi")
+                {
+                    return None;
+                }
+                Some(mixed(InletSource::Intensity(
+                    pf.settings.scalar("intensity")?,
+                )))
+            }
             _ => None,
         }
     })

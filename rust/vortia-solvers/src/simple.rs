@@ -214,9 +214,10 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         mut phi,
         need_reference,
     } = FlowFields::read(&start, &mesh, &fv)?;
-    let mut turbulence = Turbulence::read(case, &mesh, &fv, &start, nu, (&u_bc, &u), |name| {
-        relaxation.equation(name)
-    })?;
+    let mut turbulence =
+        Turbulence::read(case, &mesh, &fv, &start, nu, (&u_bc, &u, &[]), |name| {
+            relaxation.equation(name)
+        })?;
     let valid = solution_directions(&mesh, &fv);
     let names = ["Ux", "Uy", "Uz"];
     let alpha_u = relaxation.equation("U");

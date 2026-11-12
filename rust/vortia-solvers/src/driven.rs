@@ -237,6 +237,23 @@ impl PressureVelocity {
 }
 
 impl PressureVelocity {
+    /// The conditions as they stand before the first update, for what looks
+    /// at the velocity before then (the turbulence model validating its
+    /// viscosity): an outlet holds the `value` its file gave, not what its
+    /// condition would take from the cells, and, with no value fraction yet,
+    /// a normal gradient of zero. The second result lists those patches.
+    pub(crate) fn initial_boundary(&self, bc: &VectorBoundary) -> (VectorBoundary, Vec<usize>) {
+        let mut out = bc.clone();
+        let mut patches = Vec::new();
+        for (index, values) in &self.outlet {
+            if let Some(slot) = out.conditions.get_mut(*index) {
+                *slot = VectorBc::FixedValue(values.clone());
+                patches.push(*index);
+            }
+        }
+        (out, patches)
+    }
+
     /// Puts the file's own `value` on the outlet patches of `u_b`, as the
     /// velocity the flux is first made from (before any update, the
     /// condition has not yet looked at the cells).
