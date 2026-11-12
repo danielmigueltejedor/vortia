@@ -624,7 +624,7 @@ fn same_face(a: &[usize], b: &[usize]) -> bool {
         .any(|&back| (1..n).all(|i| at(i, back) == a.get(i).copied()))
 }
 
-enum Kind {
+pub(crate) enum Kind {
     Patch,
     Wall,
     Symmetry,
@@ -775,13 +775,59 @@ pub fn fluent_to_foam(text: &str, options: Options) -> Result<RawPolyMesh> {
     assemble(&f, &shapes, front_and_back, options)
 }
 
-/// The mesh of the shapes, its boundary faces put on the patches the zones
-/// name, and the zones.
+/// A group of boundary faces and what the zone it came from makes of it.
+pub(crate) struct Group {
+    pub name: String,
+    pub kind: Kind,
+    pub faces: Vec<Vec<usize>>,
+}
+
+/// The groups the file's zones make, and the cell zones it asks for.
 fn assemble(
     f: &Fluent,
     shapes: &[Shape],
     front_and_back: Vec<Vec<usize>>,
     options: Options,
+) -> Result<RawPolyMesh> {
+    let mut groups: Vec<Group> = Vec::new();
+    for &(zone, first, last) in &f.face_groups {
+        let zone_type = f.zone_type.get(&zone).map(String::as_str).unwrap_or("");
+        let name = f.zone_name.get(&zone).cloned().unwrap_or_default();
+        let kind = kind_of(zone_type)?;
+        let wanted = range(first, last, f.faces.len(), "faces")?;
+        let mut faces = Vec::with_capacity(wanted.len());
+        for face in wanted {
+            match f.faces.get(face) {
+                Some(v) if v.len() == 3 || v.len() == 4 => faces.push(v.clone()),
+                Some(v) => {
+                    return invalid(format!("unrecognised face shape with {} vertices", v.len()));
+                }
+                None => return invalid("a face does not exist"),
+            }
+        }
+        groups.push(Group { name, kind, faces });
+    }
+    let mut zones: Vec<(String, Vec<usize>)> = Vec::new();
+    if options.write_zones && f.cell_groups.len() > 1 {
+        for &(zone, first, last) in &f.cell_groups {
+            let name = f.zone_name.get(&zone).cloned().unwrap_or_default();
+            let wanted = range(first, last, shapes.len(), "cells")?;
+            zones.push((name, wanted.collect()));
+        }
+    }
+    let front_and_back = (f.dimension == 2).then_some(front_and_back);
+    join(f.points.clone(), shapes, groups, front_and_back, zones)
+}
+
+/// The mesh of the shapes, its boundary faces put on the patches the groups
+/// name (an `empty` `frontAndBackPlanes` for the faces of an extruded 2-D
+/// mesh), and the zones.
+pub(crate) fn join(
+    points: Vec<Vec3>,
+    shapes: &[Shape],
+    mut groups: Vec<Group>,
+    front_and_back: Option<Vec<Vec<usize>>>,
+    zones: Vec<(String, Vec<usize>)>,
 ) -> Result<RawPolyMesh> {
     let mut cells = Cells::new();
     for shape in shapes {
@@ -816,37 +862,25 @@ fn assemble(
     };
     let is_internal = |face: usize| face < built.n_internal;
 
-    // The patches, in the order of the file's groups of faces: a patch is a
-    // group whose zone has a boundary type, and an inside one is dropped.
+    // The patches, in the order of the groups: a patch is a group whose zone
+    // has a boundary type, and an inside one is dropped.
     struct Patch {
         name: String,
         kind: &'static str,
     }
     let mut patches: Vec<Patch> = Vec::new();
     let mut patch_of: HashMap<usize, usize> = HashMap::new();
-    let mut groups: Vec<(String, Kind, Vec<Vec<usize>>)> = Vec::new();
-    for &(zone, first, last) in &f.face_groups {
-        let zone_type = f.zone_type.get(&zone).map(String::as_str).unwrap_or("");
-        let name = f.zone_name.get(&zone).cloned().unwrap_or_default();
-        let kind = kind_of(zone_type)?;
-        let wanted = range(first, last, f.faces.len(), "faces")?;
-        let mut faces = Vec::with_capacity(wanted.len());
-        for face in wanted {
-            match f.faces.get(face) {
-                Some(v) if v.len() == 3 || v.len() == 4 => faces.push(v.clone()),
-                Some(v) => {
-                    return invalid(format!("unrecognised face shape with {} vertices", v.len()));
-                }
-                None => return invalid("a face does not exist"),
-            }
-        }
-        groups.push((name, kind, faces));
+    let extruded = front_and_back.is_some();
+    if let Some(faces) = front_and_back {
+        groups.push(Group {
+            name: "frontAndBackPlanes".into(),
+            kind: Kind::Internal,
+            faces,
+        });
     }
-    if f.dimension == 2 {
-        groups.push(("frontAndBackPlanes".into(), Kind::Internal, front_and_back));
-    }
-    for (index, (name, kind, faces)) in groups.iter().enumerate() {
-        let is_front_and_back = f.dimension == 2 && index + 1 == groups.len();
+    let last = groups.len();
+    for (index, Group { name, kind, faces }) in groups.iter().enumerate() {
+        let is_front_and_back = extruded && index + 1 == last;
         let mut mesh_faces = Vec::with_capacity(faces.len());
         for face in faces {
             mesh_faces.push(find(face)?);
@@ -936,38 +970,34 @@ fn assemble(
 
     let mut cell_zones = Vec::new();
     let mut face_zones = Vec::new();
-    if options.write_zones && f.cell_groups.len() > 1 {
-        for &(zone, first, last) in &f.cell_groups {
-            let name = f.zone_name.get(&zone).cloned().unwrap_or_default();
-            let wanted = range(first, last, shapes.len(), "cells")?;
-            let mut inside = vec![false; shapes.len()];
-            for cell in wanted.clone() {
-                if let Some(slot) = inside.get_mut(cell) {
-                    *slot = true;
-                }
+    for (name, wanted) in zones {
+        let mut inside = vec![false; shapes.len()];
+        for &cell in &wanted {
+            if let Some(slot) = inside.get_mut(cell) {
+                *slot = true;
             }
-            let faces_inside: Vec<usize> = (0..built.n_internal)
-                .filter(|&face| {
-                    let own = built.owner.get(face).copied().unwrap_or(usize::MAX);
-                    let nei = built.neighbour.get(face).copied().unwrap_or(usize::MAX);
-                    inside.get(own).copied().unwrap_or(false)
-                        && inside.get(nei).copied().unwrap_or(false)
-                })
-                .collect();
-            face_zones.push(RawFaceZone {
-                name: name.clone(),
-                flip: vec![false; faces_inside.len()],
-                faces: faces_inside,
-            });
-            cell_zones.push(RawCellZone {
-                name,
-                cells: wanted.collect(),
-            });
         }
+        let faces_inside: Vec<usize> = (0..built.n_internal)
+            .filter(|&face| {
+                let own = built.owner.get(face).copied().unwrap_or(usize::MAX);
+                let nei = built.neighbour.get(face).copied().unwrap_or(usize::MAX);
+                inside.get(own).copied().unwrap_or(false)
+                    && inside.get(nei).copied().unwrap_or(false)
+            })
+            .collect();
+        face_zones.push(RawFaceZone {
+            name: name.clone(),
+            flip: vec![false; faces_inside.len()],
+            faces: faces_inside,
+        });
+        cell_zones.push(RawCellZone {
+            name,
+            cells: wanted,
+        });
     }
 
     Ok(RawPolyMesh {
-        points: f.points.clone(),
+        points,
         faces,
         owner,
         neighbour: built.neighbour,
