@@ -17,6 +17,7 @@ on:
       - "resources/**"
       - "cmake/**"
       - "CMakeLists.txt"
+      - "platforms/**"
       - ".github/workflows/release-appimage.yml"
   pull_request:
     paths:
@@ -25,6 +26,7 @@ on:
       - "resources/**"
       - "cmake/**"
       - "CMakeLists.txt"
+      - "platforms/**"
       - ".github/workflows/release-appimage.yml"
   workflow_dispatch:
     inputs:
@@ -48,6 +50,7 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
       appimage: ${{ steps.ver.outputs.appimage }}
       dmg: ${{ steps.ver.outputs.dmg }}
+      native_dmg: ${{ steps.ver.outputs.native_dmg }}
     steps:
       - uses: actions/checkout@v4
       - name: Resolve version
@@ -73,6 +76,7 @@ jobs:
             echo "version=$version"
             echo "appimage=Vortia-${version}-linux-x86_64.AppImage"
             echo "dmg=Vortia-${version}-macos-arm64.dmg"
+            echo "native_dmg=Vortia-${version}-native-macos-arm64.dmg"
           } >> "$GITHUB_OUTPUT"
 
   linux-openfoam-engine:
@@ -415,6 +419,9 @@ jobs:
 
       - name: Bundle Qt/VTK and sign ad-hoc
         run: |
+          # vortia-engine rides in the Qt bundle so its libraries are deployed with the app's;
+          # Vortia Native is built from this bundle (platforms/apple/build.sh).
+          install -m755 build/bin/vortia-engine build/Vortia.app/Contents/MacOS/vortia-engine
           cocoa="$(find "$CONDA_PREFIX" -name libqcocoa.dylib -not -path '*/pkgs/*' | head -n 1)"
           test -n "$cocoa"
           plugins="$(dirname "$(dirname "$cocoa")")"
@@ -442,6 +449,64 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
+          path: dist/
+          if-no-files-found: error
+
+      - name: Keep the deployed bundle for Vortia Native
+        run: tar -C build -cf vortia-app.tar Vortia.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-deployed-app
+          path: vortia-app.tar
+          retention-days: 3
+          if-no-files-found: error
+
+  macos-native-dmg:
+    # The SwiftUI edition. Xcode 26 carries Liquid Glass; the code falls back to plain
+    # materials with an older SDK, but the DMG people download should have the glass.
+    needs: [version, macos-dmg]
+    runs-on: macos-26
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      ASSET: ${{ needs.version.outputs.native_dmg }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-deployed-app
+
+      - name: Swift tests
+        run: |
+          swift --version
+          swift test --package-path platforms/apple
+
+      - name: Vortia Native.app
+        run: |
+          mkdir deployed && tar -C deployed -xf vortia-app.tar
+          ./platforms/apple/build.sh deployed/Vortia.app build
+          rm -rf deployed vortia-app.tar
+
+      - name: The engine answers from inside the bundle, outside any build environment
+        run: |
+          app="build/Vortia Native.app"
+          reply="$(printf '%s\n' '{"id":1,"cmd":"hello"}' '{"id":2,"cmd":"quit"}' \
+            | env -i HOME="$HOME" PATH=/usr/bin:/bin "$app/Contents/MacOS/vortia-engine")"
+          echo "$reply"
+          echo "$reply" | grep -q '"id":1,"ok":true'
+          echo "$reply" | grep -q '"found":true'
+
+      - name: Create DMG
+        run: |
+          mkdir -p dist
+          bash packaging/macos/create_dmg.sh "build/Vortia Native.app" "dist/$ASSET" "$VERSION"
+          (cd dist && shasum -a 256 "$ASSET" > "${ASSET}.sha256")
+          ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-native-dmg
           path: dist/
           if-no-files-found: error
 
@@ -473,7 +538,7 @@ jobs:
 
   attach-to-release:
     # Nothing reaches a release unless every start-up test above passed.
-    needs: [version, native-verification, linux-clean-distros, linux-direct-run, macos-clean-machines]
+    needs: [version, native-verification, linux-clean-distros, linux-direct-run, macos-clean-machines, macos-native-dmg]
     if: needs.version.outputs.tag != ''
     runs-on: ubuntu-26.04
     permissions:
@@ -494,5 +559,7 @@ jobs:
             "dist/${{ needs.version.outputs.appimage }}.sha256" \
             "dist/${{ needs.version.outputs.dmg }}" \
             "dist/${{ needs.version.outputs.dmg }}.sha256" \
+            "dist/${{ needs.version.outputs.native_dmg }}" \
+            "dist/${{ needs.version.outputs.native_dmg }}.sha256" \
             --repo "${{ github.repository }}" \
             --clobber

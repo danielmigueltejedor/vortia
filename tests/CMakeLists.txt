@@ -135,6 +135,14 @@ if(Qt6_FOUND)
     gtest_discover_tests(test_app_updater)
 endif()
 
+if(TARGET vortia_engine)
+    add_executable(test_engine unit/test_engine.cpp)
+    target_include_directories(test_engine PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
+    target_link_libraries(test_engine PRIVATE vortia::engine GTest::gtest_main vortia_warnings)
+    vtk_module_autoinit(TARGETS test_engine MODULES ${VTK_LIBRARIES})
+    gtest_discover_tests(test_engine)
+endif()
+
 # CI regression: ensures that lrelease ran and the built app embeds a readable
 # Spanish catalog in the same resource path used at runtime.
 if(TARGET vortia)
