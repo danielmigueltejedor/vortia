@@ -58,6 +58,7 @@ private:
     nlohmann::json line(const nlohmann::json& request);
     nlohmann::json slice(const nlohmann::json& request);
     nlohmann::json surface(const nlohmann::json& request);
+    nlohmann::json section(const nlohmann::json& request);
 
     nlohmann::json describeProject() const;
     nlohmann::json describeOpenFoam() const;

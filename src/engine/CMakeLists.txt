@@ -1,7 +1,9 @@
 # vortia-engine — the case pipeline behind newline-delimited JSON, for Vortia Native.
 # It reads results through VTK and finds the packaged OpenFOAM with QtCore; it draws nothing.
 
-add_library(vortia_engine STATIC Engine.cpp Engine.hpp)
+add_library(vortia_engine STATIC Engine.cpp Engine.hpp
+    # The engineering report is plain QtCore; the engine builds it rather than linking the Qt UI.
+    ${PROJECT_SOURCE_DIR}/src/ui/src/EngineeringReport.cpp)
 add_library(vortia::engine ALIAS vortia_engine)
 target_include_directories(vortia_engine
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}

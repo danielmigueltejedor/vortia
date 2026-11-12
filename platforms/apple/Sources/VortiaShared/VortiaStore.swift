@@ -17,7 +17,7 @@ public final class VortiaStore {
     }
 
     public enum Stage: String, CaseIterable, Identifiable, Sendable {
-        case geometry, mesh, physics, time, run, results
+        case geometry, mesh, physics, time, run, results, engineering
         public var id: String { rawValue }
     }
 
@@ -56,6 +56,11 @@ public final class VortiaStore {
     public private(set) var surface: FieldTriangles?
     public private(set) var profile: LineProfile?
     public private(set) var error: String?
+    /// The section to analyse, and the report of the last one.
+    public var section = SectionOptions()
+    public var sectionLabel = ""
+    public private(set) var sectionReport: SectionReport?
+    public private(set) var analysing = false
     public var stage: Stage = .geometry
 
     /// The setup being edited. Every change is validated and saved after a pause.
@@ -194,6 +199,8 @@ public final class VortiaStore {
         results = nil
         statistics = nil
         slice = nil
+        sectionReport = nil
+        sectionLabel = project.name
         surface = nil
         profile = nil
         residuals = []
@@ -288,6 +295,27 @@ public final class VortiaStore {
         if threeD { await loadSurface() }
         await loadSlice()
         await loadProfile()
+    }
+
+    /// Measures the section through the latest result and writes its engineering report.
+    public func analyseSection() async {
+        guard let client, results != nil else { return }
+        analysing = true
+        defer { analysing = false }
+        do {
+            let label = sectionLabel.isEmpty ? (project?.name ?? "Section") : sectionLabel
+            let data = try await client.send(.section(options: section, label: label))
+            sectionReport = try SectionReport.decode(data)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// A section through the middle of the domain, normal to the chosen axis.
+    public func centreSection() {
+        guard let results, results.bounds.count == 2 else { return }
+        let axis = section.axis
+        section.position = (results.bounds[0][safe: axis] + results.bounds[1][safe: axis]) / 2
     }
 
     public func loadSurface() async {

@@ -36,7 +36,7 @@ public struct RootView: View {
                     }
                 }
                 Section {
-                    ForEach([VortiaStore.Stage.run, .results]) { stage in
+                    ForEach([VortiaStore.Stage.run, .results, .engineering]) { stage in
                         Label(stage.title, systemImage: stage.symbol).tag(stage)
                     }
                 }
@@ -74,6 +74,7 @@ extension VortiaStore.Stage {
         case .time: L10n.t(.time)
         case .run: L10n.t(.run)
         case .results: L10n.t(.results)
+        case .engineering: L10n.t(.engineering)
         }
     }
 
@@ -85,6 +86,7 @@ extension VortiaStore.Stage {
         case .time: "clock"
         case .run: "play.circle"
         case .results: "chart.xyaxis.line"
+        case .engineering: "ruler"
         }
     }
 }
@@ -104,6 +106,7 @@ private struct StageView: View {
             case .time: TimeView()
             case .run: RunView()
             case .results: ResultsView()
+            case .engineering: EngineeringView()
             }
         }
     }
