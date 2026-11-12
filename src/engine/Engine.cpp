@@ -6,9 +6,13 @@
 #include "vortia/solver/openfoam/CaseRunner.hpp"
 #include "vortia/solver/openfoam/CaseWriter.hpp"
 #include "vortia/solver/openfoam/Detector.hpp"
+#include "vortia/ui/EngineeringReport.hpp"
 #include "vortia/ui/ResultFiles.hpp"
 #include "vortia/visualization/FieldStatistics.hpp"
 #include "vortia/visualization/LineSampling.hpp"
+#include "vortia/visualization/SectionAnalysis.hpp"
+
+#include <QJsonDocument>
 
 #include <vtkCellData.h>
 #include <vtkCellDataToPointData.h>
@@ -205,6 +209,7 @@ json Engine::handle(const json& request) {
         else if (cmd == "line") result = line(request);
         else if (cmd == "slice") result = slice(request);
         else if (cmd == "surface") result = surface(request);
+        else if (cmd == "section") result = section(request);
         else throw RequestError("unknown command \"" + cmd + "\"");
         reply["ok"] = true;
         reply["result"] = std::move(result);
@@ -558,6 +563,27 @@ json Engine::surface(const json& request) {
     outer->SetInputConnection(toPoints->GetOutputPort());
     outer->Update();
     return triangles(outer->GetOutput(), text(request, "field"));
+}
+
+json Engine::section(const json& request) {
+    vtkDataObject* data = loadResults();
+    const auto options = sectionOptionsFromJson(
+        QJsonDocument::fromJson(QByteArray::fromStdString(request.value("options", json::object()).dump()))
+            .object());
+    const SectionAnalysis analysis = analyzeSection(data, options);
+    QJsonObject source;
+    {
+        std::lock_guard lock(projectMutex_);
+        source.insert("project", QString::fromStdString(project_->name()));
+        source.insert("caseDirectory", QString::fromStdString(project_->caseDir().string()));
+    }
+    source.insert("results", QString::fromStdString(results_->file));
+    const QJsonObject report = makeEngineeringReport(
+        options, analysis, source, QString::fromStdString(request.value("label", std::string("Section"))));
+    const auto document = QJsonDocument(report).toJson(QJsonDocument::Compact).toStdString();
+    return {{"report", json::parse(document)},
+            {"html", engineeringReportHtml(report).toStdString()},
+            {"csv", engineeringReportCsv(report).toStdString()}};
 }
 
 } // namespace vortia::engine

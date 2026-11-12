@@ -17,6 +17,7 @@ public enum EngineRequest: Equatable, Sendable {
     case line(field: String, start: [Double], end: [Double], points: Int = 120)
     case slice(field: String, axis: Int, position: Double)
     case surface(field: String)
+    case section(options: SectionOptions, label: String)
     case quit
 
     public var command: String {
@@ -35,6 +36,7 @@ public enum EngineRequest: Equatable, Sendable {
         case .line: "line"
         case .slice: "slice"
         case .surface: "surface"
+        case .section: "section"
         case .quit: "quit"
         }
     }
@@ -91,6 +93,9 @@ public enum EngineRequest: Equatable, Sendable {
                 try c.encode(position, forKey: Key("position"))
             case .surface(let field):
                 try c.encode(field, forKey: Key("field"))
+            case .section(let options, let label):
+                try c.encode(options, forKey: Key("options"))
+                try c.encode(label, forKey: Key("label"))
             }
         }
     }
@@ -172,6 +177,76 @@ public struct FieldTriangles: Codable, Equatable, Sendable {
     public var field: String
 
     public var triangleCount: Int { positions.count / 9 }
+}
+
+/// Where a section cuts the domain and what it is measured against, as `SectionOptions` in
+/// `src/visualization` reads it.
+public struct SectionOptions: Codable, Equatable, Sendable {
+    public var axis = 0
+    /// 1 or −1: which way along the axis counts as forward.
+    public var normal = 1
+    public var position = 0.0
+    public var referencePressure = 101_325.0
+    public var constantDensity = 1.225
+    public var referenceDensity = 1.225
+    public var referenceSpeed = 1.0
+    public var referenceArea = 1.0
+    public var useDensityField = false
+    /// OpenFOAM's incompressible solvers write p/ρ (m²/s²), not pascals.
+    public var kinematicPressure = true
+    public var fullAnnulus = false
+    public var wedgeAngle = 0.0
+
+    public init() {}
+}
+
+/// The engineering report of one section: its metrics, and the same report as HTML and CSV.
+public struct SectionReport: Decodable, Equatable, Sendable {
+    public struct Report: Decodable, Equatable, Sendable {
+        public struct Payload: Decodable, Equatable, Sendable {
+            public var label: String
+            public var metrics: [String: Double]
+            public var triangles: Int
+        }
+        public var payload: Payload
+        public var sha256: String
+    }
+
+    public var report: Report
+    public var html: String
+    public var csv: String
+    /// The whole report as the desktop app saves it.
+    public var json: Data
+
+    private enum Keys: String, CodingKey { case report, html, csv }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        report = try c.decode(Report.self, forKey: .report)
+        html = try c.decode(String.self, forKey: .html)
+        csv = try c.decode(String.self, forKey: .csv)
+        json = Data()
+    }
+
+    /// Keeps the report's own JSON, which the typed view above only partly reads.
+    public static func decode(_ data: Data) throws -> SectionReport {
+        var decoded = try JSONDecoder().decode(SectionReport.self, from: data)
+        if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let report = object["report"]
+        {
+            decoded.json = try JSONSerialization.data(
+                withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+        }
+        return decoded
+    }
+
+    /// The metrics in the order the desktop app lists them.
+    public static let metricKeys = [
+        "area_m2", "massFlow_kg_s", "forwardMassFlow_kg_s", "reverseMassFlow_kg_s",
+        "volumeFlow_m3_s", "meanPressure_Pa", "meanDensity_kg_m3", "meanNormalVelocity_m_s",
+        "momentumFlux_N", "pressureLoad_N", "normalResultant_N", "kineticPower_W",
+        "normalCoefficient", "meanCp",
+    ]
 }
 
 // MARK: Events
