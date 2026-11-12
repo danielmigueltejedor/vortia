@@ -16,7 +16,7 @@ app="$1"
 out="$2"
 here="$(cd "$(dirname "$0")" && pwd)"
 version="${3:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$1/Contents/Info.plist")}"
-# 1x + 2x TIFF rendered from dmg-background.svg (render_dmg_background.swift).
+# 1x + 2x TIFF rendered from dmg-background.svg (render_dmg_background.py).
 # It is much larger than the window on purpose: Finder does not scale the
 # picture, and a window opened wider (sidebar, toolbar) showed a white band.
 bg="$here/dmg-background.tiff"
@@ -69,17 +69,16 @@ tell application "Finder"
     try
       set pathbar visible of container window to false
     end try
-    -- 660 x 460 including the title bar: the whole composition is visible
-    -- without resizing, also when the user's Finder adds a path bar.
-    set the bounds of container window to {200, 120, 860, 580}
+    -- 660 x 400 content plus the 32 pt title bar: exactly the composition.
+    set the bounds of container window to {200, 120, 860, 552}
     set theViewOptions to the icon view options of container window
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to 128
     set text size of theViewOptions to 13
     set label position of theViewOptions to bottom
     set background picture of theViewOptions to file ".background:background.tiff"
-    set position of item "$bundle" of container window to {160, 190}
-    set position of item "Applications" of container window to {500, 190}
+    set position of item "$bundle" of container window to {326, 205}
+    set position of item "Applications" of container window to {574, 205}
     update without registering applications
     delay 2
     close
