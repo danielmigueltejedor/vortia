@@ -37,5 +37,5 @@ pub use dict::{Dictionary, Entry, Value};
 pub use error::{FoamError, Result};
 pub use file::{FoamFile, Format, Header};
 pub use lists::FaceList;
-pub use polymesh::{RawCellZone, RawPatch, RawPolyMesh};
+pub use polymesh::{RawCellZone, RawFaceZone, RawPatch, RawPolyMesh};
 pub use token::{Token, TokenKind, Tokenizer};

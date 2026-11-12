@@ -23,6 +23,7 @@ pub mod blocks;
 pub mod check;
 pub mod error;
 pub mod geometry;
+pub mod gmsh;
 pub mod polymesh;
 pub mod wall;
 

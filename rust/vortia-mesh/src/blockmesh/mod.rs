@@ -18,7 +18,7 @@
 
 mod edges;
 mod names;
-mod shapes;
+pub(crate) mod shapes;
 
 use vortia_core::Vec3;
 use vortia_foamfile::{Dictionary, Entry, FaceList, RawCellZone, RawPatch, RawPolyMesh, Value};
@@ -1149,7 +1149,7 @@ fn merge_points(blocks: &[Block], topology: &Topology, corners: &[[Vec3; 8]]) ->
 }
 
 /// `face::centre`: the centre of a polygon, area weighted.
-fn face_centre(p: &[Vec3]) -> Vec3 {
+pub(crate) fn face_centre(p: &[Vec3]) -> Vec3 {
     if let [a, b, c] = p {
         return (*a + *b + *c) * (1.0 / 3.0);
     }
@@ -1172,7 +1172,7 @@ fn face_centre(p: &[Vec3]) -> Vec3 {
 }
 
 /// `face::areaNormal`: the vector area of a polygon.
-fn face_area_normal(p: &[Vec3]) -> Vec3 {
+pub(crate) fn face_area_normal(p: &[Vec3]) -> Vec3 {
     let tri = |a: Vec3, b: Vec3, c: Vec3| (b - a).cross(c - a) * 0.5;
     if let [a, b, c] = p {
         return tri(*a, *b, *c);
@@ -1184,6 +1184,20 @@ fn face_area_normal(p: &[Vec3]) -> Vec3 {
         n = n + tri(here, next, centre);
     }
     n
+}
+
+/// `cellModel::centre`: the centre of a cell from its faces, as the
+/// volume-weighted mean of the pyramids they make with `estimate` (the mean
+/// of the cell's points).
+pub(crate) fn cell_centre(faces: &[Vec<Vec3>], estimate: Vec3) -> Vec3 {
+    let (mut sum_v, mut sum_vc) = (0.0, Vec3::default());
+    for f in faces {
+        let base = face_centre(f);
+        let volume = (1.0 / 3.0) * face_area_normal(f).dot(estimate - base);
+        sum_vc = sum_vc - (base * (3.0 / 4.0) + estimate * (1.0 / 4.0)) * volume;
+        sum_v -= volume;
+    }
+    sum_vc / (sum_v + 1e-300)
 }
 
 /// `blockDescriptor::check`: a block must not be inside out, and each of its
@@ -1202,16 +1216,8 @@ fn check_blocks(blocks: &[Block], verts: &[Vec3]) -> Result<()> {
             .iter()
             .map(|f| f.iter().map(|&i| at(i)).collect())
             .collect();
-        // `cellModel::centre`: pyramids from an estimate of the centre.
         let estimate = (0..8).fold(Vec3::default(), |s, i| s + at(i)) / 8.0;
-        let (mut sum_v, mut sum_vc) = (0.0, Vec3::default());
-        for f in &faces {
-            let base = face_centre(f);
-            let volume = (1.0 / 3.0) * face_area_normal(f).dot(estimate - base);
-            sum_vc = sum_vc - (base * (3.0 / 4.0) + estimate * (1.0 / 4.0)) * volume;
-            sum_v -= volume;
-        }
-        let centre = sum_vc / (sum_v + 1e-300);
+        let centre = cell_centre(&faces, estimate);
 
         let mut outward = 0;
         for f in &faces {
@@ -1370,6 +1376,7 @@ pub fn block_mesh(dict: &Dictionary) -> Result<RawPolyMesh> {
         neighbour: built.neighbour,
         patches: Vec::new(),
         cell_zones: Vec::new(),
+        face_zones: Vec::new(),
     };
     let default_name = dict
         .dict("defaultPatch")

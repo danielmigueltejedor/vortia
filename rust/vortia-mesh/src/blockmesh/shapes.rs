@@ -70,6 +70,18 @@ pub enum Shape {
 }
 
 impl Shape {
+    /// The vertex labels the shape was given.
+    pub fn labels(&self) -> &[usize] {
+        match self {
+            Shape::Hex(v) => v,
+            Shape::Prism(v) => v,
+            Shape::Wedge(v) => v,
+            Shape::Pyramid(v) => v,
+            Shape::Tet(v) => v,
+            Shape::TetWedge(v) => v,
+        }
+    }
+
     /// The faces, in the model's order, as vertex labels.
     pub fn faces(&self) -> Vec<Vec<usize>> {
         let pick = |model: &[usize], v: &[usize]| -> Vec<usize> {
