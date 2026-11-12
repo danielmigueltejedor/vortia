@@ -18,6 +18,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod blockmesh;
 pub mod blocks;
 pub mod check;
 pub mod error;

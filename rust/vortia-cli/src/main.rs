@@ -34,12 +34,14 @@ macro_rules! out {
 
 const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20      vortia fields [CASE [TIME]]\n\
-    \x20      vortia solve [CASE]\n\n\
+    \x20      vortia solve [CASE]\n\
+    \x20      vortia blockmesh [CASE]\n\n\
     check-mesh   read CASE/constant/polyMesh (default: the current directory)\n\
     \x20            and report its size, geometry and quality\n\
     fields       read every field of TIME (default: the latest), check it\n\
     \x20            fits the mesh and print its range\n\
-    solve        run the solver controlDict names (laplacianFoam today)";
+    solve        run the solver controlDict names (laplacianFoam today)\n\
+    blockmesh    mesh CASE/system/blockMeshDict into CASE/constant/polyMesh";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -51,6 +53,8 @@ fn main() -> ExitCode {
     {
         ["check-mesh"] => check_mesh(Path::new(".")),
         ["check-mesh", case] => check_mesh(Path::new(case)),
+        ["blockmesh"] => blockmesh(Path::new(".")),
+        ["blockmesh", case] => blockmesh(Path::new(case)),
         ["solve"] => solve(Path::new(".")),
         ["solve", case] => solve(Path::new(case)),
         ["fields"] => fields(Path::new("."), None),
@@ -63,6 +67,34 @@ fn main() -> ExitCode {
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
+        }
+    }
+}
+
+fn blockmesh(case: &Path) -> ExitCode {
+    let result = FoamFile::open(case.join("system").join("blockMeshDict"))
+        .and_then(|f| f.dictionary())
+        .map_err(|e| e.to_string())
+        .and_then(|(_, dict)| vortia_mesh::blockmesh::block_mesh(&dict).map_err(|e| e.to_string()))
+        .and_then(|mesh| {
+            mesh.write_case(case)
+                .map(|()| mesh)
+                .map_err(|e| e.to_string())
+        });
+    match result {
+        Ok(mesh) => {
+            out!(
+                "Wrote {} points, {} faces ({} internal) and {} cells",
+                mesh.points.len(),
+                mesh.faces.len(),
+                mesh.neighbour.len(),
+                mesh.owner.iter().max().map_or(0, |m| m + 1)
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("vortia: {}", shown(&e));
+            ExitCode::FAILURE
         }
     }
 }

@@ -321,6 +321,20 @@ fn parse_list(line: u32, tok: &mut Tokenizer<'_>, depth: u32) -> Result<Vec<Valu
             items.push(Value::Keyed(name.clone(), d));
             continue;
         }
+        // `3 (a b c)` inside a list is a counted list; `1 ((a b) (c d))`, a
+        // number followed by a list that is not that long (a `blockMeshDict`
+        // grading), is two items.
+        if let TokenKind::Label(n) = t.kind
+            && tok.peek()?.is_some_and(|n| n.is_punct(b'('))
+        {
+            let open = tok.expect_any("'('")?;
+            let inner = parse_list(open.line, tok, depth + 1)?;
+            if usize::try_from(n).ok() != Some(inner.len()) {
+                items.push(Value::Label(n));
+            }
+            items.push(Value::List(inner));
+            continue;
+        }
         items.push(parse_value(t, tok, depth + 1)?);
     }
 }
@@ -328,6 +342,23 @@ fn parse_list(line: u32, tok: &mut Tokenizer<'_>, depth: u32) -> Result<Vec<Valu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_number_before_a_list_of_another_length_is_two_items() {
+        let d = parse("g (1 ((0.3 0.4 3) (0.7 0.6 0.5)) 2);");
+        let Some(Value::List(items)) = d.value("g") else {
+            panic!("not a list")
+        };
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::Label(1));
+        assert!(matches!(&items[1], Value::List(l) if l.len() == 2));
+        // A counted list stays one item.
+        let d = parse("g (2 (1 2) 3);");
+        let Some(Value::List(items)) = d.value("g") else {
+            panic!("not a list")
+        };
+        assert_eq!(items.len(), 2);
+    }
 
     fn parse(src: &str) -> Dictionary {
         Dictionary::parse(&mut Tokenizer::new(src.as_bytes()), false, 0).unwrap()

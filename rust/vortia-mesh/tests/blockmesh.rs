@@ -1,0 +1,219 @@
+//! `blockMesh` against OpenFOAM v1912: the same dictionary, the same mesh.
+//!
+//! `tests/blockmesh/tiny.dict` is two blocks, one graded and one rotated, and
+//! its expected numbers are the files OpenFOAM's `blockMesh` wrote for it
+//! (points to the last digit). `nozzle.dict` is the nozzle practice case's
+//! four blocks, two of them degenerate (prisms) and merged by distance; its
+//! counts and patches are OpenFOAM's (the whole mesh was compared to the last
+//! digit when the engine was built).
+
+use std::path::PathBuf;
+
+use vortia_foamfile::{FoamFile, RawPolyMesh};
+use vortia_mesh::blockmesh::block_mesh;
+
+fn here(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("blockmesh")
+        .join(name)
+}
+
+fn mesh_of_file(name: &str) -> Result<RawPolyMesh, String> {
+    let (_, dict) = FoamFile::open(here(name))
+        .and_then(|f| f.dictionary())
+        .map_err(|e| e.to_string())?;
+    block_mesh(&dict).map_err(|e| e.to_string())
+}
+
+fn mesh_of_text(tag: &str, text: &str) -> Result<RawPolyMesh, String> {
+    let dir = std::env::temp_dir().join(format!("vortia-blockmesh-{}-{tag}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("blockMeshDict");
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    let result = FoamFile::open(&path)
+        .and_then(|f| f.dictionary())
+        .map_err(|e| e.to_string())
+        .and_then(|(_, d)| block_mesh(&d).map_err(|e| e.to_string()));
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+#[test]
+fn two_blocks_give_openfoams_mesh_exactly() {
+    let mesh = mesh_of_file("tiny.dict").unwrap();
+
+    let points: [[f64; 3]; 20] = [
+        [0.0, 0.0, 0.0],
+        [0.16666666666666666, 0.0, 0.0],
+        [0.5, 0.0, 0.0],
+        [0.0, 0.5, 0.0],
+        [0.16666666666666666, 0.5, 0.0],
+        [0.5, 0.5, 0.0],
+        [0.0, 0.0, 0.5],
+        [0.16666666666666666, 0.0, 0.500_000_000_000_000_1],
+        [0.5, 0.0, 0.5],
+        [0.0, 0.5, 0.5],
+        [0.16666666666666666, 0.5, 0.5],
+        [0.5, 0.5, 0.5],
+        [1.0, 0.5, 0.0],
+        [0.75, 0.5, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.75, 0.0, 0.0],
+        [1.0, 0.5, 0.5],
+        [0.75, 0.5, 0.5],
+        [1.0, 0.0, 0.5],
+        [0.75, 0.0, 0.5],
+    ];
+    assert_eq!(mesh.points.len(), points.len());
+    for (got, want) in mesh.points.iter().zip(points) {
+        assert_eq!([got.x, got.y, got.z], want);
+    }
+
+    let faces: [&[usize]; 21] = [
+        &[1, 4, 10, 7],
+        &[2, 5, 11, 8],
+        &[13, 15, 19, 17],
+        &[0, 6, 9, 3],
+        &[12, 16, 18, 14],
+        &[0, 1, 7, 6],
+        &[1, 2, 8, 7],
+        &[3, 9, 10, 4],
+        &[4, 10, 11, 5],
+        &[0, 3, 4, 1],
+        &[1, 4, 5, 2],
+        &[6, 7, 10, 9],
+        &[7, 8, 11, 10],
+        &[12, 13, 17, 16],
+        &[13, 5, 11, 17],
+        &[14, 18, 19, 15],
+        &[15, 19, 8, 2],
+        &[12, 14, 15, 13],
+        &[13, 15, 2, 5],
+        &[16, 17, 19, 18],
+        &[17, 11, 8, 19],
+    ];
+    assert_eq!(mesh.faces.len(), faces.len());
+    for (i, want) in faces.iter().enumerate() {
+        assert_eq!(mesh.faces.face(i), *want, "face {i}");
+    }
+    assert_eq!(
+        mesh.owner,
+        [
+            0, 1, 2, 0, 2, 0, 1, 0, 1, 0, 1, 0, 1, 2, 3, 2, 3, 2, 3, 2, 3
+        ]
+    );
+    assert_eq!(mesh.neighbour, [1, 3, 3]);
+
+    let patches: Vec<_> = mesh
+        .patches
+        .iter()
+        .map(|p| (p.name.as_str(), p.kind.as_str(), p.start_face, p.n_faces))
+        .collect();
+    assert_eq!(
+        patches,
+        [
+            ("inlet", "patch", 3, 1),
+            ("outlet", "patch", 4, 1),
+            ("walls", "wall", 5, 4),
+            ("defaultFaces", "empty", 9, 12),
+        ]
+    );
+    assert!(mesh.patches[0].groups.is_empty());
+    assert_eq!(mesh.patches[2].groups, ["wall"]);
+}
+
+#[test]
+fn the_nozzle_with_degenerate_blocks_has_openfoams_counts_and_patches() {
+    let mesh = mesh_of_file("nozzle.dict").unwrap();
+    assert_eq!(mesh.points.len(), 15276);
+    assert_eq!(mesh.faces.len(), 30100);
+    assert_eq!(mesh.neighbour.len(), 14825);
+    assert_eq!(mesh.owner.len(), 30100);
+    let n_cells = mesh.owner.iter().max().map(|m| m + 1);
+    assert_eq!(n_cells, Some(7500));
+    let patches: Vec<_> = mesh
+        .patches
+        .iter()
+        .map(|p| (p.name.as_str(), p.start_face, p.n_faces))
+        .collect();
+    assert_eq!(
+        patches,
+        [
+            ("axis", 14825, 0),
+            ("inlet", 14825, 30),
+            ("walls", 14855, 70),
+            ("atmosphere", 14925, 175),
+            ("front", 15100, 7500),
+            ("back", 22600, 7500),
+        ]
+    );
+}
+
+const BOX: &str = "FoamFile { version 2.0; format ascii; class dictionary; object blockMeshDict; }
+vertices ( (0 0 0) (1 0 0) (1 1 0) (0 1 0) (0 0 1) (1 0 1) (1 1 1) (0 1 1) );
+edges ();
+boundary ();
+";
+
+#[test]
+fn a_dictionary_without_a_default_patch_name_gets_default_faces() {
+    let text = format!("{BOX}blocks ( hex (0 1 2 3 4 5 6 7) (2 2 2) simpleGrading (1 1 1) );");
+    let mesh = mesh_of_text("default", &text).unwrap();
+    assert_eq!(mesh.neighbour.len(), 12);
+    assert_eq!(mesh.patches.len(), 1);
+    assert_eq!(mesh.patches[0].name, "defaultFaces");
+    assert_eq!(mesh.patches[0].n_faces, 24);
+}
+
+#[test]
+fn what_is_not_supported_yet_is_refused_with_its_name() {
+    for (tag, extra, word) in [
+        (
+            "arc",
+            "blocks ( hex (0 1 2 3 4 5 6 7) (1 1 1) simpleGrading (1 1 1) ); edges ( arc 0 1 (0.5 -0.1 0) );",
+            "curved",
+        ),
+        (
+            "tet",
+            "blocks ( tet (0 1 2 4) (1 1 1) simpleGrading (1 1 1) );",
+            "tet",
+        ),
+    ] {
+        let text = BOX.replace("edges ();", "") + extra;
+        let err = mesh_of_text(tag, &text).unwrap_err();
+        assert!(err.contains(word), "{tag}: {err}");
+    }
+}
+
+#[test]
+fn hostile_dictionaries_are_errors_not_panics() {
+    let cases = [
+        // No blocks, bad vertex labels, zero and negative divisions, NaN and
+        // zero gradings, and a request for far more cells than allowed.
+        "blocks ();",
+        "blocks ( hex (0 1 2 3 4 5 6 99) (1 1 1) simpleGrading (1 1 1) );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (0 1 1) simpleGrading (1 1 1) );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (-1 1 1) simpleGrading (1 1 1) );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (1 1 1) simpleGrading (0 1 1) );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (1 1 1) simpleGrading (nan 1 1) );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (100000 100000 100000) simpleGrading (1 1 1) );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (1 1 1) simpleGrading (1 1) );",
+        "blocks ( hex (0 0 0 0 0 0 0 0) (2 2 2) simpleGrading (1 1 1) );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (1 1 1) edgeGrading (1 1 1) );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (1 1 1) simpleGrading (1 1 1) ); boundary ( a { type patch; faces ( (0 1 2) ); } );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (1 1 1) simpleGrading (1 1 1) ); boundary ( a { type patch; faces ( (0 1 2 9) ); } );",
+        "blocks ( hex (0 1 2 3 4 5 6 7) (2 2 2) simpleGrading (((1 1 1) (1 1 -1)) 1 1) );",
+        "blocks 3;",
+    ];
+    for (i, tail) in cases.iter().enumerate() {
+        let text = BOX.replace("boundary ();", "") + tail;
+        // Either way: a result or an error, never a panic.
+        let _ = mesh_of_text(&format!("hostile{i}"), &text);
+    }
+    // The ones that cannot possibly be a mesh.
+    for tail in [&cases[0], &cases[1], &cases[2], &cases[3], &cases[6]] {
+        let text = BOX.replace("boundary ();", "") + tail;
+        assert!(mesh_of_text("bad", &text).is_err(), "{tail}");
+    }
+}
