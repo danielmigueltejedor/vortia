@@ -40,7 +40,9 @@ def render(svg: Path, scale: int, tmp: Path) -> Image.Image:
 def main() -> None:
     if len(sys.argv) != 2:
         sys.exit(__doc__)
-    out = Path(sys.argv[1])
+    # Pass an absolute SVG path so a directory name starting with "-" stays
+    # a filename when resvg parses its command line.
+    out = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory() as tmp:
         one, two = (render(out / "dmg-background.svg", s, Path(tmp)) for s in (1, 2))
     two.encoderinfo = {"dpi": (144, 144)}
