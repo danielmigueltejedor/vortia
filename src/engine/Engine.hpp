@@ -64,6 +64,7 @@ private:
     nlohmann::json flow();
     nlohmann::json saveFlow(const nlohmann::json& request);
     nlohmann::json startFlow(const nlohmann::json& request);
+    nlohmann::json section(const nlohmann::json& request);
 
     nlohmann::json describeProject() const;
     nlohmann::json describeOpenFoam() const;

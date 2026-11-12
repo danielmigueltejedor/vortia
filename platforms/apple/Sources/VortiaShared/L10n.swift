@@ -27,6 +27,9 @@ public enum L10n {
         case minimumIterations, stableChecks, massTolerance, fieldTolerance, equationTolerance
         case regionName, pressurePa, temperatureK, viscosityRatio, convergence, iteration
         case massError, localMassError, fieldChange, updateRate, compressibleTitle, compressibleBody
+        case engineering, reportName, centre, direction, references, kinematicPressure
+        case useDensityField, constantDensity, referencePressure, referenceDensity, referenceSpeed
+        case referenceArea, analyse, reportNote
     }
 
     private static let english: [Key: String] = [
@@ -96,6 +99,14 @@ public enum L10n {
         .localMassError: "Local mass error", .fieldChange: "Field change", .updateRate: "Update rate",
         .compressibleTitle: "Compressible flow",
         .compressibleBody: "For an axisymmetric nozzle or duct, draw its contour instead of a box. This project switches to the contour workflow.",
+        .engineering: "Section analysis", .reportName: "Report name", .centre: "Centre",
+        .direction: "Forward direction", .references: "Reference values",
+        .kinematicPressure: "Pressure is kinematic (p/ρ, incompressible solvers)",
+        .useDensityField: "Use the density field", .constantDensity: "Density (kg/m³)",
+        .referencePressure: "Reference pressure (Pa)", .referenceDensity: "Reference density (kg/m³)",
+        .referenceSpeed: "Reference speed (m/s)", .referenceArea: "Reference area (m²)",
+        .analyse: "Analyse", .reportNote:
+            "From the stored fields only. Convergence, model suitability and mesh independence need their own evidence.",
     ]
 
     private static let spanish: [Key: String] = [
@@ -167,6 +178,42 @@ public enum L10n {
         .localMassError: "Error local de masa", .fieldChange: "Cambio de campo", .updateRate: "Ritmo de actualización",
         .compressibleTitle: "Flujo compresible",
         .compressibleBody: "Para una tobera o un conducto axisimétrico, dibuja su contorno en lugar de una caja. El proyecto pasa al flujo de trabajo por contorno.",
+        .engineering: "Análisis de sección", .reportName: "Nombre del informe", .centre: "Centrar",
+        .direction: "Sentido positivo", .references: "Valores de referencia",
+        .kinematicPressure: "La presión es cinemática (p/ρ, solvers incompresibles)",
+        .useDensityField: "Usar el campo de densidad", .constantDensity: "Densidad (kg/m³)",
+        .referencePressure: "Presión de referencia (Pa)", .referenceDensity: "Densidad de referencia (kg/m³)",
+        .referenceSpeed: "Velocidad de referencia (m/s)", .referenceArea: "Área de referencia (m²)",
+        .analyse: "Analizar", .reportNote:
+            "Solo a partir de los campos guardados. La convergencia, la idoneidad del modelo y la independencia de malla necesitan su propia evidencia.",
+    ]
+
+    /// The title of a report metric, as the desktop app words it.
+    public static func metric(
+        _ key: String, languageCode: String? = Locale.current.language.languageCode?.identifier
+    ) -> String {
+        let titles = languageCode == "es" ? spanishMetrics : englishMetrics
+        return titles[key] ?? key
+    }
+
+    private static let englishMetrics: [String: String] = [
+        "area_m2": "Section area (m²)", "massFlow_kg_s": "Signed mass flow (kg/s)",
+        "forwardMassFlow_kg_s": "Forward mass flow (kg/s)", "reverseMassFlow_kg_s": "Reverse mass flow (kg/s)",
+        "volumeFlow_m3_s": "Signed volume flow (m³/s)", "meanPressure_Pa": "Area-mean pressure (Pa)",
+        "meanDensity_kg_m3": "Area-mean density (kg/m³)", "meanNormalVelocity_m_s": "Area-mean normal speed (m/s)",
+        "momentumFlux_N": "Normal momentum flux (N)", "pressureLoad_N": "Pressure term (N)",
+        "normalResultant_N": "Normal section resultant (N)", "kineticPower_W": "Signed kinetic power (W)",
+        "normalCoefficient": "Normal section coefficient", "meanCp": "Mean pressure coefficient",
+    ]
+
+    private static let spanishMetrics: [String: String] = [
+        "area_m2": "Área de la sección (m²)", "massFlow_kg_s": "Caudal másico con signo (kg/s)",
+        "forwardMassFlow_kg_s": "Caudal en sentido positivo (kg/s)", "reverseMassFlow_kg_s": "Caudal en sentido inverso (kg/s)",
+        "volumeFlow_m3_s": "Caudal volumétrico con signo (m³/s)", "meanPressure_Pa": "Presión media por área (Pa)",
+        "meanDensity_kg_m3": "Densidad media por área (kg/m³)", "meanNormalVelocity_m_s": "Velocidad normal media por área (m/s)",
+        "momentumFlux_N": "Flujo normal de cantidad de movimiento (N)", "pressureLoad_N": "Término de presión (N)",
+        "normalResultant_N": "Resultante normal de sección (N)", "kineticPower_W": "Potencia cinética con signo (W)",
+        "normalCoefficient": "Coeficiente normal de sección", "meanCp": "Coeficiente medio de presión",
     ]
 
     public static func t(

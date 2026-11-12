@@ -38,7 +38,7 @@ public struct RootView: View {
                     }
                 }
                 Section {
-                    ForEach([VortiaStore.Stage.run, .results]) { stage in
+                    ForEach([VortiaStore.Stage.run, .results, .engineering]) { stage in
                         Label(stage.title, systemImage: stage.symbol).tag(stage)
                     }
                 }
@@ -78,6 +78,7 @@ extension VortiaStore.Stage {
         case .results: L10n.t(.results)
         case .contour: L10n.t(.contour)
         case .flowSetup: L10n.t(.flowSetup)
+        case .engineering: L10n.t(.engineering)
         }
     }
 
@@ -91,6 +92,7 @@ extension VortiaStore.Stage {
         case .results: "chart.xyaxis.line"
         case .contour: "scribble.variable"
         case .flowSetup: "wind.circle"
+        case .engineering: "ruler"
         }
     }
 }
@@ -112,6 +114,7 @@ private struct StageView: View {
             case .results: ResultsView()
             case .contour: ContourView()
             case .flowSetup: FlowSetupView()
+            case .engineering: EngineeringView()
             }
         }
     }
