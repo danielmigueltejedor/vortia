@@ -9,7 +9,7 @@ permissions:
 jobs:
   quality:
     name: quality
-    runs-on: blacksmith-4vcpu-ubuntu-2604
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
