@@ -42,7 +42,7 @@ concurrency:
 
 jobs:
   version:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       tag: ${{ steps.ver.outputs.tag }}
       version: ${{ steps.ver.outputs.version }}
@@ -78,7 +78,7 @@ jobs:
   linux-openfoam-engine:
     # The CFD engine shipped inside the AppImage. Rebuilt only when its
     # recipe changes.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -108,7 +108,7 @@ jobs:
     # Poiseuille and the Ghia cavity are solved and compared with their
     # references. A skipped benchmark is a failure here.
     needs: linux-openfoam-engine
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -156,7 +156,7 @@ jobs:
 
   linux-appimage:
     needs: [version, linux-openfoam-engine]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     defaults:
       run:
         shell: bash -el {0}
@@ -265,7 +265,7 @@ jobs:
     # Bare distribution images plus only what any desktop install has
     # (X server, Mesa, fontconfig). No Qt, no xcb-util, no newer libstdc++.
     needs: [version, linux-appimage]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -460,7 +460,7 @@ jobs:
     # Nothing reaches a release unless every start-up test above passed.
     needs: [version, native-verification, linux-clean-distros, linux-direct-run, macos-clean-machines]
     if: needs.version.outputs.tag != ''
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
