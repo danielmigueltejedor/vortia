@@ -36,14 +36,16 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20      vortia fields [CASE [TIME]]\n\
     \x20      vortia solve [CASE]\n\
     \x20      vortia blockmesh [CASE]\n\
-    \x20      vortia gmshtofoam [-keepOrientation] FILE [CASE]\n\n\
+    \x20      vortia gmshtofoam [-keepOrientation] FILE [CASE]\n\
+    \x20      vortia fluenttofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\n\
     check-mesh   read CASE/constant/polyMesh (default: the current directory)\n\
     \x20            and report its size, geometry and quality\n\
     fields       read every field of TIME (default: the latest), check it\n\
     \x20            fits the mesh and print its range\n\
     solve        run the solver controlDict names (laplacianFoam today)\n\
     blockmesh    mesh CASE/system/blockMeshDict into CASE/constant/polyMesh\n\
-    gmshtofoam   convert a Gmsh .msh file into CASE/constant/polyMesh";
+    gmshtofoam   convert a Gmsh .msh file into CASE/constant/polyMesh\n\
+    fluenttofoam convert a Fluent .msh file into CASE/constant/polyMesh";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -65,6 +67,7 @@ fn main() -> ExitCode {
         }
         ["gmshtofoam", file] => gmshtofoam(Path::new(file), Path::new("."), false),
         ["gmshtofoam", file, case] => gmshtofoam(Path::new(file), Path::new(case), false),
+        ["fluenttofoam", rest @ ..] => fluenttofoam(rest),
         ["solve"] => solve(Path::new(".")),
         ["solve", case] => solve(Path::new(case)),
         ["fields"] => fields(Path::new("."), None),
@@ -109,6 +112,65 @@ fn gmshtofoam(file: &Path, case: &Path, keep_orientation: bool) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn fluenttofoam(args: &[&str]) -> ExitCode {
+    let mut options = vortia_mesh::fluent::Options::default();
+    let mut files = Vec::new();
+    let mut it = args.iter();
+    while let Some(&arg) = it.next() {
+        let value =
+            |it: &mut std::slice::Iter<'_, &str>| it.next().and_then(|v| v.parse::<f64>().ok());
+        match arg {
+            "-scale" => match value(&mut it) {
+                Some(v) => options.scale = v,
+                None => return usage_error("-scale needs a number"),
+            },
+            "-2D" => match value(&mut it) {
+                Some(v) => options.thickness = Some(v),
+                None => return usage_error("-2D needs a number"),
+            },
+            "-writeZones" => options.write_zones = true,
+            other => files.push(other),
+        }
+    }
+    let (file, case) = match files.as_slice() {
+        [file] => (*file, "."),
+        [file, case] => (*file, *case),
+        _ => return usage_error("fluenttofoam takes a file and, optionally, a case"),
+    };
+    let result = std::fs::read(file)
+        .map_err(|e| format!("cannot read {file}: {e}"))
+        .and_then(|bytes| {
+            vortia_mesh::fluent::fluent_to_foam(&String::from_utf8_lossy(&bytes), options)
+                .map_err(|e| e.to_string())
+        })
+        .and_then(|mesh| {
+            mesh.write_case(Path::new(case))
+                .map(|()| mesh)
+                .map_err(|e| e.to_string())
+        });
+    match result {
+        Ok(mesh) => {
+            out!(
+                "Wrote {} points, {} faces ({} internal) and {} cells",
+                mesh.points.len(),
+                mesh.faces.len(),
+                mesh.neighbour.len(),
+                mesh.owner.iter().max().map_or(0, |m| m + 1)
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("vortia: {}", shown(&e));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn usage_error(message: &str) -> ExitCode {
+    eprintln!("vortia: {message}\n{USAGE}");
+    ExitCode::from(2)
 }
 
 fn blockmesh(case: &Path) -> ExitCode {
