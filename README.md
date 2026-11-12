@@ -11,7 +11,7 @@
   <p><strong>A free desktop application for CFD simulation with OpenFOAM, from geometry to 3D post-processing.</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-0.6.0-3D9BFF" alt="Version 0.6.0">
+    <img src="https://img.shields.io/badge/version-0.7.0-3D9BFF" alt="Version 0.7.0">
     <img src="https://img.shields.io/badge/status-experimental-orange" alt="Experimental">
     <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Linux%20x86__64-5E81AC" alt="macOS arm64 and Linux x86_64">
     <img src="https://img.shields.io/badge/Qt-6-41CD52?logo=qt&logoColor=white" alt="Qt 6">
@@ -45,6 +45,13 @@ workflow: geometry → mesh → physics → supervised run → interactive 3D
 post-processing, without touching the terminal. The published installers are
 self-contained: OpenFOAM, MPI and the mesher ship inside them.
 
+On macOS there is a second edition, **Vortia Native**, written in SwiftUI: it
+is a client of `vortia-engine`, the same case pipeline without an interface
+([`docs/architecture/native-engine.md`](docs/architecture/native-engine.md)),
+with the stages of a case in a sidebar, live residuals, the result as a slice or
+a 3D surface, the compressible flow of a nozzle contour, and the section
+analysis and engineering report.
+
 Vortia is a Nodalia app maintained by one person. Today it computes with
 OpenFOAM; the direction is an application written entirely in Rust and a fluid
 dynamics engine of its own, built from OpenFOAM ([`docs/ROADMAP.md`](docs/ROADMAP.md)).
@@ -74,7 +81,7 @@ captures, not validation: see [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
 ## What it does
 
-| Area | Vortia 0.6.0 | Evidence |
+| Area | Vortia 0.7.0 | Evidence |
 |---|---|---|
 | Geometry | Rectangular domains, 2D sketches with dimensions, lines and arcs, axisymmetric wedges, STL import for viewing | Software tests |
 | Meshing | Structured `blockMesh` with grading; Gmsh 2D and axisymmetric meshes from sketches; ASCII Fluent `.msh` import | Native runs |
@@ -96,6 +103,7 @@ Installers are published on the [Releases page](https://github.com/danielmiguelt
 | System | File | Requirements |
 |---|---|---|
 | macOS | `Vortia-<version>-macos-arm64.dmg` | Apple Silicon, macOS 14 or later. Ad-hoc signed and not notarised: the first time, right-click → Open |
+| macOS (Vortia Native) | `Vortia-<version>-native-macos-arm64.dmg` | The SwiftUI edition, same requirements; Liquid Glass on macOS 26. Ad-hoc signed and not notarised |
 | Linux | `Vortia-<version>-linux-x86_64.AppImage` | x86_64, glibc 2.31 or later (Ubuntu 20.04+, Debian 11+, Fedora, Arch…). Give it execute permission and open it |
 
 You do not need to install OpenFOAM, MPI, Python or Gmsh: they are bundled.
@@ -211,7 +219,7 @@ turbulent fields.
 
 ## Project status
 
-Version **0.6.0**, experimental. What works, with which evidence, and what
+Version **0.7.0**, experimental. What works, with which evidence, and what
 does not:
 
 - [`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md) — capabilities by area
