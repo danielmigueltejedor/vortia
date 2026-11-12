@@ -11,6 +11,7 @@
 #include "vortia/ui/FlowCase.hpp"
 #include "vortia/ui/FlowConfiguration.hpp"
 #include "vortia/ui/FlowSetup.hpp"
+#include "vortia/ui/EngineeringReport.hpp"
 #include "vortia/ui/ResultFiles.hpp"
 
 #include <QFile>
@@ -19,6 +20,9 @@
 #include <QThread>
 #include "vortia/visualization/FieldStatistics.hpp"
 #include "vortia/visualization/LineSampling.hpp"
+#include "vortia/visualization/SectionAnalysis.hpp"
+
+#include <QJsonDocument>
 
 #include <vtkCellData.h>
 #include <vtkCellDataToPointData.h>
@@ -226,6 +230,7 @@ json Engine::handle(const json& request) {
         else if (cmd == "saveFlow") result = saveFlow(request);
         else if (cmd == "flowMesh") result = startFlow({{"meshOnly", true}});
         else if (cmd == "flowSolve") result = startFlow({{"meshOnly", false}});
+        else if (cmd == "section") result = section(request);
         else throw RequestError("unknown command \"" + cmd + "\"");
         reply["ok"] = true;
         reply["result"] = std::move(result);
@@ -866,6 +871,27 @@ void Engine::runFlowJob(bool meshOnly) {
     } catch (const std::exception& error) {
         finish(false, error.what());
     }
+}
+
+json Engine::section(const json& request) {
+    vtkDataObject* data = loadResults();
+    const auto options = sectionOptionsFromJson(
+        QJsonDocument::fromJson(QByteArray::fromStdString(request.value("options", json::object()).dump()))
+            .object());
+    const SectionAnalysis analysis = analyzeSection(data, options);
+    QJsonObject source;
+    {
+        std::lock_guard lock(projectMutex_);
+        source.insert("project", QString::fromStdString(project_->name()));
+        source.insert("caseDirectory", QString::fromStdString(project_->caseDir().string()));
+    }
+    source.insert("results", QString::fromStdString(results_->file));
+    const QJsonObject report = makeEngineeringReport(
+        options, analysis, source, QString::fromStdString(request.value("label", std::string("Section"))));
+    const auto document = QJsonDocument(report).toJson(QJsonDocument::Compact).toStdString();
+    return {{"report", json::parse(document)},
+            {"html", engineeringReportHtml(report).toStdString()},
+            {"csv", engineeringReportCsv(report).toStdString()}};
 }
 
 } // namespace vortia::engine

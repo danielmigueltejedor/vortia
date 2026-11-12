@@ -61,6 +61,7 @@ Numbers that are not finite are sent as `null`.
 | `flow` | — | `flow`: the compressible setup, as the desktop app's flow panel would show it |
 | `saveFlow` | `flow` | the setup, normalised against the contour |
 | `flowMesh` / `flowSolve` | — | `started`; Gmsh meshing, then (solve) vortiaCentralFoam, with `job`, `log` and `progress` (plus `convergence`) events |
+| `section` | `options` (`SectionOptions`: axis, normal, position, reference values), `label` | `report` (the desktop app's `vortia.engineering-report`, with its SHA-256), `html`, `csv` |
 | `quit` | — | the engine cancels any run and exits |
 
 `setup` is exactly the JSON `caseSetupToJson` writes and `caseSetupFromJson` reads
@@ -89,6 +90,9 @@ Courant, the same errors and warnings as the desktop app), mesh, solve with resi
 they arrive and the log beside them, cancel, and read the result: a slice coloured by any field,
 its statistics and histogram, and the profile along the vertical centre line.
 
+It also measures a section through the result and writes the same engineering report as the
+desktop app, saved as HTML, CSV or JSON.
+
 Not yet in Native: the 2D sketch editor and nozzle workflows, compressible flow, Fluent
-interop, the engineering report, and a 3D view (the engine already serves `surface` for it).
+interop, and a 3D view (the engine already serves `surface` for it).
 Those stay in Vortia Nodalia until they move to the engine.

@@ -5,7 +5,9 @@ add_library(vortia_engine STATIC Engine.cpp Engine.hpp
     # Compressible flow: the same QtCore code the desktop app runs, without its dialogs.
     ${PROJECT_SOURCE_DIR}/src/ui/src/BoundaryMapping.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/src/FlowConfiguration.cpp
-    ${PROJECT_SOURCE_DIR}/src/ui/src/FlowCase.cpp)
+    ${PROJECT_SOURCE_DIR}/src/ui/src/FlowCase.cpp
+    # The engineering report is plain QtCore; the engine builds it rather than linking the Qt UI.
+    ${PROJECT_SOURCE_DIR}/src/ui/src/EngineeringReport.cpp)
 add_library(vortia::engine ALIAS vortia_engine)
 target_include_directories(vortia_engine
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
