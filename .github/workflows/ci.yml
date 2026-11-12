@@ -45,7 +45,8 @@ jobs:
   openfoam-nozzle-mesh:
     # Geometry validation in a real OpenFOAM runtime, beyond string unit tests.
     # Ubuntu's distribution package is used for compatibility smoke testing.
-    runs-on: blacksmith-4vcpu-ubuntu-2604
+    # GitHub's runner on purpose: Blacksmith's Ubuntu image has no `openfoam` apt candidate.
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Install build dependencies and OpenFOAM
@@ -139,7 +140,9 @@ jobs:
       # CTest SKIP_RETURN_CODE=2 cover the path when a complete install exists.
 
   macos:
-    runs-on: blacksmith-6vcpu-macos-26
+    # GitHub's runner for now: on Blacksmith's this build failed in FluentCffImporter.cpp because
+    # Homebrew's VTK 9.6 has no vtkFLUENTCFFReader::SetRenameArrays. Move it once that is fixed.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
       - name: Install dependencies

@@ -347,7 +347,9 @@ jobs:
     # Oldest Apple Silicon runner GitHub still offers. Qt/VTK come from
     # conda-forge (built for old macOS), not Homebrew bottles (built only
     # for the runner's own macOS version).
-    runs-on: blacksmith-6vcpu-macos-26
+    # GitHub's runner on purpose: the smoke test opens the OpenGL viewport, and Blacksmith's macOS
+    # VMs have no GPU (software OpenGL crashes Qt on macOS 26).
+    runs-on: macos-26
     defaults:
       run:
         shell: bash -el {0}
@@ -466,7 +468,9 @@ jobs:
     # The SwiftUI edition. Xcode 26 carries Liquid Glass; the code falls back to plain
     # materials with an older SDK, but the DMG people download should have the glass.
     needs: [version, macos-dmg]
-    runs-on: blacksmith-6vcpu-macos-26
+    # GitHub's runner on purpose: the smoke test opens the OpenGL viewport, and Blacksmith's macOS
+    # VMs have no GPU (software OpenGL crashes Qt on macOS 26).
+    runs-on: macos-26
     env:
       VERSION: ${{ needs.version.outputs.version }}
       ASSET: ${{ needs.version.outputs.native_dmg }}
@@ -512,12 +516,13 @@ jobs:
 
   macos-clean-machines:
     # Fresh runners without the build environment: mount the DMG, copy the
-    # app out and start it, on every macOS version GitHub offers for arm64.
+    # app out and start it, on every macOS version GitHub offers for arm64. GitHub's runners on
+    # purpose: starting the app needs a GPU (Blacksmith's macOS VMs have none).
     needs: [version, macos-dmg]
     strategy:
       fail-fast: false
       matrix:
-        os: [blacksmith-6vcpu-macos-15, blacksmith-6vcpu-macos-26]
+        os: [macos-15, macos-26]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
