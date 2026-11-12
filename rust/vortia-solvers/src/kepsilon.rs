@@ -11,6 +11,7 @@
 
 use vortia_core::Vec3;
 use vortia_foamfile::Dictionary;
+use vortia_fv::limited::GradScheme;
 use vortia_fv::ops::surface_integrate;
 use vortia_fv::stress::{grad, production};
 use vortia_fv::vector::VectorBoundary;
@@ -177,7 +178,7 @@ impl KEpsilon {
     ) -> Result<Vec<(String, Performance)>> {
         let c = self.coeffs;
         let div_u = surface_integrate(mesh, fv, phi);
-        let (grad_u, _) = grad(mesh, fv, u_bc, u);
+        let (grad_u, _) = grad(GradScheme::GaussLinear, mesh, fv, u_bc, u);
         let g_by_nu: Vec<f64> = grad_u.iter().map(production).collect();
         let mut g: Vec<f64> = self
             .nut

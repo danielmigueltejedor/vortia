@@ -3,8 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use vortia_foamfile::{Dictionary, Entry, FoamFile, Value};
+use vortia_fv::limited::GradScheme;
 use vortia_fv::ops::{Convection, SnGrad};
-use vortia_fv::{Controls, FvGeometry};
+use vortia_fv::{Controls, FvError, FvGeometry};
 use vortia_mesh::PolyMesh;
 
 use crate::error::{Result, SolverError};
@@ -99,7 +100,11 @@ impl Case {
         let system = dir.join("system");
         Ok(Self {
             control: read_dict(&system.join("controlDict"))?,
-            schemes: read_dict(&system.join("fvSchemes"))?,
+            // `grad(U) $limited;` and `div(phi,e) $energy;` share entries.
+            // fvSolution keeps its own references (see `solver_dict`).
+            schemes: read_dict(&system.join("fvSchemes"))?
+                .expand_macros()
+                .map_err(|e| SolverError::Setup(format!("fvSchemes: {e}")))?,
             solution: read_dict(&system.join("fvSolution"))?,
             dir,
         })
@@ -149,9 +154,14 @@ impl Case {
                 default
             }
         };
+        // Numbers stay: `cellLimited Gauss linear 1` is not `... linear`.
         Ok(values
             .iter()
-            .filter_map(|v| v.as_word().map(str::to_owned))
+            .filter_map(|v| match v {
+                Value::Label(n) => Some(n.to_string()),
+                Value::Scalar(x) => Some(x.to_string()),
+                other => other.as_word().map(str::to_owned),
+            })
             .collect())
     }
 
@@ -159,6 +169,32 @@ impl Case {
     pub fn convection(&self, key: &str) -> Result<Convection> {
         let w = self.scheme("divSchemes", key)?;
         Ok(Convection::from_scheme(&words(&w))?)
+    }
+
+    /// As [`convection`](Self::convection), also taking `linearUpwind`, with
+    /// the gradient its `gradSchemes` entry gives.
+    pub fn convection_with_grad(&self, key: &str) -> Result<Convection> {
+        let w = self.scheme("divSchemes", key)?;
+        Ok(Convection::from_scheme_with(&words(&w), |name| {
+            Some(
+                self.grad_scheme(name)
+                    .map_err(|e| FvError::Setup(e.to_string())),
+            )
+        })?)
+    }
+
+    /// The `gradSchemes` entry for `key`: `Gauss linear` or
+    /// `cellLimited Gauss linear k`.
+    pub fn grad_scheme(&self, key: &str) -> Result<GradScheme> {
+        let w = self.scheme("gradSchemes", key)?;
+        Ok(GradScheme::from_scheme(&words(&w))?)
+    }
+
+    /// The surface-normal gradient of `laplacianSchemes` for `key`, with or
+    /// without the non-orthogonal correction.
+    pub fn laplacian_sn_grad(&self, key: &str) -> Result<SnGrad> {
+        let w = self.scheme("laplacianSchemes", key)?;
+        Ok(SnGrad::from_scheme(&words(&w))?)
     }
 
     /// The surface-normal gradient of `laplacianSchemes` for `key`, refusing
@@ -174,6 +210,21 @@ impl Case {
             )));
         }
         Ok(s)
+    }
+
+    /// The `snGradSchemes` entry for `key`, `corrected` included.
+    pub fn face_sn_grad(&self, key: &str) -> Result<SnGrad> {
+        let w = self.scheme("snGradSchemes", key)?;
+        match words(&w).as_slice() {
+            ["corrected"] => Ok(SnGrad::Corrected),
+            ["uncorrected"] => Ok(SnGrad::Uncorrected),
+            ["orthogonal"] => Ok(SnGrad::Orthogonal),
+            _ => Err(SolverError::Setup(format!(
+                "snGrad scheme '{}' for {key} is not supported yet; \
+                 use corrected, uncorrected or orthogonal",
+                w.join(" ")
+            ))),
+        }
     }
 
     /// The `snGradSchemes` entry for `key`, refusing a non-orthogonal
@@ -438,6 +489,44 @@ fn words(w: &[String]) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::{time_name, time_name_with};
+
+    /// The nozzle's fvSchemes share entries by `$name`; they resolve to the
+    /// schemes they name, numbers included.
+    #[test]
+    fn fv_schemes_share_entries_by_macro() {
+        use vortia_fv::limited::GradScheme;
+        let dir = tempfile::tempdir().unwrap();
+        let system = dir.path().join("system");
+        std::fs::create_dir_all(&system).unwrap();
+        for f in ["controlDict", "fvSolution"] {
+            std::fs::write(system.join(f), "a 1;").unwrap();
+        }
+        std::fs::write(
+            system.join("fvSchemes"),
+            "gradSchemes { default Gauss linear; limited cellLimited Gauss linear 1; \
+             grad(U) $limited; } \
+             divSchemes { default none; energy bounded Gauss linearUpwind limited; \
+             div(phi,e) $energy; }",
+        )
+        .unwrap();
+        let case = super::Case::open(dir.path()).unwrap();
+        assert_eq!(
+            case.grad_scheme("grad(U)").unwrap(),
+            GradScheme::CellLimited(1.0)
+        );
+        assert_eq!(
+            case.grad_scheme("grad(p)").unwrap(),
+            GradScheme::GaussLinear
+        );
+        let c = case.convection_with_grad("div(phi,e)").unwrap();
+        assert!(c.bounded);
+        assert_eq!(
+            c.interpolation.grad_scheme(),
+            Some(GradScheme::CellLimited(1.0))
+        );
+        // A solver that does not apply the correction refuses the scheme.
+        assert!(case.convection("div(phi,e)").is_err());
+    }
 
     #[test]
     fn references_that_fan_out_are_bounded() {

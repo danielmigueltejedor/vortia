@@ -607,6 +607,174 @@ fn a_wedge_patch_and_its_condition_must_agree() {
     assert!(e.contains("walls") && e.contains("wedge"), "{e}");
 }
 
+/// The nozzle with the schemes its real case uses: `linearUpwind` over a
+/// `cellLimited Gauss linear 1` gradient for the velocity, the energy and the
+/// kinetic energy, and the given Laplacian and `snGrad` schemes. Runs 60
+/// iterations.
+fn nozzle_with_schemes(
+    laplacian: &str,
+    sn_grad: &str,
+) -> (tempfile::TempDir, Vec<vortia_solvers::ico::Step>) {
+    let dir = tempfile::tempdir().unwrap();
+    nozzle(dir.path());
+    let linear_upwind = "bounded Gauss linearUpwind grad(U);";
+    write(
+        &dir.path().join("system/fvSchemes"),
+        &format!(
+            "{HEADER}ddtSchemes {{ default steadyState; }} \
+             gradSchemes {{ default Gauss linear; grad(U) cellLimited Gauss linear 1; }} \
+             divSchemes {{ default none; div(phi,U) {linear_upwind} \
+             div(phi,e) {linear_upwind} div(phi,Ekp) {linear_upwind} \
+             div(phi,K) {linear_upwind} \
+             div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear; }} \
+             laplacianSchemes {{ default {laplacian}; }} \
+             interpolationSchemes {{ default linear; }} snGradSchemes {{ default {sn_grad}; }}"
+        ),
+    );
+    let case = Case::open(dir.path()).unwrap();
+    let steps = rho_simple::run(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), 60);
+    (dir, steps)
+}
+
+/// What a nozzle run is compared on: the first solves' iteration counts, each
+/// field's total, and the fields in three cells. `Uz` is the wedge's own
+/// noise, as above.
+struct NozzleReference {
+    first: [usize; 8],
+    totals: [(&'static str, usize); 4],
+    uz: usize,
+    cells: [(usize, [f64; 2], f64, f64, f64); 3],
+}
+
+fn check_nozzle(dir: &Path, steps: &[vortia_solvers::ico::Step], want: &NozzleReference) {
+    let counts: Vec<usize> = steps
+        .iter()
+        .flat_map(|s| s.solves.iter().map(|(_, p)| p.iterations))
+        .collect();
+    assert_eq!(counts[..8], want.first);
+    let total = |field: &str| -> usize {
+        steps
+            .iter()
+            .flat_map(|s| &s.solves)
+            .filter(|(f, _)| f == field)
+            .map(|(_, p)| p.iterations)
+            .sum()
+    };
+    for (field, n) in want.totals {
+        assert_eq!(total(field), n, "iterations solving {field}");
+    }
+    assert!(total("Uz").abs_diff(want.uz) <= 3, "Uz: {}", total("Uz"));
+
+    let end = dir.join("60");
+    let u = VectorField::read(end.join("U"))
+        .unwrap()
+        .internal
+        .expand(7500)
+        .unwrap();
+    let read = |name: &str| {
+        ScalarField::read(end.join(name))
+            .unwrap()
+            .internal
+            .expand(7500)
+            .unwrap()
+    };
+    let (t, p, rho) = (read("T"), read("p"), read("rho"));
+    for (c, [ux, uy], tc, pc, rc) in want.cells {
+        assert!(
+            (u[c].x - ux).abs() < 1e-8 && (u[c].y - uy).abs() < 1e-8,
+            "U in cell {c}: {:?}",
+            u[c]
+        );
+        assert!(u[c].z.abs() < 1e-10, "Uz in cell {c}: {}", u[c].z);
+        assert!((t[c] - tc).abs() < 1e-9, "T in cell {c}: {}", t[c]);
+        assert!((p[c] - pc).abs() < 1e-8, "p in cell {c}: {}", p[c]);
+        assert!((rho[c] - rc).abs() < 1e-12, "rho in cell {c}: {}", rho[c]);
+    }
+}
+
+/// `linearUpwind` over a limited gradient, with uncorrected Laplacians.
+/// Reference: OpenFOAM v1912 on the same case
+/// (`WM_PROJECT_DIR=/usr/share/openfoam rhoSimpleFoam`, 60 iterations, full
+/// precision).
+#[test]
+fn rhosimplefoam_with_linear_upwind_and_a_limited_gradient_matches_openfoam() {
+    let (dir, steps) = nozzle_with_schemes("Gauss linear uncorrected", "uncorrected");
+    check_nozzle(
+        dir.path(),
+        &steps,
+        &NozzleReference {
+            first: [15, 11, 13, 19, 47, 14, 14, 12],
+            totals: [("Ux", 685), ("Uy", 728), ("e", 744), ("p", 2024)],
+            uz: 718,
+            cells: [
+                (
+                    0,
+                    [18.397115079601811, 0.00056932443243516511],
+                    299.8319802403783,
+                    101325.56948990622,
+                    1.1746389790021201,
+                ),
+                (
+                    3749,
+                    [3.0164949342980556, -0.0043697900870604068],
+                    299.99978333237209,
+                    101325.00923094539,
+                    1.1739752769913507,
+                ),
+                (
+                    7499,
+                    [0.0077094868088782541, -0.41006223433214367],
+                    299.99999858292568,
+                    101325.00909137554,
+                    1.1739745103379708,
+                ),
+            ],
+        },
+    );
+}
+
+/// The nozzle's own schemes: the same with `Gauss linear corrected` for
+/// every Laplacian (the velocity's with the limited `grad(U)`, the energy's
+/// and the pressure's with `Gauss linear`) and `corrected` for `snGrad(p)`,
+/// on a mesh whose faces are up to 7° off orthogonal.
+#[test]
+fn rhosimplefoam_with_corrected_laplacians_matches_openfoam() {
+    let (dir, steps) = nozzle_with_schemes("Gauss linear corrected", "corrected");
+    check_nozzle(
+        dir.path(),
+        &steps,
+        &NozzleReference {
+            first: [15, 11, 13, 19, 47, 14, 14, 12],
+            totals: [("Ux", 685), ("Uy", 728), ("e", 744), ("p", 2029)],
+            uz: 720,
+            cells: [
+                (
+                    0,
+                    [18.398604923186269, 0.00064345786788897168],
+                    299.83195643046241,
+                    101325.49046354683,
+                    1.1746381882411618,
+                ),
+                (
+                    3749,
+                    [3.0160149126041502, -0.0049736477150303165],
+                    299.99977243993652,
+                    101325.01035734953,
+                    1.1739753286293926,
+                ),
+                (
+                    7499,
+                    [0.0077028898733463302, -0.40766751887851171],
+                    299.99999859423491,
+                    101325.00903566973,
+                    1.173974509659641,
+                ),
+            ],
+        },
+    );
+}
+
 /// A `totalPressure` or `totalTemperature` without a `value` starts from
 /// its `p0` or `T0`, as OpenFOAM's does: here the same numbers, so the
 /// same solution.
@@ -789,7 +957,7 @@ fn unsupported_settings_are_refused() {
     refuse(
         "system/fvSchemes",
         "snGradSchemes { default orthogonal; }",
-        "snGradSchemes { default corrected; }",
+        "snGradSchemes { default limited 0.5; }",
         "snGrad(p)",
     );
     refuse(
@@ -824,7 +992,7 @@ fn each_algorithm_reads_its_own_pressure_laplacian() {
             &format!(
                 "laplacianSchemes {{ default none; {key} Gauss linear orthogonal; \
                  laplacian((rho*nuEff),U) Gauss linear orthogonal; \
-                 laplacian(alphaEff,{energy}) Gauss linear orthogonal; }}"
+                 laplacian(alphahe,{energy}) Gauss linear orthogonal; }}"
             ),
         );
         edit(

@@ -11,6 +11,7 @@ use vortia_core::Vec3;
 use vortia_mesh::{PatchKind, PolyMesh};
 
 use crate::fvgeom::{FvGeometry, mat_mul, transpose};
+use crate::limited::{self, GradScheme};
 use crate::vector::{VectorBc, VectorBoundary};
 
 /// A second-rank tensor, row by row: `t[i][j]`.
@@ -39,7 +40,7 @@ fn zip_with(a: &Tensor, b: &Tensor, f: impl Fn(f64, f64) -> f64) -> Tensor {
 }
 
 /// `v & t`: `Σᵢ vᵢ tᵢⱼ`, summed in OpenFOAM's order.
-fn dot(v: Vec3, t: &Tensor) -> Vec3 {
+pub(crate) fn dot(v: Vec3, t: &Tensor) -> Vec3 {
     let [[xx, xy, xz], [yx, yy, yz], [zx, zy, zz]] = *t;
     Vec3::new(
         v.x * xx + v.y * yx + v.z * zx,
@@ -69,6 +70,7 @@ fn dev2_transpose(t: &Tensor) -> Tensor {
 /// the patch's normal gradient, as `gaussGrad::correctBoundaryConditions`
 /// does.
 pub fn grad(
+    scheme: GradScheme,
     mesh: &PolyMesh,
     fv: &FvGeometry,
     bc: &VectorBoundary,
@@ -110,6 +112,9 @@ pub fn grad(
     }
     for (gc, &vol) in g.iter_mut().zip(fv.volumes()) {
         *gc = zip_with(gc, &[[vol; 3]; 3], |a, b| a / b);
+    }
+    if let GradScheme::CellLimited(k) = scheme {
+        limit_cells(mesh, fv, u, &boundary, &mut g, k);
     }
 
     let mut out = Vec::with_capacity(boundary.len());
@@ -164,6 +169,74 @@ pub fn grad(
     (g, out)
 }
 
+/// `cellLimited` on a vector: each component is limited as a scalar, and
+/// scales its column of the gradient tensor (`g[i][j] = ∂ᵢ uⱼ`).
+fn limit_cells(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    u: &[Vec3],
+    boundary: &[Option<Vec3>],
+    g: &mut [Tensor],
+    k: f64,
+) {
+    for j in 0..3 {
+        let pick = |v: Vec3| match j {
+            0 => v.x,
+            1 => v.y,
+            _ => v.z,
+        };
+        let cells: Vec<f64> = u.iter().map(|&v| pick(v)).collect();
+        let edge: Vec<Option<f64>> = boundary.iter().map(|v| v.map(pick)).collect();
+        let grad: Vec<Vec3> = g
+            .iter()
+            .map(|t| {
+                let [x, y, z] = *t;
+                Vec3::new(
+                    x.get(j).copied().unwrap_or(0.0),
+                    y.get(j).copied().unwrap_or(0.0),
+                    z.get(j).copied().unwrap_or(0.0),
+                )
+            })
+            .collect();
+        let limiter = limited::cell_limiter(mesh, fv, &cells, &edge, &grad, k);
+        for (t, l) in g.iter_mut().zip(limiter) {
+            for row in t.iter_mut() {
+                if let Some(x) = row.get_mut(j) {
+                    *x *= l;
+                }
+            }
+        }
+    }
+}
+
+/// `linearUpwind`'s correction of a vector's upwind face value on every
+/// internal face: `(C_f − C_up) · ∇u_up`, from the cells' gradient tensors.
+pub fn linear_upwind_correction(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    phi: &[f64],
+    g: &[Tensor],
+) -> Vec<Vec3> {
+    let centres = &fv.geo.cell_centres;
+    let cf = &fv.geo.face_centres;
+    mesh.owner()
+        .iter()
+        .zip(mesh.neighbour())
+        .enumerate()
+        .map(|(f, (&o, &n))| {
+            let up = if phi.get(f).copied().unwrap_or(0.0) > 0.0 {
+                o
+            } else {
+                n
+            };
+            match (centres.get(up), cf.get(f), g.get(up)) {
+                (Some(&c), Some(&face), Some(t)) => dot(face - c, t),
+                _ => Vec3::default(),
+            }
+        })
+        .collect()
+}
+
 /// `dev(twoSymm(g)) && g`: what `ν_t` multiplies in the production of
 /// turbulent kinetic energy, `G = ν_t (dev(twoSymm(∇U)) && ∇U)`.
 pub fn production(g: &Tensor) -> f64 {
@@ -175,9 +248,10 @@ pub fn production(g: &Tensor) -> f64 {
     sxx * xx + sxy * xy + sxz * xz + sxy * yx + syy * yy + syz * yz + sxz * zx + syz * zy + szz * zz
 }
 
-/// `fvc::div(ν dev2(T(fvc::grad(U))))` with `Gauss linear`, per cell, for
+/// `fvc::div(ν dev2(T(fvc::grad(U))))` with the gradient `scheme`, per cell, for
 /// `nu` in every cell and on every boundary face (`None` on empty faces).
 pub fn div_dev2_grad_t(
+    scheme: GradScheme,
     mesh: &PolyMesh,
     fv: &FvGeometry,
     bc: &VectorBoundary,
@@ -185,7 +259,7 @@ pub fn div_dev2_grad_t(
     nu: &[f64],
     nu_boundary: &[Option<f64>],
 ) -> Vec<Vec3> {
-    let (cells, boundary) = grad(mesh, fv, bc, u);
+    let (cells, boundary) = grad(scheme, mesh, fv, bc, u);
     let stress = |t: &Tensor, nu: f64| zip_with(&dev2_transpose(t), &[[nu; 3]; 3], |a, n| n * a);
     let cells: Vec<Tensor> = cells.iter().zip(nu).map(|(t, &n)| stress(t, n)).collect();
     let sf = &fv.geo.face_areas;
@@ -271,7 +345,7 @@ mod tests {
             assignable: vec![false; conditions.len()],
             conditions,
         };
-        let (_, faces) = grad(&mesh, &fv, &bc, &[Vec3::default()]);
+        let (_, faces) = grad(GradScheme::GaussLinear, &mesh, &fv, &bc, &[Vec3::default()]);
         let y_min = mesh.patch("yMin").unwrap();
         let k = y_min.start - mesh.n_internal_faces();
         let g = faces[k].unwrap();
