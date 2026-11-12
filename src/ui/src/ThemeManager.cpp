@@ -222,9 +222,9 @@ ThemeManager::Theme ThemeManager::fromName(const QString& name) {
 }
 
 ThemeManager::Theme ThemeManager::resolve(const QString& savedName) {
-    const QString override = qEnvironmentVariable("VORTIA_THEME");
-    if (override == QStringLiteral("light") || override == QStringLiteral("dark"))
-        return fromName(override);
+    const QString themeOverride = qEnvironmentVariable("VORTIA_THEME");
+    if (themeOverride == QStringLiteral("light") || themeOverride == QStringLiteral("dark"))
+        return fromName(themeOverride);
     return fromName(savedName);
 }
 
