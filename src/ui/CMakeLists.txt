@@ -26,6 +26,7 @@ add_library(vortia_ui STATIC
     src/MeshRegionsWidget.cpp
     src/BoundaryPreview.cpp
     src/BoundaryMapping.cpp
+    src/FlowConfiguration.cpp
     src/FieldStatisticsDialog.cpp
     src/FieldTools.cpp
     src/LineProfile.cpp

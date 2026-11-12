@@ -149,7 +149,7 @@ endif()
 if(TARGET vortia)
     add_test(NAME vortia_spanish_catalog
              COMMAND $<TARGET_FILE:vortia> --verify-spanish)
-    add_executable(test_workspace unit/test_workspace.cpp unit/test_engineering.cpp unit/test_run_diagnostics.cpp unit/test_ndl.cpp
+    add_executable(test_workspace unit/test_workspace.cpp unit/test_engineering.cpp unit/test_run_diagnostics.cpp unit/test_ndl.cpp unit/test_flow_configuration.cpp
         "${PROJECT_SOURCE_DIR}/resources/vortia.qrc")
     set_target_properties(test_workspace PROPERTIES AUTORCC ON)
     target_link_libraries(test_workspace PRIVATE vortia::ui GTest::gtest vortia_warnings)
