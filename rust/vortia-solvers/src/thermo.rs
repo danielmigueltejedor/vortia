@@ -325,7 +325,7 @@ impl Thermo {
             })?;
             let kind = match pf.kind.as_str() {
                 "fixedValue" => TKind::Fixed,
-                "zeroGradient" => TKind::ZeroGradient,
+                "zeroGradient" | "wedge" => TKind::ZeroGradient,
                 "empty" => TKind::Empty,
                 "totalTemperature" => {
                     for (key, default) in [("U", "U"), ("phi", "phi"), ("psi", "thermo:psi")] {
