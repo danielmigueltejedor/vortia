@@ -3,8 +3,8 @@
 
 Usage: deploy_bundle.py <Vortia.app> <qt-plugins-dir> [--min-macos X.Y]
 
-Copies every non-system library the executable and the needed Qt plugins
-link to (Qt, VTK, HDF5, ...; plain dylibs or frameworks, Homebrew or
+Copies every non-system library the executables in Contents/MacOS (vortia
+and vortia-engine) and the needed Qt plugins link to (Qt, VTK, HDF5, ...; plain dylibs or frameworks, Homebrew or
 conda-forge) into Contents/Frameworks, rewrites all references to @rpath,
 installs the Qt plugins in Contents/PlugIns, records the real minimum macOS
 version of the bundled binaries in Info.plist and signs the result ad-hoc.
@@ -143,9 +143,9 @@ class Bundle:
         for rpath in dict.fromkeys(rpaths(binary)):
             changes += ["-delete_rpath", rpath]
         relative = os.path.relpath(self.frameworks, binary.parent)
-        prefix = "@executable_path" if binary == self.executable else "@loader_path"
+        prefix = "@executable_path" if binary.parent == self.executable.parent else "@loader_path"
         changes += ["-add_rpath", f"{prefix}/{relative}" if relative != "." else prefix]
-        if binary != self.executable and self.plugins not in binary.parents:
+        if binary.parent != self.executable.parent and self.plugins not in binary.parents:
             own = next(name for name, path in self.bundled.items() if path == binary)
             changes += ["-id", own]
         subprocess.run(["install_name_tool", *changes, str(binary)], check=True,
@@ -153,7 +153,11 @@ class Bundle:
 
     def deploy(self, qt_plugins: Path) -> None:
         self.frameworks.mkdir(parents=True, exist_ok=True)
-        roots: list[tuple[Path, Path]] = [(self.executable, self.executable)]
+        # Every executable in Contents/MacOS, not only the Qt interface: vortia-engine
+        # rides here too, and Vortia Native runs it with no build environment around.
+        roots: list[tuple[Path, Path]] = [
+            (exe, exe) for exe in sorted(self.executable.parent.iterdir()) if is_macho(exe)
+        ]
         for category, names in PLUGINS.items():
             source_dir = qt_plugins / category
             if not source_dir.is_dir():
@@ -201,6 +205,11 @@ class Bundle:
                     raise SystemExit(f"error: {binary} still references {reference}")
                 if reference.startswith("@rpath/") and reference not in self.bundled:
                     raise SystemExit(f"error: {binary} references unbundled {reference}")
+            # An @rpath reference is only as good as the search path: a build-tree
+            # LC_RPATH resolves on the build machine and nowhere else.
+            for rpath in rpaths(binary):
+                if not rpath.startswith(("@executable_path", "@loader_path")):
+                    raise SystemExit(f"error: {binary} keeps the search path {rpath}")
 
     def sign(self) -> None:
         for binary in self.binaries():

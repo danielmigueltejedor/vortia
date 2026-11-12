@@ -27,6 +27,11 @@ outside="$(find "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/
   xargs -0 -n1 otool -L 2>/dev/null | awk '/^\t/{print $1}' |
   grep -vE '^(/usr/lib/|/System/|@rpath/)' | sort -u)"
 if [[ -n "$outside" ]]; then echo "$outside" | head -n 20; bad "references outside the bundle"; else echo "ok"; fi
+# @rpath references only resolve inside the bundle if every search path is relative to it.
+stray_rpaths="$(find "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/PlugIns" -type f \( -name '*.dylib' -o -perm +111 \) -print0 |
+  xargs -0 -n1 otool -l 2>/dev/null | awk '/cmd LC_RPATH/{r=1} r && $1=="path"{print $2; r=0}' |
+  grep -vE '^@(executable|loader)_path' | sort -u)"
+if [[ -n "$stray_rpaths" ]]; then echo "$stray_rpaths" | head -n 20; bad "search paths outside the bundle"; fi
 
 echo "== Headless start =="
 "$exe" --verify-spanish || bad "--verify-spanish rc=$?"
