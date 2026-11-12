@@ -4,6 +4,51 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-12
+
+Vortia Native para macOS, el motor de casos sin interfaz y el motor propio en
+Rust con importación de mallas. La aplicación Qt y sus resultados de cálculo no
+cambian.
+
+### Añadido
+- **Vortia Native** (macOS): edición en SwiftUI, cliente de `vortia-engine`.
+  Las etapas de un caso en la barra lateral, comprobaciones en vivo en el
+  inspector, malla, cálculo y parada en la barra de herramientas, residuales con
+  Swift Charts y el resultado como corte coloreado con sus estadísticas y su
+  perfil central. Liquid Glass en macOS 26.
+- **Resultado en 3D** en Vortia Native: la superficie exterior del dominio,
+  coloreada con el campo elegido y dibujada con SceneKit, con órbita y zoom
+  desde el trackpad (conmutador Corte / 3D).
+- **Flujo compresible con contorno** en Vortia Native: contorno del fluido
+  sobre el eje con segmentos coloreados por su tipo de frontera, vértices
+  arrastrables, arcos, tobera paramétrica a partir de cinco dimensiones;
+  configuración del flujo (tamaños de malla, gas, una frontera por segmento,
+  estado inicial, criterios de parada) y tarjeta de convergencia.
+- **Análisis de secciones e informe de ingeniería** en Vortia Native: dónde corta
+  la sección, el sentido hacia delante, los valores de referencia, las catorce
+  métricas y el informe guardado como HTML, CSV o JSON.
+- **`vortia-engine`:** el flujo de un caso sin interfaz (proyectos, validación,
+  escritor y ejecutor del caso de OpenFOAM con residuales en vivo, análisis de
+  resultados VTK, croquis, toberas y flujo compresible), con protocolo JSON por
+  línea en stdin/stdout ([`docs/architecture/native-engine.md`](docs/architecture/native-engine.md)).
+- **Segundo instalador de macOS:** `Vortia-<versión>-native-macos-arm64.dmg`
+  junto al DMG de Qt, con la ventana de instalación de las apps de Nodalia.
+- **Motor propio en Rust** (todavía no integrado en la aplicación): solucionadores
+  `laplacianFoam`, `scalarTransportFoam`, `icoFoam`, `simpleFoam` (laminar, k-ε y
+  k-ω SST) y `rhoSimpleFoam` con k-ω SST compresible y condiciones de presión;
+  `blockMesh` propio (graduaciones, aristas curvas, celdas colapsadas, vértices
+  con nombre y zonas de celdas) e importación de mallas con `vortia gmshtofoam`,
+  `fluenttofoam` y `cgnstofoam` (CGNS en formato ADF, como lo exportan Fluent y
+  ANSYS Meshing). Cada paso se valida contra OpenFOAM v1912 sobre los mismos
+  archivos ([`docs/architecture/rust-engine.md`](docs/architecture/rust-engine.md)).
+
+### Cambiado
+- Los bocetos `.vsketch.json` se leen y escriben fuera del editor, de modo que
+  la aplicación Qt y el motor comparten el formato.
+- Compila con VTK 9.6, que no tiene `SetRenameArrays`.
+- La integración continua corre en runners Blacksmith y añade CodeQL y OpenSSF
+  Scorecard.
+
 ## [0.6.0] — 2026-11-11
 
 Interfaz con la identidad de Nodalia. No cambia el motor ni los resultados de

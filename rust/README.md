@@ -32,6 +32,12 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
   k-ω SST) and steady laminar flow of a perfect gas (`rhoSimpleFoam`).
 - `vortia-cli`: the `vortia` command.
 
+The meshing commands read and write a case's `constant/polyMesh`:
+`vortia blockmesh` (the engine's `blockMesh`), `vortia gmshtofoam` (Gmsh
+`.msh`, formats 1, 2 and 4), `vortia fluenttofoam` (ASCII Fluent `.msh`, 3-D and
+2-D) and `vortia cgnstofoam` (CGNS, ADF format, as Fluent and ANSYS Meshing
+export it).
+
 ```bash
 cd rust
 cargo run -p vortia-cli -- check-mesh ../examples/nozzle-practice-2026
