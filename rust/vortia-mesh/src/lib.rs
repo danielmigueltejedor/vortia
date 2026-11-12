@@ -22,6 +22,7 @@ pub mod blockmesh;
 pub mod blocks;
 pub mod check;
 pub mod error;
+pub mod fluent;
 pub mod geometry;
 pub mod gmsh;
 pub mod polymesh;

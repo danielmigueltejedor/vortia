@@ -1,6 +1,8 @@
 #include "vortia/ui/MesherRuntime.hpp"
 #include "vortia/ui/UiIcon.hpp"
 #include "vortia/ui/FlowSetup.hpp"
+#include "vortia/ui/FlowCase.hpp"
+#include "vortia/ui/FlowConfiguration.hpp"
 #include "vortia/ui/BoundaryMapping.hpp"
 #include "vortia/ui/BoundaryPreview.hpp"
 #include "vortia/ui/MeshRegionsWidget.hpp"
@@ -302,7 +304,8 @@ void FlowSetupPanel::selectPage(int page) {
     else navigation_->selectPage(std::clamp(page,0,pages_->count()-1));
 }
 QJsonObject defaultFlowConfiguration(const Sketch2D& shape,const QJsonObject& previous,const QJsonObject& defaults) {
-    FlowSetupPanel panel(shape,previous,nullptr,defaults);return panel.configuration();
+    // The same values the panel would show, without building it (test_flow_configuration checks).
+    return flowConfiguration(shape,previous,defaults);
 }
 QJsonObject editFlowSetup(QWidget* parent,const Sketch2D& shape,const QJsonObject& previous,int page,const QJsonObject& defaults) {
     QDialog dialog(parent);dialog.setObjectName("vortia-flow-setup");dialog.setWindowTitle(flowTr("Flow configuration"));dialog.resize(1120,800);
@@ -409,59 +412,22 @@ QString updateFlowRunControls(const QString& caseDir,const QJsonObject& solver,
 
 QString generateFlowCase(QWidget* parent,const QString& sketchPath,const QJsonObject& cfg,
                          const QString& projectRoot,const std::vector<std::pair<std::string,std::string>>& environment,const QString& caseStorage){
-    QString parentDir=QDir(projectRoot).filePath("cases");
-#ifdef Q_OS_MACOS
-    // Keep solver writes/builds off iCloud-managed Documents/Desktop folders.
-    // The small editable project retains the absolute reference to its results.
-    parentDir=QDir::homePath()+"/Library/Vortia/cases";
-#endif
-    if(!caseStorage.isEmpty()) {
-        if(!QDir::isAbsolutePath(caseStorage)||std::any_of(caseStorage.begin(),caseStorage.end(),[](QChar c){return c.isSpace();})) {
-            QMessageBox::warning(parent,flowTr("Calculation storage"),flowTr("Choose an absolute calculation path without spaces in Preferences."));return {};
-        }
-        parentDir=caseStorage;
+    QString storageError;
+    if(flowCaseStorage(projectRoot,caseStorage,&storageError).isEmpty()) {
+        QMessageBox::warning(parent,flowTr("Calculation storage"),storageError);return {};
     }
-    if(std::any_of(parentDir.cbegin(),parentDir.cend(),[](QChar c){return c.isSpace();}))
-        parentDir=QDir::homePath()+"/Library/Vortia/cases";
-    if(!QDir().mkpath(parentDir)) {
-        QMessageBox::warning(parent,flowTr("Calculation storage"),flowTr("The calculation storage folder could not be created. Check its location and permissions."));return {};
-    }
-    QTemporaryDir stage(parentDir+"/.build-XXXXXX");if(!stage.isValid())return {};
-    auto write=[&](const QString& name,const QByteArray& bytes){QFile f(stage.filePath(name));return f.open(QIODevice::WriteOnly)&&f.write(bytes)==bytes.size();};
-    for(const auto& name:{"prepare.py","boundaries.py","mesh_regions.py"}){QFile f(QString(":/vortia/flow/")+name);if(!f.open(QIODevice::ReadOnly)||!write(name,f.readAll()))return {};}
-    auto settings=cfg;settings.remove("activeCase");settings.remove("preparedHash");settings.remove("preparedEngine");
-    if(!write("settings.json",QJsonDocument(settings).toJson())||!QDir().mkpath(stage.filePath("solver/Make")))return {};
-    for(const auto& name:QStringList{"vortiaCentralFoam.C","ConservativeUpdate.H","ConvergencePolicy.H","ConvergenceMonitor.H","centralCourantNo.H","createFieldRefs.H","createFields.H","directionInterpolate.H","readFluxScheme.H","setRDeltaT.H","fixedRhoFvPatchScalarField.H","Make/files","Make/options","README.md","LICENSE.md"}){
-        QFile f(QString(":/vortia/openfoam/solver/")+name);if(!f.open(QIODevice::ReadOnly)||!write("solver/"+name,f.readAll()))return {};
-    }
-    const QString python=mesherPython();
-    const QString runtime=mesherGmshRuntime();
-    if(python.isEmpty()||!QFileInfo::exists(runtime+"/gmsh.py")){
-        QMessageBox::warning(parent,flowTr("Mesher unavailable"),flowTr("This installation is missing Python 3 or the bundled Gmsh runtime."));return {};
-    }
-    QProcess process;QProcessEnvironment env=QProcessEnvironment::systemEnvironment();
-    for(const auto& [key,value]:environment)env.insert(QString::fromStdString(key),QString::fromStdString(value));
-    applyMesherEnvironment(env);
-    process.setProcessEnvironment(env);process.setProcessChannelMode(QProcess::MergedChannels);
     QProgressDialog progress(flowTr("Generating the mesh from the sketch…"),flowTr("Cancel"),0,0,parent);progress.setWindowModality(Qt::WindowModal);progress.setMinimumDuration(0);
-    QEventLoop loop;bool finished=false;QObject::connect(&process,qOverload<int,QProcess::ExitStatus>(&QProcess::finished),&loop,[&](){finished=true;loop.quit();});
-    QObject::connect(&process,&QProcess::errorOccurred,&loop,&QEventLoop::quit);
-    QObject::connect(&progress,&QProgressDialog::canceled,&process,&QProcess::kill);
-    process.start(python,{stage.filePath("prepare.py"),"--sketch",sketchPath,"--config",stage.filePath("settings.json"),"--case",stage.filePath("case"),"--solver-sources",stage.filePath("solver"),"--gmsh-runtime",runtime});
-    loop.exec();progress.close();
-    if(process.state()!=QProcess::NotRunning){process.kill();process.waitForFinished(3000);}
-    const auto output=process.readAll();
-    if(!finished||process.exitStatus()!=QProcess::NormalExit||process.exitCode()!=0){
-        QByteArray diagnostic=output;
-        QFile converter(stage.filePath("case/log.gmshToFoam"));if(converter.open(QIODevice::ReadOnly))diagnostic+="\n"+converter.readAll();
-        QDir().mkpath(QDir(projectRoot).filePath("logs"));
-        QFile saved(QDir(projectRoot).filePath("logs/mesh-generation.log"));if(saved.open(QIODevice::WriteOnly))saved.write(diagnostic);
-        QMessageBox failure(QMessageBox::Warning,flowTr("Mesh generation failed"),flowTr("Check the contour, boundary assignments and mesh sizes. Details are saved in the project's logs folder."),QMessageBox::Ok,parent);
-        failure.setDetailedText(QString::fromUtf8(diagnostic).right(30000));failure.exec();return {};
+    // The mesher runs in prepareFlowCase; polling it keeps this dialog responsive and cancellable.
+    const auto result=prepareFlowCase(sketchPath,cfg,projectRoot,environment,caseStorage,[&progress](){
+        QCoreApplication::processEvents(QEventLoop::AllEvents,50);return progress.wasCanceled();});
+    progress.close();
+    if(result.caseDir.isEmpty()&&!result.cancelled) {
+        if(result.diagnostic.isEmpty()) {
+            QMessageBox::warning(parent,flowTr("Mesher unavailable"),result.error);return {};
+        }
+        QMessageBox failure(QMessageBox::Warning,flowTr("Mesh generation failed"),result.error,QMessageBox::Ok,parent);
+        failure.setDetailedText(QString::fromUtf8(result.diagnostic).right(30000));failure.exec();
     }
-    QFile log(stage.filePath("case/log.prepare"));if(log.open(QIODevice::WriteOnly))log.write(output);
-    const QString target=QDir(parentDir).filePath("run_"+QUuid::createUuid().toString(QUuid::WithoutBraces));
-    if(!QDir().rename(stage.filePath("case"),target))return {};
-    return target;
+    return result.caseDir;
 }
 }

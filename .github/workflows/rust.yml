@@ -19,12 +19,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [blacksmith-4vcpu-ubuntu-2404, blacksmith-6vcpu-macos-15]
     defaults:
       run:
         working-directory: rust
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Toolchain
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt,clippy

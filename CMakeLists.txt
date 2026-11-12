@@ -91,6 +91,7 @@ if(VORTIA_BUILD_UI)
         add_subdirectory(src/interop)
         add_subdirectory(src/ui)
         add_subdirectory(src/app)
+        add_subdirectory(src/engine)
     else()
         message(WARNING
             "Vortia: Qt6 and/or VTK with GUISupportQt not found. "
