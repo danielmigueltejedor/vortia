@@ -243,28 +243,28 @@ impl Msh {
         }
     }
 
-    fn point(&self, i: usize) -> Vec3 {
-        self.points.get(i).copied().unwrap_or_default()
-    }
-
     /// `correctOrientation`: no face of the cell points towards its centre.
     fn correct_orientation(&self, shape: &Shape) -> bool {
-        let labels = shape.labels();
-        let estimate = labels
-            .iter()
-            .fold(Vec3::default(), |s, &l| s + self.point(l))
-            / labels.len().max(1) as f64;
-        let faces: Vec<Vec<usize>> = shape.faces();
-        let coords: Vec<Vec<Vec3>> = faces
-            .iter()
-            .map(|f| f.iter().map(|&l| self.point(l)).collect())
-            .collect();
-        let centre = cell_centre(&coords, estimate);
-        faces.iter().zip(&coords).all(|(f, c)| {
-            let first = f.first().map_or_else(Vec3::default, |&l| self.point(l));
-            (first - centre).dot(face_area_normal(c)) >= 0.0
-        })
+        points_outward(&self.points, shape)
     }
+}
+
+/// Whether no face of the shape points towards its centre.
+pub(crate) fn points_outward(points: &[Vec3], shape: &Shape) -> bool {
+    let point = |i: usize| points.get(i).copied().unwrap_or_default();
+    let labels = shape.labels();
+    let estimate =
+        labels.iter().fold(Vec3::default(), |s, &l| s + point(l)) / labels.len().max(1) as f64;
+    let faces: Vec<Vec<usize>> = shape.faces();
+    let coords: Vec<Vec<Vec3>> = faces
+        .iter()
+        .map(|f| f.iter().map(|&l| point(l)).collect())
+        .collect();
+    let centre = cell_centre(&coords, estimate);
+    faces.iter().zip(&coords).all(|(f, c)| {
+        let first = f.first().map_or_else(Vec3::default, |&l| point(l));
+        (first - centre).dot(face_area_normal(c)) >= 0.0
+    })
 }
 
 /// `$MeshFormat`: the version; only ASCII files can be read.
