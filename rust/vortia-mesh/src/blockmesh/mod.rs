@@ -11,18 +11,21 @@
 //!
 //! Supported: `line`, `arc`, `polyLine`, `spline`, `BSpline` and `bezier`
 //! edges, `simpleGrading` and `edgeGrading` (with several sections),
-//! `boundary` patches, `defaultPatch`, `scale`. The rest (faces projected on
-//! geometry, projected edges, named vertices, `mergePatchPairs`, zones) is
-//! refused with a message that says which.
+//! `boundary` patches, `defaultPatch`, `scale`, vertices that carry a name
+//! (and `namedVertices`, `namedBlocks`), and the cell zones that blocks name.
+//! The rest (faces projected on geometry, projected edges, `mergePatchPairs`)
+//! is refused with a message that says which.
 
 mod edges;
+mod names;
 mod shapes;
 
 use vortia_core::Vec3;
-use vortia_foamfile::{Dictionary, Entry, FaceList, RawPatch, RawPolyMesh, Value};
+use vortia_foamfile::{Dictionary, Entry, FaceList, RawCellZone, RawPatch, RawPolyMesh, Value};
 
 use crate::error::{MeshError, Result};
 use edges::CurvedEdge;
+use names::Names;
 use shapes::{Cells, HEX_FACES, Shape, collapse_hex};
 
 /// The most cells a dictionary may ask for in all.
@@ -164,6 +167,8 @@ struct Block {
     n: [usize; 3],
     expansion: [Vec<Section>; 12],
     points: Vec<Vec3>,
+    /// The cell zone the block's cells belong to, if it names one.
+    zone: Option<String>,
 }
 
 impl Block {
@@ -464,34 +469,45 @@ fn list<'a>(v: &'a Value, what: &str) -> Result<&'a [Value]> {
         .map_or_else(|| invalid(format!("{what}: expected a list")), Ok)
 }
 
-fn vertices(dict: &Dictionary) -> Result<Vec<Vec3>> {
+/// The vertices, and the names the list gives them: an entry is `(x y z)` or
+/// `name <name> (x y z)`.
+fn vertices(dict: &Dictionary, names: &mut Names) -> Result<Vec<Vec3>> {
     let items = dict
         .value("vertices")
         .and_then(Value::as_list)
         .ok_or_else(|| MeshError::Invalid("blockMeshDict has no `vertices`".into()))?;
-    items
-        .iter()
-        .enumerate()
-        .map(|(i, v)| {
-            let (x, y, z) = match v {
-                Value::List(xyz) => match xyz.as_slice() {
-                    [x, y, z] => (x, y, z),
-                    _ => return invalid(format!("vertex {i}: expected (x y z)")),
-                },
-                Value::Word(_) | Value::Str(_) | Value::Keyed(..) => {
-                    return invalid(
-                        "vertices with names or projected onto geometry are not supported yet",
-                    );
-                }
-                _ => return invalid(format!("vertex {i}: expected (x y z)")),
-            };
-            Ok(Vec3::new(
-                number(x, "vertex")?,
-                number(y, "vertex")?,
-                number(z, "vertex")?,
-            ))
-        })
-        .collect()
+    let mut out = Vec::new();
+    let mut it = items.iter();
+    while let Some(item) = it.next() {
+        let i = out.len();
+        let point = match item {
+            Value::List(_) => item,
+            Value::Word(kind) if kind == "name" => {
+                let name = it
+                    .next()
+                    .and_then(Value::as_word)
+                    .ok_or_else(|| MeshError::Invalid(format!("vertex {i}: no name")))?;
+                names.name_vertex(name, i);
+                it.next()
+                    .filter(|v| matches!(v, Value::List(_)))
+                    .ok_or_else(|| MeshError::Invalid(format!("vertex {i}: expected (x y z)")))?
+            }
+            Value::Word(_) | Value::Str(_) | Value::Keyed(..) => {
+                return invalid("vertices projected onto geometry are not supported yet");
+            }
+            _ => return invalid(format!("vertex {i}: expected (x y z)")),
+        };
+        let xyz = list(point, "vertex")?;
+        let [x, y, z] = xyz else {
+            return invalid(format!("vertex {i}: expected (x y z)"));
+        };
+        out.push(Vec3::new(
+            number(x, "vertex")?,
+            number(y, "vertex")?,
+            number(z, "vertex")?,
+        ));
+    }
+    Ok(out)
 }
 
 /// One grading entry: a number, or a list of `(block fraction, division
@@ -526,7 +542,7 @@ fn grading(v: &Value) -> Result<Vec<Section>> {
     Ok(out)
 }
 
-fn blocks(dict: &Dictionary, n_vertices: usize) -> Result<Vec<Block>> {
+fn blocks(dict: &Dictionary, n_vertices: usize, names: &Names) -> Result<Vec<Block>> {
     let items = dict
         .value("blocks")
         .and_then(Value::as_list)
@@ -550,15 +566,20 @@ fn blocks(dict: &Dictionary, n_vertices: usize) -> Result<Vec<Block>> {
         }
         let mut vertices = [0usize; 8];
         for (slot, v) in vertices.iter_mut().zip(verts) {
-            let n = count(v, &label)?;
+            let n = names.vertex(v, &label)?;
             if n >= n_vertices {
                 return invalid(format!("{label}: vertex {n} does not exist"));
             }
             *slot = n;
         }
-        if it.peek().is_some_and(|v| v.as_word().is_some()) {
-            return invalid(format!("{label}: cell zones are not supported yet"));
-        }
+        let zone = match it.peek().and_then(|v| v.as_word()) {
+            Some(zone) => {
+                let zone = zone.to_owned();
+                it.next();
+                Some(zone)
+            }
+            None => None,
+        };
         let cells = it
             .next()
             .ok_or_else(|| MeshError::Invalid(format!("{label}: no divisions")))?;
@@ -620,6 +641,7 @@ fn blocks(dict: &Dictionary, n_vertices: usize) -> Result<Vec<Block>> {
             n,
             expansion,
             points: Vec::new(),
+            zone,
         });
         if out.len() > MAX_BLOCKS {
             return invalid("too many blocks");
@@ -646,7 +668,7 @@ struct PatchDef {
     faces: Vec<Vec<usize>>,
 }
 
-fn boundary(dict: &Dictionary, n_vertices: usize) -> Result<Vec<PatchDef>> {
+fn boundary(dict: &Dictionary, n_vertices: usize, names: &Names) -> Result<Vec<PatchDef>> {
     if dict.get("patches").is_some() && dict.get("boundary").is_none() {
         return invalid("the old `patches` section is not supported; use `boundary`");
     }
@@ -675,7 +697,7 @@ fn boundary(dict: &Dictionary, n_vertices: usize) -> Result<Vec<PatchDef>> {
             }
             let mut face = Vec::with_capacity(f.len());
             for v in f {
-                let n = count(v, name)?;
+                let n = names.face_label(v, name)?;
                 if n >= n_vertices {
                     return invalid(format!("patch {name}: vertex {n} does not exist"));
                 }
@@ -1219,10 +1241,11 @@ pub fn block_mesh(dict: &Dictionary) -> Result<RawPolyMesh> {
         .or_else(|| dict.scalar("convertToMeters"))
         .filter(|s| *s > 0.0)
         .unwrap_or(1.0);
-    let verts = vertices(dict)?;
-    let mut blocks = blocks(dict, verts.len())?;
+    let mut names = Names::of(dict)?;
+    let verts = vertices(dict, &mut names)?;
+    let mut blocks = blocks(dict, verts.len(), &names)?;
     check_blocks(&blocks, &verts)?;
-    let curves = edges::read(dict, &verts)?;
+    let curves = edges::read(dict, &verts, &names)?;
     if dict.get("faces").is_some_and(|e| match e {
         Entry::Values(v) => v
             .first()
@@ -1253,7 +1276,7 @@ pub fn block_mesh(dict: &Dictionary) -> Result<RawPolyMesh> {
         b.create_points(&c, &curves)?;
         corners.push(c);
     }
-    let patches = boundary(dict, verts.len())?;
+    let patches = boundary(dict, verts.len(), &names)?;
     let topology = Topology::new(&blocks, &patches)?;
     // `fastMerge` merges the points by the blocks' topology, trusting the
     // gradings to agree; otherwise (the default) by their distance.
@@ -1346,6 +1369,7 @@ pub fn block_mesh(dict: &Dictionary) -> Result<RawPolyMesh> {
         owner: built.owner,
         neighbour: built.neighbour,
         patches: Vec::new(),
+        cell_zones: Vec::new(),
     };
     let default_name = dict
         .dict("defaultPatch")
@@ -1387,7 +1411,35 @@ pub fn block_mesh(dict: &Dictionary) -> Result<RawPolyMesh> {
             dict: strip(dict),
         });
     }
+    raw.cell_zones = cell_zones(&blocks);
     Ok(raw)
+}
+
+/// The cell zones the blocks name, numbered in the order their names first
+/// appear; the cells of a block are consecutive, blocks following one another.
+fn cell_zones(blocks: &[Block]) -> Vec<RawCellZone> {
+    let mut zones: Vec<RawCellZone> = Vec::new();
+    let mut cell = 0usize;
+    for b in blocks {
+        let n = b.n_cells();
+        if let Some(name) = &b.zone {
+            let at = match zones.iter().position(|z| &z.name == name) {
+                Some(at) => at,
+                None => {
+                    zones.push(RawCellZone {
+                        name: name.clone(),
+                        cells: Vec::new(),
+                    });
+                    zones.len() - 1
+                }
+            };
+            if let Some(zone) = zones.get_mut(at) {
+                zone.cells.extend(cell..cell + n);
+            }
+        }
+        cell += n;
+    }
+    zones
 }
 
 /// A patch's own settings, without the entries a mesh file holds itself.

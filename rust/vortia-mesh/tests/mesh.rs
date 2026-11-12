@@ -83,6 +83,7 @@ fn a_flipped_face_is_reported() {
         owner: mesh.owner().to_vec(),
         neighbour: mesh.neighbour().to_vec(),
         patches: raw_patches(&mesh),
+        cell_zones: Vec::new(),
     };
     let flipped = PolyMesh::from_raw(raw).unwrap();
     let report = check(&flipped, &MeshGeometry::compute(&flipped));
@@ -135,6 +136,7 @@ fn inconsistent_parts_are_refused_not_panicked_on() {
             groups: vec![],
             dict: Default::default(),
         }],
+        cell_zones: Vec::new(),
     };
     assert!(PolyMesh::from_raw(base.clone()).is_ok());
 

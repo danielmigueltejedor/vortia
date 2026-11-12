@@ -110,6 +110,7 @@ impl PolyMesh {
             owner,
             neighbour,
             patches,
+            cell_zones: _,
         } = raw;
         let invalid = |m: String| Err(MeshError::Invalid(m));
 

@@ -9,6 +9,7 @@
 use vortia_core::Vec3;
 use vortia_foamfile::{Dictionary, Entry, Value};
 
+use super::names::Names;
 use crate::error::{MeshError, Result};
 
 /// OpenFOAM's `SMALL`, the tolerance of the end-point tests.
@@ -336,17 +337,21 @@ impl CurvedEdge {
     }
 }
 
-fn vertex_label(v: &Value, n_vertices: usize) -> Result<usize> {
-    if matches!(v, Value::Word(_) | Value::Str(_)) {
-        return invalid("named vertices are not supported yet");
+fn vertex_label(v: &Value, n_vertices: usize, names: &Names) -> Result<usize> {
+    if matches!(v, Value::Str(_)) {
+        return invalid("an edge's end is not a vertex of the dictionary");
     }
-    v.as_label()
-        .and_then(|n| usize::try_from(n).ok())
-        .filter(|&n| n < n_vertices)
-        .map_or_else(
-            || invalid("an edge's end is not a vertex of the dictionary"),
-            Ok,
-        )
+    let label = match v {
+        Value::Word(_) => names.vertex(v, "an edge's end")?,
+        _ => v
+            .as_label()
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(usize::MAX),
+    };
+    if label >= n_vertices {
+        return invalid("an edge's end is not a vertex of the dictionary");
+    }
+    Ok(label)
 }
 
 /// The entries of `edges`, with the one that a counted-list reading put back.
@@ -403,7 +408,7 @@ fn points(v: &Value) -> Result<Vec<Vec3>> {
 }
 
 /// The curved edges of a `blockMeshDict`, in the order they are listed.
-pub(super) fn read(dict: &Dictionary, verts: &[Vec3]) -> Result<Vec<CurvedEdge>> {
+pub(super) fn read(dict: &Dictionary, verts: &[Vec3], names: &Names) -> Result<Vec<CurvedEdge>> {
     let items: &[Value] = match dict.get("edges") {
         None => return Ok(Vec::new()),
         Some(Entry::Values(v)) => match v.as_slice() {
@@ -425,16 +430,16 @@ pub(super) fn read(dict: &Dictionary, verts: &[Vec3]) -> Result<Vec<CurvedEdge>>
         let Some(kind) = kind.as_word() else {
             return invalid("an edge starts with its type (arc, polyLine, spline, …)");
         };
-        let start = vertex_label(take(&mut it, kind, "first vertex")?, verts.len())?;
+        let start = vertex_label(take(&mut it, kind, "first vertex")?, verts.len(), names)?;
         let end_value = take(&mut it, kind, "second vertex")?;
         // `3 (…)` reads as a counted list of three: here the 3 is the vertex
         // and the list is the edge's next argument.
         let end = match end_value.as_list() {
             Some(l) => {
                 it.pending = Some(end_value);
-                vertex_label(&Value::Label(l.len() as i64), verts.len())?
+                vertex_label(&Value::Label(l.len() as i64), verts.len(), names)?
             }
-            None => vertex_label(end_value, verts.len())?,
+            None => vertex_label(end_value, verts.len(), names)?,
         };
         if start == end {
             return invalid(format!("a {kind} edge from vertex {start} to itself"));
