@@ -410,11 +410,15 @@ fn total_conditions_without_a_value_start_from_their_total() {
         }
         let case = Case::open(dir.path()).unwrap();
         rho_simple::run(&case, |_| {}).unwrap();
-        VectorField::read(dir.path().join("100/U"))
-            .unwrap()
-            .internal
-            .expand(300)
-            .unwrap()[0]
+        // The first written step shows where the start went, which the
+        // converged state forgets.
+        ["20", "100"].map(|time| {
+            VectorField::read(dir.path().join(time).join("U"))
+                .unwrap()
+                .internal
+                .expand(300)
+                .unwrap()
+        })
     };
     assert_eq!(end(true), end(false));
 }

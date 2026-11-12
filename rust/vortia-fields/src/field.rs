@@ -308,6 +308,11 @@ impl<T: FieldValue> Field<T> {
             if !kinds.contains(&found.kind.as_str()) {
                 continue;
             }
+            let faces: Option<Vec<T>> = patch
+                .faces()
+                .map(|f| values.get(f.checked_sub(n_internal)?).copied().flatten())
+                .collect();
+            let Some(faces) = faces else { continue };
             // A pattern or group entry serves several patches, which hold
             // different values: the patch gets an entry of its own, which
             // OpenFOAM looks up first.
@@ -322,14 +327,9 @@ impl<T: FieldValue> Field<T> {
             let Some(pf) = self.boundary.get_mut(i) else {
                 continue;
             };
-            let own: Option<Vec<T>> = patch
-                .faces()
-                .map(|f| values.get(f.checked_sub(n_internal)?).copied().flatten())
-                .collect();
-            let Some(own) = own else { continue };
-            pf.value = Some(match own.split_first() {
+            pf.value = Some(match faces.split_first() {
                 Some((&first, rest)) if rest.iter().all(|&v| v == first) => Data::Uniform(first),
-                _ => Data::NonUniform(own),
+                _ => Data::NonUniform(faces),
             });
         }
     }

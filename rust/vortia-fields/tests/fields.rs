@@ -280,4 +280,18 @@ fn patches_sharing_a_pattern_entry_each_get_their_own_values() {
     assert!(own.settings.values("p0").is_some());
     // Another patch is not touched.
     assert_eq!(value("yMin"), None);
+
+    // Values that do not cover a patch leave it, and the entries, as they were.
+    let mut other = scalar_from(
+        "FoamFile { version 2.0; format ascii; class volScalarField; object p; }\n\
+         dimensions [1 -1 -2 0 0 0 0]; internalField uniform 1;\n\
+         boundaryField {\n\
+           \".*\" { type zeroGradient; }\n\
+           \"(xMin|xMax)\" { type totalPressure; p0 uniform 5; value uniform 1; }\n\
+         }",
+    )
+    .unwrap();
+    let missing: Vec<Option<f64>> = vec![None; 6];
+    other.store_patch_values(&mesh, &["totalPressure"], &missing);
+    assert_eq!(other.boundary.len(), 2);
 }
