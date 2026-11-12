@@ -302,12 +302,26 @@ impl<T: FieldValue> Field<T> {
             let Some(i) = self.patch_field_index(patch) else {
                 continue;
             };
+            let Some(found) = self.boundary.get(i) else {
+                continue;
+            };
+            if !kinds.contains(&found.kind.as_str()) {
+                continue;
+            }
+            // A pattern or group entry serves several patches, which hold
+            // different values: the patch gets an entry of its own, which
+            // OpenFOAM looks up first.
+            let i = if found.key == patch.name {
+                i
+            } else {
+                let mut own = found.clone();
+                own.key = patch.name.clone();
+                self.boundary.push(own);
+                self.boundary.len() - 1
+            };
             let Some(pf) = self.boundary.get_mut(i) else {
                 continue;
             };
-            if !kinds.contains(&pf.kind.as_str()) {
-                continue;
-            }
             let own: Option<Vec<T>> = patch
                 .faces()
                 .map(|f| values.get(f.checked_sub(n_internal)?).copied().flatten())

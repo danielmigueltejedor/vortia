@@ -242,3 +242,42 @@ fn values_the_solver_sets_replace_those_of_the_conditions_that_follow_the_flow()
         Some(Data::NonUniform(vec![12.0, 13.0]))
     );
 }
+
+#[test]
+fn patches_sharing_a_pattern_entry_each_get_their_own_values() {
+    use vortia_core::Aabb;
+    use vortia_mesh::blocks::structured_box;
+
+    let bounds = Aabb {
+        min: Vec3::default(),
+        max: Vec3::new(1.0, 1.0, 1.0),
+    };
+    let mesh = structured_box(bounds, [1, 1, 1]).unwrap();
+    let mut field = scalar_from(
+        "FoamFile { version 2.0; format ascii; class volScalarField; object p; }\n\
+         dimensions [1 -1 -2 0 0 0 0]; internalField uniform 1;\n\
+         boundaryField {\n\
+           \".*\" { type zeroGradient; }\n\
+           \"(xMin|xMax)\" { type totalPressure; p0 uniform 5; value uniform 1; }\n\
+         }",
+    )
+    .unwrap();
+    let values: Vec<Option<f64>> = (0..6).map(|k| Some(10.0 + k as f64)).collect();
+    field.store_patch_values(&mesh, &["totalPressure"], &values);
+    let value = |name: &str| {
+        field
+            .patch_field(mesh.patch(name).unwrap())
+            .unwrap()
+            .value
+            .clone()
+    };
+    assert_eq!(value("xMin"), Some(Data::Uniform(10.0)));
+    assert_eq!(value("xMax"), Some(Data::Uniform(11.0)));
+    // The entry they share keeps its type and settings in each copy.
+    let own = field.boundary.iter().find(|p| p.key == "xMax").unwrap();
+    assert_eq!(own.kind, "totalPressure");
+    assert_eq!(own.settings.scalar("p0"), None);
+    assert!(own.settings.values("p0").is_some());
+    // Another patch is not touched.
+    assert_eq!(value("yMin"), None);
+}

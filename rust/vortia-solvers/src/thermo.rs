@@ -376,7 +376,11 @@ impl Thermo {
                     pf.kind
                 )));
             }
-            let given = pf.value.as_ref().and_then(|d| d.expand(patch.size));
+            // A totalTemperature without a `value` starts from T0.
+            let given = match (&pf.value, &kind) {
+                (None, TKind::Total { t0, .. }) => Some(t0.clone()),
+                (value, _) => value.as_ref().and_then(|d| d.expand(patch.size)),
+            };
             if matches!(kind, TKind::Fixed | TKind::Total { .. }) && given.is_none() {
                 return Err(SolverError::Setup(format!(
                     "T: patch '{}' needs a 'value' of {} items",

@@ -273,3 +273,123 @@ fn along_axes(patch: &Patch, fv: &FvGeometry) -> bool {
             .all(|c| (c * c).min((1.0 - c * c).abs()) < 1.0e-9)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use vortia_core::Aabb;
+    use vortia_mesh::blocks::structured_box;
+
+    use super::*;
+
+    /// One cell of volume 1; the six patches are xMin, xMax, yMin, yMax,
+    /// zMin and zMax, of one face each.
+    fn cell() -> (PolyMesh, FvGeometry) {
+        let bounds = Aabb {
+            min: Vec3::default(),
+            max: Vec3::new(1.0, 1.0, 1.0),
+        };
+        let mesh = structured_box(bounds, [1, 1, 1]).unwrap();
+        let fv = FvGeometry::new(&mesh);
+        (mesh, fv)
+    }
+
+    /// Flux on the faces: the six boundary faces come after the internal
+    /// ones, in patch order.
+    fn flux(mesh: &PolyMesh, outward: f64) -> Vec<f64> {
+        vec![outward; mesh.n_faces()]
+    }
+
+    #[test]
+    fn total_pressure_loses_the_dynamic_pressure_only_where_the_flow_comes_in() {
+        let (mesh, _) = cell();
+        let total = TotalPressure {
+            patches: vec![(0, vec![1000.0]), (1, vec![1000.0])],
+        };
+        let mut bc = Boundary {
+            conditions: vec![ScalarBc::FixedValue(vec![0.0]); 6],
+        };
+        let rho_b = vec![Some(2.0); 6];
+        let u_b = vec![Some(Vec3::new(3.0, 0.0, 4.0)); 6];
+        // Flux into the domain: p0 − ½ ρ |U|² = 1000 − 25.
+        total.update(&mesh, &mut bc, &rho_b, &u_b, &flux(&mesh, -1.0));
+        assert_eq!(bc.conditions[0], ScalarBc::FixedValue(vec![975.0]));
+        // Flux out of it, and none: p0.
+        total.update(&mesh, &mut bc, &rho_b, &u_b, &flux(&mesh, 1.0));
+        assert_eq!(bc.conditions[1], ScalarBc::FixedValue(vec![1000.0]));
+        total.update(&mesh, &mut bc, &rho_b, &u_b, &flux(&mesh, 0.0));
+        assert_eq!(bc.conditions[0], ScalarBc::FixedValue(vec![1000.0]));
+        // The patches it does not own stay as they were.
+        assert_eq!(bc.conditions[2], ScalarBc::FixedValue(vec![0.0]));
+    }
+
+    #[test]
+    fn total_pressure_relaxes_towards_what_it_held() {
+        let total = TotalPressure {
+            patches: vec![(0, vec![0.0])],
+        };
+        let before = Boundary {
+            conditions: vec![ScalarBc::FixedValue(vec![100.0]), ScalarBc::ZeroGradient],
+        };
+        let mut now = Boundary {
+            conditions: vec![ScalarBc::FixedValue(vec![200.0]), ScalarBc::ZeroGradient],
+        };
+        total.relax(&mut now, &before, 0.3);
+        assert_eq!(now.conditions[0], ScalarBc::FixedValue(vec![130.0]));
+    }
+
+    #[test]
+    fn the_outlet_fixes_the_tangential_velocity_only_when_the_flow_reverses() {
+        let (mesh, fv) = cell();
+        let driven = PressureVelocity {
+            inlet: Vec::new(),
+            outlet: vec![(1, vec![Vec3::default()])],
+        };
+        let mut conditions = vec![VectorBc::ZeroGradient; 6];
+        conditions[1] = VectorBc::Mixed {
+            mask: vec![Vec3::default()],
+            ref_value: vec![Vec3::default()],
+        };
+        let mut bc = VectorBoundary {
+            assignable: vec![false; 6],
+            conditions,
+        };
+        let rho_b = vec![Some(1.0); 6];
+        // Flow in through xMax: the y and z components are held at zero,
+        // the x component stays free.
+        driven.update(&mesh, &fv, &mut bc, &rho_b, &flux(&mesh, -1.0));
+        let u = Vec3::new(5.0, 6.0, 7.0);
+        assert_eq!(
+            bc.face_values(&mesh, &[u])[1],
+            Some(Vec3::new(5.0, 0.0, 0.0))
+        );
+        // Flow out: a zero gradient.
+        driven.update(&mesh, &fv, &mut bc, &rho_b, &flux(&mesh, 1.0));
+        assert_eq!(bc.face_values(&mesh, &[u])[1], Some(u));
+    }
+
+    #[test]
+    fn the_inlet_velocity_is_the_flux_over_the_mass_through_the_face() {
+        let (mesh, fv) = cell();
+        let driven = PressureVelocity {
+            inlet: vec![0],
+            outlet: Vec::new(),
+        };
+        let mut bc = VectorBoundary {
+            assignable: vec![true, false, false, false, false, false],
+            conditions: vec![VectorBc::FixedValue(vec![Vec3::default()]); 6],
+        };
+        // A mass flux of −3 through a face of area 1 at a density of 2
+        // enters along −n = +x at 1.5.
+        driven.update(&mesh, &fv, &mut bc, &vec![Some(2.0); 6], &flux(&mesh, -3.0));
+        assert_eq!(
+            bc.conditions[0],
+            VectorBc::FixedValue(vec![Vec3::new(1.5, 0.0, 0.0)])
+        );
+        // No density: no velocity, rather than a division by zero.
+        driven.update(&mesh, &fv, &mut bc, &vec![Some(0.0); 6], &flux(&mesh, -3.0));
+        assert_eq!(
+            bc.conditions[0],
+            VectorBc::FixedValue(vec![Vec3::default()])
+        );
+    }
+}

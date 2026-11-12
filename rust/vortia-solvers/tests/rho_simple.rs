@@ -385,6 +385,40 @@ fn rhosimplefoam_pressure_driven_matches_openfoam() {
     );
 }
 
+/// A `totalPressure` or `totalTemperature` without a `value` starts from
+/// its `p0` or `T0`, as OpenFOAM's does: here the same numbers, so the
+/// same solution.
+#[test]
+fn total_conditions_without_a_value_start_from_their_total() {
+    let end = |strip: bool| {
+        let dir = tempfile::tempdir().unwrap();
+        channel(dir.path(), &DRIVEN);
+        if strip {
+            for (file, from, to) in [
+                (
+                    "0/p",
+                    "p0 uniform 100020; value uniform 100020;",
+                    "p0 uniform 100020;",
+                ),
+                ("0/T", "gamma 1.4; value uniform 300;", "gamma 1.4;"),
+            ] {
+                let path = dir.path().join(file);
+                let text = std::fs::read_to_string(&path).unwrap();
+                assert!(text.contains(from), "{file}");
+                std::fs::write(&path, text.replace(from, to)).unwrap();
+            }
+        }
+        let case = Case::open(dir.path()).unwrap();
+        rho_simple::run(&case, |_| {}).unwrap();
+        VectorField::read(dir.path().join("100/U"))
+            .unwrap()
+            .internal
+            .expand(300)
+            .unwrap()[0]
+    };
+    assert_eq!(end(true), end(false));
+}
+
 /// What the driven conditions do not take yet is refused, naming it.
 #[test]
 fn rhosimplefoam_refuses_what_it_cannot_drive() {

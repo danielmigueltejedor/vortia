@@ -80,7 +80,24 @@ impl Boundary {
                 }
                 "empty" => ScalarBc::Empty,
                 "totalPressure" | "totalTemperature" if driven.contains(&pf.kind.as_str()) => {
-                    ScalarBc::FixedValue(values(pf.value.as_ref(), patch, &pf.kind)?)
+                    // Without a `value`, OpenFOAM starts from p0 (or T0).
+                    let total = match pf.kind.as_str() {
+                        "totalPressure" => "p0",
+                        _ => "T0",
+                    };
+                    let start = match pf.value.as_ref() {
+                        Some(_) => None,
+                        None => pf
+                            .settings
+                            .values(total)
+                            .map(|v| Data::<f64>::parse(v, total))
+                            .transpose()?,
+                    };
+                    ScalarBc::FixedValue(values(
+                        pf.value.as_ref().or(start.as_ref()),
+                        patch,
+                        &pf.kind,
+                    )?)
                 }
                 "inletOutlet" if driven.contains(&"inletOutlet") => {
                     let given = pf
