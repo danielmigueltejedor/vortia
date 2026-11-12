@@ -28,6 +28,7 @@ pub mod dict;
 pub mod error;
 pub mod file;
 pub mod lists;
+pub mod macros;
 pub mod polymesh;
 pub mod token;
 pub mod write;

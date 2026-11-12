@@ -19,9 +19,11 @@
 )]
 
 pub mod bc;
+pub mod correction;
 pub mod error;
 pub mod fvgeom;
 pub mod ldu;
+pub mod limited;
 pub mod ops;
 pub mod scalar;
 pub mod solve;

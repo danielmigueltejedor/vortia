@@ -14,6 +14,7 @@
 
 use vortia_core::Vec3;
 use vortia_foamfile::Dictionary;
+use vortia_fv::limited::GradScheme;
 use vortia_fv::ops::{grad as scalar_grad, surface_integrate};
 use vortia_fv::stress::{Tensor, grad, production};
 use vortia_fv::vector::VectorBoundary;
@@ -165,7 +166,7 @@ impl KOmegaSst {
         let mut sink = |_: &str| {};
         bound(mesh, fv, "k", &mut model.k, &mut sink);
         bound(mesh, fv, "omega", &mut model.omega, &mut sink);
-        let (grad_u, grad_u_b) = grad(mesh, fv, u_bc, u);
+        let (grad_u, grad_u_b) = grad(GradScheme::GaussLinear, mesh, fv, u_bc, u);
         model.correct_nut(mesh, &strain(&grad_u, &grad_u_b));
         Ok(model)
     }
@@ -293,7 +294,7 @@ impl KOmegaSst {
     ) -> Result<Vec<(String, Performance)>> {
         let c = self.c;
         let div_u = surface_integrate(mesh, fv, phi);
-        let (grad_u, grad_u_b) = grad(mesh, fv, u_bc, u);
+        let (grad_u, grad_u_b) = grad(GradScheme::GaussLinear, mesh, fv, u_bc, u);
         let s2 = strain(&grad_u, &grad_u_b);
         let g_by_nu0: Vec<f64> = grad_u.iter().map(production).collect();
         let mut g: Vec<f64> = self

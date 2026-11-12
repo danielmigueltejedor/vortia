@@ -14,6 +14,7 @@
 
 use vortia_core::Vec3;
 use vortia_foamfile::{Dictionary, Entry};
+use vortia_fv::limited::GradScheme;
 use vortia_fv::ops::{self, Convection, SnGrad};
 use vortia_fv::stress::div_dev2_grad_t;
 use vortia_fv::vector::{dot_interpolate, solution_directions};
@@ -255,7 +256,15 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             &u,
             schemes.momentum_sn_grad,
         )?);
-        let stress = div_dev2_grad_t(&mesh, &fv, &u_bc, &u, &nu_cells, &nu_boundary);
+        let stress = div_dev2_grad_t(
+            GradScheme::GaussLinear,
+            &mesh,
+            &fv,
+            &u_bc,
+            &u,
+            &nu_cells,
+            &nu_boundary,
+        );
         for ((s, &d), &v) in u_eqn.source.iter_mut().zip(&stress).zip(fv.volumes()) {
             *s = *s + d * v;
         }

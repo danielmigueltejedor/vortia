@@ -17,46 +17,23 @@ use crate::bc::{Boundary, ScalarBc};
 use crate::error::{FvError, Result};
 use crate::fvgeom::FvGeometry;
 use crate::ldu::LduMatrix;
+use crate::limited::{self, GradScheme};
 
 /// `Gauss linear` gradient of a cell field.
 pub fn grad(mesh: &PolyMesh, fv: &FvGeometry, bc: &Boundary, cells: &[f64]) -> Vec<Vec3> {
-    let n = mesh.n_cells();
-    let mut g = vec![Vec3::default(); n];
-    let own = mesh.owner();
-    let nei = mesh.neighbour();
-    let sf = &fv.geo.face_areas;
-    for (f, (&o, &nb)) in own.iter().zip(nei).enumerate() {
-        let (Some(&w), Some(&s), Some(&po), Some(&pn)) =
-            (fv.weights.get(f), sf.get(f), cells.get(o), cells.get(nb))
-        else {
-            continue;
-        };
-        // `w·P + (1 − w)·N`, the form OpenFOAM v1912's gradient uses: the
-        // algebraically equal `w·(P − N) + N` changes solver iteration counts.
-        let face = s * (w * po + (1.0 - w) * pn);
-        if let Some(go) = g.get_mut(o) {
-            *go = *go + face;
-        }
-        if let Some(gn) = g.get_mut(nb) {
-            *gn = *gn - face;
-        }
-    }
+    grad_with(GradScheme::GaussLinear, mesh, fv, bc, cells)
+}
+
+/// The gradient of a cell field under a `gradSchemes` entry.
+pub fn grad_with(
+    scheme: GradScheme,
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    bc: &Boundary,
+    cells: &[f64],
+) -> Vec<Vec3> {
     let boundary = bc.face_values(mesh, cells, &fv.non_orth_delta_coeffs);
-    for (k, v) in boundary.into_iter().enumerate() {
-        let f = mesh.n_internal_faces() + k;
-        let (Some(v), Some(&s), Some(&o)) = (v, sf.get(f), own.get(f)) else {
-            continue;
-        };
-        if let Some(go) = g.get_mut(o) {
-            *go = *go + s * v;
-        }
-    }
-    for (gc, &vol) in g.iter_mut().zip(fv.volumes()) {
-        if vol > 0.0 {
-            *gc = *gc / vol;
-        }
-    }
-    g
+    limited::grad(scheme, mesh, fv, cells, &boundary)
 }
 
 /// How the face-normal gradient treats non-orthogonal faces.
@@ -87,6 +64,16 @@ impl SnGrad {
 }
 
 impl SnGrad {
+    /// The same without the explicit correction, which a caller that
+    /// applies it itself (see [`crate::correction`]) leaves to the matrix
+    /// functions.
+    pub fn without_correction(self) -> Self {
+        match self {
+            Self::Corrected => Self::Uncorrected,
+            other => other,
+        }
+    }
+
     /// The face coefficients this gradient multiplies the cell difference by.
     pub fn coeffs(self, fv: &FvGeometry) -> &[f64] {
         match self {
@@ -199,25 +186,68 @@ pub fn diffusion(
 }
 
 /// How `Gauss <scheme>` interpolates the convected value to a face.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Interpolation {
     /// The value of the cell the flux comes from.
     Upwind,
     /// The distance-weighted mean of the two cells.
     Linear,
+    /// `linearUpwind`: the upwind value plus the gradient (under the given
+    /// scheme) carried from the upwind cell's centre to the face. Matrices
+    /// take the upwind part implicitly; the correction is explicit, see
+    /// [`crate::limited::linear_upwind_correction`].
+    LinearUpwind(GradScheme),
 }
 
 impl Interpolation {
     /// From a `divSchemes` entry such as `Gauss upwind`. `bounded` changes
     /// the equation, not the interpolation: read it with [`Convection`].
     pub fn from_scheme(words: &[&str]) -> Result<Self> {
+        Self::from_scheme_with(words, |_| None)
+    }
+
+    /// As [`from_scheme`](Self::from_scheme), also taking `linearUpwind`,
+    /// whose gradient is the `gradSchemes` entry that `grad` names.
+    pub fn from_scheme_with(
+        words: &[&str],
+        grad: impl Fn(&str) -> Option<Result<GradScheme>>,
+    ) -> Result<Self> {
         match words {
             ["Gauss", "upwind"] => Ok(Self::Upwind),
             ["Gauss", "linear"] => Ok(Self::Linear),
+            ["Gauss", "linearUpwind", name] => match grad(name) {
+                Some(g) => Ok(Self::LinearUpwind(g?)),
+                None => Err(FvError::Setup(format!(
+                    "div scheme '{}' is not supported yet",
+                    words.join(" ")
+                ))),
+            },
             other => Err(FvError::Setup(format!(
                 "div scheme '{}' is not supported yet",
                 other.join(" ")
             ))),
+        }
+    }
+
+    /// The gradient `linearUpwind` reads, if this is that scheme.
+    pub fn grad_scheme(self) -> Option<GradScheme> {
+        match self {
+            Self::LinearUpwind(g) => Some(g),
+            _ => None,
+        }
+    }
+
+    /// The weight of the owner's value on a face with flux `flux`.
+    pub fn weight(self, fv: &FvGeometry, face: usize, flux: f64) -> f64 {
+        match self {
+            Self::Upwind | Self::LinearUpwind(_) => {
+                if flux >= 0.0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            Self::Linear => fv.weights.get(face).copied().unwrap_or(0.5),
         }
     }
 }
@@ -225,7 +255,7 @@ impl Interpolation {
 /// A `divSchemes` entry: the interpolation, and whether it is `bounded`,
 /// which takes `(∇·φ) ψ` back out so that a flux that does not conserve
 /// (a steady solve before it converges) cannot change a uniform field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Convection {
     pub interpolation: Interpolation,
     pub bounded: bool,
@@ -234,12 +264,21 @@ pub struct Convection {
 impl Convection {
     /// From a `divSchemes` entry such as `bounded Gauss linear`.
     pub fn from_scheme(words: &[&str]) -> Result<Self> {
+        Self::from_scheme_with(words, |_| None)
+    }
+
+    /// As [`from_scheme`](Self::from_scheme), with `grad` resolving the
+    /// gradient a `linearUpwind` entry names.
+    pub fn from_scheme_with(
+        words: &[&str],
+        grad: impl Fn(&str) -> Option<Result<GradScheme>>,
+    ) -> Result<Self> {
         let (bounded, rest) = match words {
             ["bounded", rest @ ..] => (true, rest),
             all => (false, all),
         };
         Ok(Self {
-            interpolation: Interpolation::from_scheme(rest)?,
+            interpolation: Interpolation::from_scheme_with(rest, grad)?,
             bounded,
         })
     }
@@ -274,16 +313,7 @@ pub(crate) fn convection_interior(
         let (Some(&l), Some(&u), Some(&flux)) = (m.l.get(f), m.u.get(f), phi.get(f)) else {
             continue;
         };
-        let w = match scheme {
-            Interpolation::Upwind => {
-                if flux >= 0.0 {
-                    1.0
-                } else {
-                    0.0
-                }
-            }
-            Interpolation::Linear => fv.weights.get(f).copied().unwrap_or(0.5),
-        };
+        let w = scheme.weight(fv, f, flux);
         // The owner's share goes on the diagonal, the neighbour's off it;
         // OpenFOAM's `negSumDiag` makes each row sum to the net outflow.
         let lower = -w * flux;
@@ -544,5 +574,30 @@ pub fn set_reference(m: &mut LduMatrix, cell: usize, value: f64) {
     if let (Some(d), Some(s)) = (m.diag.get_mut(cell), m.source.get_mut(cell)) {
         *s += *d * value;
         *d += *d;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only a solver that applies the correction resolves `linearUpwind`;
+    /// the others refuse it rather than run it as plain upwind.
+    #[test]
+    fn linear_upwind_is_taken_only_where_its_gradient_is_resolved() {
+        let words = ["bounded", "Gauss", "linearUpwind", "grad(U)"];
+        let e = Convection::from_scheme(&words).unwrap_err().to_string();
+        assert!(e.contains("not supported yet"), "{e}");
+        let c = Convection::from_scheme_with(&words, |name| {
+            assert_eq!(name, "grad(U)");
+            Some(Ok(GradScheme::CellLimited(1.0)))
+        })
+        .unwrap();
+        assert!(c.bounded);
+        assert_eq!(
+            c.interpolation.grad_scheme(),
+            Some(GradScheme::CellLimited(1.0))
+        );
+        assert_eq!(Interpolation::Upwind.grad_scheme(), None);
     }
 }
