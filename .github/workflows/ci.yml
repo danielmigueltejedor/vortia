@@ -44,9 +44,8 @@ jobs:
 
   openfoam-nozzle-mesh:
     # Geometry validation in a real OpenFOAM runtime, beyond string unit tests.
-    # Ubuntu's distribution package is used for compatibility smoke testing.
-    # GitHub's runner on purpose: Blacksmith's Ubuntu image has no `openfoam` apt candidate.
-    runs-on: ubuntu-26.04
+    # Ubuntu 24.04 still provides the OpenFOAM package used by this compatibility check.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Install build dependencies and OpenFOAM
