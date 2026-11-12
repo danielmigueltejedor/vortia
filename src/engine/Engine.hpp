@@ -58,6 +58,12 @@ private:
     nlohmann::json line(const nlohmann::json& request);
     nlohmann::json slice(const nlohmann::json& request);
     nlohmann::json surface(const nlohmann::json& request);
+    nlohmann::json sketch();
+    nlohmann::json saveSketch(const nlohmann::json& request);
+    nlohmann::json nozzle(const nlohmann::json& request);
+    nlohmann::json flow();
+    nlohmann::json saveFlow(const nlohmann::json& request);
+    nlohmann::json startFlow(const nlohmann::json& request);
     nlohmann::json section(const nlohmann::json& request);
 
     nlohmann::json describeProject() const;
@@ -66,6 +72,9 @@ private:
     void requireIdle() const;
     bool ensureEnvironment(std::string& error);
     void runJob(bool solve, unsigned processes);
+    void runFlowJob(bool meshOnly);
+    std::filesystem::path sketchPath() const;
+    std::filesystem::path flowPath() const;
     vtkDataObject* loadResults();
 
     Emit emit_;
