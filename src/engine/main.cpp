@@ -17,6 +17,10 @@
 int main(int argc, char** argv) {
     // Only for applicationDirPath(), which finds the OpenFOAM packaged beside the engine.
     QCoreApplication app(argc, argv);
+    // The same identity as the desktop app, so both share the compiled flow solvers' cache.
+    QCoreApplication::setApplicationName(QStringLiteral("Vortia"));
+    QCoreApplication::setOrganizationName(QStringLiteral("Vortia"));
+    QCoreApplication::setOrganizationDomain(QStringLiteral("vortia.dev"));
     std::ios::sync_with_stdio(false);
 
     std::mutex out;

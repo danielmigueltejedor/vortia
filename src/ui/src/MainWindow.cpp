@@ -1863,21 +1863,7 @@ void MainWindow::onRun() {
     spec.environment = ofEnvironment_;
     spec.solverOverride = detectedSolver;
     if(detectedSolver=="vortiaCentralFoam") {
-        QJsonObject runtime{{"installation",QString::fromStdString(ofInstallation_.fingerprint())}};
-        QString libraries;
-        for(const auto& [key,value]:ofEnvironment_) {
-            if(key=="WM_PROJECT_DIR"||key=="WM_PROJECT_VERSION"||key=="WM_OPTIONS"||key=="WM_CXX"||key=="WM_LABEL_SIZE"||key=="WM_PRECISION_OPTION"||key=="FOAM_LIBBIN")
-                runtime.insert(QString::fromStdString(key),QString::fromStdString(value));
-            if(key=="FOAM_LIBBIN")libraries=QString::fromStdString(value);
-        }
-        for(const auto* name:{"libOpenFOAM","libfiniteVolume","libfluidThermophysicalModels"})for(const auto* extension:{".dylib",".so"}) {
-            QFileInfo library(QDir(libraries).filePath(QString::fromLatin1(name)+extension));
-            if(library.exists())runtime.insert(library.fileName(),QString("%1:%2:%3").arg(library.canonicalFilePath()).arg(library.size()).arg(library.lastModified().toMSecsSinceEpoch()));
-        }
-        const auto key=QCryptographicHash::hash(QJsonDocument(runtime).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex();
-        const auto cache=QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("flow-engines");
-        spec.environment.emplace_back("VORTIA_SOLVER_RUNTIME_KEY",key.toStdString());
-        spec.environment.emplace_back("VORTIA_SOLVER_CACHE_DIR",cache.toStdString());
+        for(auto& entry:flowSolverRuntime(ofEnvironment_,ofInstallation_.fingerprint()))spec.environment.push_back(std::move(entry));
     }
     if(!useExistingCase_ && detectedSolver=="vortiaCentralFoam") {
         const int selected=flowConfig_.value("solver").toObject().value("processes").toInt(1);

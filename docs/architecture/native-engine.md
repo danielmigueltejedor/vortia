@@ -55,6 +55,12 @@ Numbers that are not finite are sent as `null`.
 | `line` | `field`, `start`, `end`, optional `points` | `samples[] {distance, value}` |
 | `slice` | `field`, `axis` (0–2), `position` | triangles: `positions` (9 floats each), `values` (one per vertex), `range` |
 | `surface` | `field` | the outer surface, as triangles |
+| `sketch` | — | the project's fluid contour: `points`, `closed`, `segments[] {length, bulge, axis}`, `nozzle`; or `null` |
+| `saveSketch` | `sketch` (the `.vsketch.json` format) | the contour; flow boundaries follow their segments |
+| `nozzle` | `dimensions` (inlet, throat, outlet diameters; converging, diverging lengths, mm) | the contour of that nozzle |
+| `flow` | — | `flow`: the compressible setup, as the desktop app's flow panel would show it |
+| `saveFlow` | `flow` | the setup, normalised against the contour |
+| `flowMesh` / `flowSolve` | — | `started`; Gmsh meshing, then (solve) vortiaCentralFoam, with `job`, `log` and `progress` (plus `convergence`) events |
 | `quit` | — | the engine cancels any run and exits |
 
 `setup` is exactly the JSON `caseSetupToJson` writes and `caseSetupFromJson` reads

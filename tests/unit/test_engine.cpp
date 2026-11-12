@@ -67,4 +67,50 @@ TEST_F(EngineTest, RefusesWhatItCannotDoWithAReasonRatherThanACrash) {
     EXPECT_TRUE(events.empty());
 }
 
+TEST_F(EngineTest, ANozzleBecomesASketchAndAFlowSetup) {
+    ASSERT_TRUE(ask({{"cmd", "create"}, {"path", (root / "N").string()}, {"name", "N"}})["ok"]);
+    EXPECT_EQ(ask({{"cmd", "sketch"}})["result"]["sketch"], nullptr);
+    EXPECT_FALSE(ask({{"cmd", "flow"}})["ok"]); // no contour yet
+
+    const json dimensions{{"inletDiameterMm", 100}, {"throatDiameterMm", 52}, {"outletDiameterMm", 120},
+                          {"convergingLengthMm", 158}, {"divergingLengthMm", 420}};
+    const json made = ask({{"cmd", "nozzle"}, {"dimensions", dimensions}});
+    ASSERT_TRUE(made["ok"]) << made.dump();
+    const auto& sketch = made["result"]["sketch"];
+    EXPECT_TRUE(sketch["closed"].get<bool>());
+    EXPECT_TRUE(sketch["segments"][0]["axis"].get<bool>()); // the bottom edge lies on Y=0
+
+    const json flow = ask({{"cmd", "flow"}});
+    ASSERT_TRUE(flow["ok"]) << flow.dump();
+    auto config = flow["result"]["flow"];
+    EXPECT_EQ(config["boundaries"].size(), sketch["segments"].size());
+    EXPECT_EQ(config["boundaries"][0]["type"], "axis");
+    EXPECT_EQ(config["material"]["turbulence"], "SpalartAllmaras");
+
+    config["boundaries"][1]["type"] = "outlet";
+    config["solver"]["iterations"] = 1234;
+    const json saved = ask({{"cmd", "saveFlow"}, {"flow", config}});
+    ASSERT_TRUE(saved["ok"]) << saved.dump();
+    const json again = ask({{"cmd", "flow"}});
+    EXPECT_EQ(again["result"]["flow"]["boundaries"][1]["type"], "outlet");
+    EXPECT_EQ(again["result"]["flow"]["solver"]["iterations"], 1234);
+
+    const json narrow = ask({{"cmd", "nozzle"}, {"dimensions", {{"inletDiameterMm", 10}, {"throatDiameterMm", 52},
+        {"outletDiameterMm", 120}, {"convergingLengthMm", 1}, {"divergingLengthMm", 1}}}});
+    EXPECT_FALSE(narrow["ok"]);
+}
+
+TEST_F(EngineTest, ASketchIsSavedOnlyIfItIsOne) {
+    ASSERT_TRUE(ask({{"cmd", "create"}, {"path", (root / "S").string()}, {"name", "S"}})["ok"]);
+    const json square{{"schemaVersion", 1}, {"units", "mm"}, {"closed", true},
+                      {"vertices", {{0, 0}, {100, 0}, {100, 50}, {0, 50}}}};
+    const json saved = ask({{"cmd", "saveSketch"}, {"sketch", square}});
+    ASSERT_TRUE(saved["ok"]) << saved.dump();
+    EXPECT_EQ(saved["result"]["sketch"]["segments"].size(), 4u);
+    json broken = square;
+    broken["units"] = "in";
+    EXPECT_FALSE(ask({{"cmd", "saveSketch"}, {"sketch", broken}})["ok"]);
+    EXPECT_EQ(ask({{"cmd", "sketch"}})["result"]["sketch"]["points"].size(), 4u);
+}
+
 } // namespace

@@ -12,6 +12,19 @@ namespace vortia {
 /// which OpenFOAM's scripts cannot handle. Empty with `error` set when it cannot be used.
 QString flowCaseStorage(const QString& projectRoot, const QString& caseStorage, QString* error);
 
+// Update only runtime controls in a staged dictionary, preserving all saved fields.
+// Returns an error message, or an empty string on success.
+QString updateFlowRunControls(const QString& caseDir, const QJsonObject& solver,
+                             const std::vector<std::pair<std::string,std::string>>& environment);
+// Stage a content-addressed bundled backend without replacing legacy sources,
+// executables, boundary dictionaries, mesh or saved fields. Empty = success.
+QString stageFlowBackend(const QString& caseDir);
+
+/// The variables vortiaCentralFoam's build cache is keyed on: the engine, its build options and
+/// its core libraries. Appended to the captured OpenFOAM environment for a compressible run.
+std::vector<std::pair<std::string, std::string>> flowSolverRuntime(
+    const std::vector<std::pair<std::string, std::string>>& environment, const std::string& installationFingerprint);
+
 struct FlowCaseResult {
     QString caseDir;       ///< The new case, or empty on failure.
     QString error;         ///< What a person should read, when it failed.
