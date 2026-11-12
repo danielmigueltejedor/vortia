@@ -138,6 +138,13 @@ impl ScalarMatrix {
                         let g = g.get(i).copied().unwrap_or(0.0);
                         (1.0, if dc > 0.0 { g / dc } else { 0.0 })
                     }
+                    ScalarBc::Mixed {
+                        fraction,
+                        ref_value,
+                    } => {
+                        let f = fraction.get(i).copied().unwrap_or(0.0);
+                        (1.0 - f, f * ref_value.get(i).copied().unwrap_or(0.0))
+                    }
                     ScalarBc::Empty => continue,
                     ScalarBc::Calculated(_) => return Err(calculated(&patch.name)),
                 };
@@ -206,6 +213,14 @@ impl ScalarMatrix {
                     ScalarBc::FixedValue(v) => (-d, d * v.get(i).copied().unwrap_or(0.0)),
                     ScalarBc::FixedGradient(g) => (0.0, g.get(i).copied().unwrap_or(0.0)),
                     ScalarBc::ZeroGradient | ScalarBc::Reflect => (0.0, 0.0),
+                    ScalarBc::Mixed {
+                        fraction,
+                        ref_value,
+                    } => {
+                        let f = fraction.get(i).copied().unwrap_or(0.0);
+                        let r = ref_value.get(i).copied().unwrap_or(0.0);
+                        (-f * d, f * d * r)
+                    }
                     ScalarBc::Empty => continue,
                     ScalarBc::Calculated(_) => return Err(calculated(&patch.name)),
                 };

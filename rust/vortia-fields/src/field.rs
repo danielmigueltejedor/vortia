@@ -281,10 +281,43 @@ impl<T: FieldValue> Field<T> {
     /// The entry that applies to `patch`: its own name first, then a
     /// pattern, then one of its groups, which is the order OpenFOAM uses.
     pub fn patch_field(&self, patch: &Patch) -> Option<&PatchField<T>> {
-        let by = |f: &dyn Fn(&str) -> bool| self.boundary.iter().rev().find(|p| f(&p.key));
+        self.patch_field_index(patch)
+            .and_then(|i| self.boundary.get(i))
+    }
+
+    fn patch_field_index(&self, patch: &Patch) -> Option<usize> {
+        let by = |f: &dyn Fn(&str) -> bool| self.boundary.iter().rposition(|p| f(&p.key));
         by(&|k| k == patch.name)
             .or_else(|| by(&|k| pattern_matches(k, &patch.name)))
             .or_else(|| by(&|k| patch.groups.iter().any(|g| g == k) || k == patch.kind.name()))
+    }
+
+    /// Writes the current values into the `value` of every patch whose
+    /// condition is one of `kinds`: those whose values the solver sets from
+    /// the flow, which a reader would otherwise find stale. `values` holds
+    /// one entry per boundary face in patch order (`None` on empty faces).
+    pub fn store_patch_values(&mut self, mesh: &PolyMesh, kinds: &[&str], values: &[Option<T>]) {
+        let n_internal = mesh.n_internal_faces();
+        for patch in mesh.patches() {
+            let Some(i) = self.patch_field_index(patch) else {
+                continue;
+            };
+            let Some(pf) = self.boundary.get_mut(i) else {
+                continue;
+            };
+            if !kinds.contains(&pf.kind.as_str()) {
+                continue;
+            }
+            let own: Option<Vec<T>> = patch
+                .faces()
+                .map(|f| values.get(f.checked_sub(n_internal)?).copied().flatten())
+                .collect();
+            let Some(own) = own else { continue };
+            pf.value = Some(match own.split_first() {
+                Some((&first, rest)) if rest.iter().all(|&v| v == first) => Data::Uniform(first),
+                _ => Data::NonUniform(own),
+            });
+        }
     }
 
     /// How many internal values the field must have on `mesh`.

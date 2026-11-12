@@ -193,3 +193,52 @@ fn what_is_written_reads_back_and_stays_in_the_case() {
     }
     field.write(dir.path(), "0").unwrap();
 }
+
+#[test]
+fn values_the_solver_sets_replace_those_of_the_conditions_that_follow_the_flow() {
+    use vortia_core::Aabb;
+    use vortia_mesh::blocks::structured_box;
+
+    let bounds = Aabb {
+        min: Vec3::default(),
+        max: Vec3::new(2.0, 1.0, 1.0),
+    };
+    let mesh = structured_box(bounds, [2, 1, 1]).unwrap();
+    let mut field = scalar_from(
+        "FoamFile { version 2.0; format ascii; class volScalarField; object p; }\n\
+         dimensions [1 -1 -2 0 0 0 0]; internalField uniform 1;\n\
+         boundaryField {\n\
+           xMin { type totalPressure; p0 uniform 5; value uniform 1; }\n\
+           xMax { type fixedValue; value uniform 2; }\n\
+           yMin { type totalPressure; p0 uniform 5; value uniform 1; }\n\
+           yMax { type zeroGradient; }\n\
+           zMin { type zeroGradient; }\n\
+           zMax { type zeroGradient; }\n\
+         }",
+    )
+    .unwrap();
+    let faces = mesh.n_faces() - mesh.n_internal_faces();
+    let values: Vec<Option<f64>> = (0..faces).map(|k| Some(10.0 + k as f64)).collect();
+    field.store_patch_values(&mesh, &["totalPressure"], &values);
+
+    let value = |field: &ScalarField, name: &str| {
+        let patch = mesh.patch(name).unwrap();
+        field.patch_field(patch).unwrap().value.clone()
+    };
+    // One face: its value, as a uniform one.
+    assert_eq!(value(&field, "xMin"), Some(Data::Uniform(10.0)));
+    // Two faces that differ: a list.
+    assert_eq!(
+        value(&field, "yMin"),
+        Some(Data::NonUniform(vec![12.0, 13.0]))
+    );
+    // Another kind of condition keeps what it had.
+    assert_eq!(value(&field, "xMax"), Some(Data::Uniform(2.0)));
+    assert_eq!(value(&field, "yMax"), None);
+    // A list that is too short for the patch leaves it as it was.
+    field.store_patch_values(&mesh, &["totalPressure"], &values[..1]);
+    assert_eq!(
+        value(&field, "yMin"),
+        Some(Data::NonUniform(vec![12.0, 13.0]))
+    );
+}

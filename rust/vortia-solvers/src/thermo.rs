@@ -8,10 +8,11 @@
 //! rounding. The engine has the one combination the nozzle cases use: a
 //! single perfect gas with constant `Cp`, `μ` and `Pr`.
 
+use vortia_core::Vec3;
 use vortia_fields::{Data, ScalarField};
 use vortia_foamfile::Dictionary;
 use vortia_fv::{Boundary, FvGeometry, ScalarBc};
-use vortia_mesh::{PatchKind, PolyMesh};
+use vortia_mesh::{Patch, PatchKind, PolyMesh};
 
 use crate::case::{Case, check_dimensions, read_dict};
 use crate::error::{Result, SolverError};
@@ -235,6 +236,49 @@ enum TKind {
     Fixed,
     ZeroGradient,
     Empty,
+    /// `totalTemperature`: `T0` and `γ` as the file gives them.
+    Total {
+        t0: Vec<f64>,
+        gamma: f64,
+    },
+    /// `inletOutlet`: the temperature of what flows in.
+    InletOutlet {
+        inlet: Vec<f64>,
+    },
+}
+
+impl TKind {
+    /// OpenFOAM's `fixesValue`: `fixedValue` and `mixed` conditions do.
+    fn fixes_value(&self) -> bool {
+        !matches!(self, Self::ZeroGradient | Self::Empty)
+    }
+}
+
+/// A patch's entry `key` as one value per face.
+fn patch_values(settings: &Dictionary, key: &str, patch: &Patch) -> Result<Vec<f64>> {
+    settings
+        .values(key)
+        .map(|v| Data::<f64>::parse(v, key))
+        .transpose()?
+        .and_then(|d| d.expand(patch.size))
+        .ok_or_else(|| {
+            SolverError::Setup(format!(
+                "T: patch '{}' needs '{key}' with {} items",
+                patch.name, patch.size
+            ))
+        })
+}
+
+/// What the conditions that follow the flow read: the velocity on the
+/// boundary faces and the mass flux on every face.
+pub(crate) struct Flow<'a> {
+    pub(crate) u_b: &'a [Option<Vec3>],
+    pub(crate) phi: &'a [f64],
+}
+
+/// `pos0`: 1 where `x` is not negative.
+fn pos0(x: f64) -> f64 {
+    if x >= 0.0 { 1.0 } else { 0.0 }
 }
 
 /// The temperature, the energy and the properties that follow from them,
@@ -283,6 +327,40 @@ impl Thermo {
                 "fixedValue" => TKind::Fixed,
                 "zeroGradient" => TKind::ZeroGradient,
                 "empty" => TKind::Empty,
+                "totalTemperature" => {
+                    for (key, default) in [("U", "U"), ("phi", "phi"), ("psi", "thermo:psi")] {
+                        if pf.settings.word(key).is_some_and(|w| w != default) {
+                            return Err(SolverError::Setup(format!(
+                                "T: totalTemperature on '{}' with another {key} is not supported yet",
+                                patch.name
+                            )));
+                        }
+                    }
+                    TKind::Total {
+                        t0: patch_values(&pf.settings, "T0", patch)?,
+                        gamma: pf
+                            .settings
+                            .scalar("gamma")
+                            .filter(|g| *g > 1.0 && g.is_finite())
+                            .ok_or_else(|| {
+                                SolverError::Setup(format!(
+                                    "T: totalTemperature on '{}' needs a 'gamma' above 1",
+                                    patch.name
+                                ))
+                            })?,
+                    }
+                }
+                "inletOutlet" => {
+                    if pf.settings.word("phi").is_some_and(|w| w != "phi") {
+                        return Err(SolverError::Setup(format!(
+                            "T: inletOutlet on '{}' with another phi is not supported yet",
+                            patch.name
+                        )));
+                    }
+                    TKind::InletOutlet {
+                        inlet: patch_values(&pf.settings, "inletValue", patch)?,
+                    }
+                }
                 other => {
                     return Err(SolverError::Setup(format!(
                         "T: '{other}' on patch '{}' is not supported yet",
@@ -299,7 +377,7 @@ impl Thermo {
                 )));
             }
             let given = pf.value.as_ref().and_then(|d| d.expand(patch.size));
-            if kind == TKind::Fixed && given.is_none() {
+            if matches!(kind, TKind::Fixed | TKind::Total { .. }) && given.is_none() {
                 return Err(SolverError::Setup(format!(
                     "T: patch '{}' needs a 'value' of {} items",
                     patch.name, patch.size
@@ -307,10 +385,16 @@ impl Thermo {
             }
             for (i, f) in patch.faces().enumerate() {
                 let inside = mesh.owner().get(f).and_then(|&c| t.get(c)).copied();
-                t_b.push(match kind {
+                t_b.push(match &kind {
                     TKind::Empty => None,
-                    TKind::Fixed => given.as_ref().and_then(|v| v.get(i).copied()),
+                    TKind::Fixed | TKind::Total { .. } => {
+                        given.as_ref().and_then(|v| v.get(i).copied())
+                    }
                     TKind::ZeroGradient => inside,
+                    TKind::InletOutlet { inlet } => given
+                        .as_ref()
+                        .and_then(|v| v.get(i).copied())
+                        .or_else(|| inlet.get(i).copied()),
                 });
             }
             kinds.push(kind);
@@ -377,7 +461,7 @@ impl Thermo {
                     continue;
                 };
                 if let (Some(tv), Some(hv), Some(p)) = (t.as_mut(), he.as_mut(), p) {
-                    if *kind == TKind::Fixed {
+                    if kind.fixes_value() {
                         *hv = gas.he(p, *tv);
                     } else {
                         *tv = gas.the(*hv, p, *tv)?;
@@ -409,13 +493,15 @@ impl Thermo {
         mesh: &PolyMesh,
         fv: &FvGeometry,
         p_b: &[Option<f64>],
+        flow: &Flow<'_>,
     ) -> Boundary {
         let gas = self.gas;
         let n_internal = mesh.n_internal_faces();
         let mut conditions = Vec::with_capacity(self.kinds.len());
         for (patch, kind) in mesh.patches().iter().zip(&self.kinds) {
             let mut values = Vec::with_capacity(patch.size);
-            for f in patch.faces() {
+            let mut fractions = Vec::with_capacity(patch.size);
+            for (i, f) in patch.faces().enumerate() {
                 let k = f - n_internal;
                 let cell = mesh.owner().get(f).and_then(|&c| self.t.get(c)).copied();
                 let p = p_b.get(k).copied().flatten().unwrap_or(0.0);
@@ -438,12 +524,49 @@ impl Thermo {
                         let sn_grad = dc * (tw - cell.unwrap_or(tw));
                         values.push(gas.cpv() * sn_grad + dc * (gas.he(p, tw) - gas.he(p, tw)));
                     }
+                    TKind::Total { t0, gamma } => {
+                        // `totalTemperature::updateCoeffs`, with the
+                        // temperature evaluated first as the energy's own
+                        // condition does.
+                        let psi = self.psi_b.get(k).copied().flatten().unwrap_or(0.0);
+                        let u = flow.u_b.get(k).copied().flatten().unwrap_or_default();
+                        let phi = flow.phi.get(f).copied().unwrap_or(0.0);
+                        let g_m1_by_g = (gamma - 1.0) / gamma;
+                        let tw = t0.get(i).copied().unwrap_or(0.0)
+                            / (1.0 + 0.5 * psi * g_m1_by_g * (1.0 - pos0(phi)) * u.dot(u));
+                        if let Some(t) = self.t_b.get_mut(k) {
+                            *t = Some(tw);
+                        }
+                        let he = gas.he(p, tw);
+                        if let Some(v) = self.he_b.get_mut(k) {
+                            *v = Some(he);
+                        }
+                        values.push(he);
+                    }
+                    TKind::InletOutlet { inlet } => {
+                        // The fraction is 0 or 1, so that `mixedEnergy`'s
+                        // reference gradient, `δ (he(Tw) − he(Tcell))`,
+                        // vanishes wherever it is used.
+                        let phi = flow.phi.get(f).copied().unwrap_or(0.0);
+                        let fraction = 1.0 - pos0(phi);
+                        let reference = inlet.get(i).copied().unwrap_or(0.0);
+                        let tw = fraction * reference + (1.0 - fraction) * cell.unwrap_or(0.0);
+                        if let Some(t) = self.t_b.get_mut(k) {
+                            *t = Some(tw);
+                        }
+                        fractions.push(fraction);
+                        values.push(gas.he(p, reference));
+                    }
                     TKind::Empty => {}
                 }
             }
             conditions.push(match kind {
-                TKind::Fixed => ScalarBc::FixedValue(values),
+                TKind::Fixed | TKind::Total { .. } => ScalarBc::FixedValue(values),
                 TKind::ZeroGradient => ScalarBc::FixedGradient(values),
+                TKind::InletOutlet { .. } => ScalarBc::Mixed {
+                    fraction: fractions,
+                    ref_value: values,
+                },
                 TKind::Empty => ScalarBc::Empty,
             });
         }
@@ -452,10 +575,11 @@ impl Thermo {
 
     /// `T` as OpenFOAM writes it: its conditions as read, the zero
     /// gradients without values.
-    pub(crate) fn to_write(&self) -> ScalarField {
+    pub(crate) fn to_write(&self, mesh: &PolyMesh) -> ScalarField {
         let mut out = self.file.clone();
         out.internal = Data::NonUniform(self.t.clone());
         out.drop_zero_gradient_values();
+        out.store_patch_values(mesh, &["totalTemperature", "inletOutlet"], &self.t_b);
         out
     }
 }

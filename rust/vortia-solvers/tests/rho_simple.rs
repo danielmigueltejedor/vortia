@@ -22,6 +22,8 @@ use common::{HEADER, write};
 
 /// How a run of the channel is set up.
 struct Setup {
+    /// Flow made by pressure at the inlet instead of a velocity.
+    driven: bool,
     end: &'static str,
     energy: &'static str,
     div: &'static str,
@@ -32,6 +34,7 @@ struct Setup {
 /// Internal energy, SIMPLEC, bounded upwind: what the nozzle uses, minus
 /// the higher-order schemes.
 const CONSISTENT: Setup = Setup {
+    driven: false,
     end: "400",
     energy: "sensibleInternalEnergy",
     div: "bounded Gauss upwind",
@@ -40,8 +43,20 @@ const CONSISTENT: Setup = Setup {
     relax: "fields { p 0.3; rho 0.5; } equations { U 0.7; e 0.7; }",
 };
 
+/// The same, driven by the pressure, and cut after 100 iterations (the
+/// residual control would stop the two programs a step apart).
+const DRIVEN: Setup = Setup {
+    driven: true,
+    end: "100",
+    energy: "sensibleInternalEnergy",
+    div: "bounded Gauss upwind",
+    simple: "nNonOrthogonalCorrectors 0; consistent yes;",
+    relax: "fields { p 0.3; rho 0.5; } equations { U 0.7; e 0.7; }",
+};
+
 /// Enthalpy, plain SIMPLE, linear convection and no density relaxation.
 const ENTHALPY: Setup = Setup {
+    driven: false,
     end: "40",
     energy: "sensibleEnthalpy",
     div: "Gauss linear",
@@ -52,7 +67,12 @@ const ENTHALPY: Setup = Setup {
 /// A 2D channel 0.2 m long and 0.02 m high: air enters at 300 K and
 /// 2 m/s, the lower wall is held at 350 K, the upper wall is adiabatic
 /// and the outlet is at 1 bar.
+///
+/// With a driven setup the flow is made by pressure instead: the inlet holds a
+/// total pressure of 1.0002 bar and a total temperature of 300 K, the outlet
+/// lets whatever reverses carry 300 K back in.
 fn channel(dir: &Path, s: &Setup) {
+    let driven = s.driven;
     let bounds = Aabb {
         min: Vec3::new(0.0, 0.0, 0.0),
         max: Vec3::new(0.2, 0.02, 0.002),
@@ -81,43 +101,64 @@ fn channel(dir: &Path, s: &Setup) {
     p.push(empty);
     raw.write_case(dir).unwrap();
 
+    let (u_boundary, p_boundary, t_boundary) = if driven {
+        (
+            "inlet { type pressureInletVelocity; value uniform (4 0 0); } \
+             outlet { type pressureInletOutletVelocity; value uniform (4 0 0); }",
+            "inlet { type totalPressure; p0 uniform 100020; value uniform 100020; } \
+             outlet { type fixedValue; value uniform 100000; }",
+            "inlet { type totalTemperature; T0 uniform 300; gamma 1.4; value uniform 300; } \
+             outlet { type inletOutlet; inletValue uniform 300; value uniform 300; }",
+        )
+    } else {
+        (
+            "inlet { type fixedValue; value uniform (2 0 0); } outlet { type zeroGradient; }",
+            "inlet { type zeroGradient; } outlet { type fixedValue; value uniform 100000; }",
+            "inlet { type fixedValue; value uniform 300; } outlet { type zeroGradient; }",
+        )
+    };
+    let u0 = if driven { 4 } else { 1 };
     write(
         &dir.join("0/U"),
-        "FoamFile { version 2.0; format ascii; class volVectorField; object U; }\n\
-         dimensions [0 1 -1 0 0 0 0]; internalField uniform (1 0 0);\n\
-         boundaryField {\n\
-           inlet { type fixedValue; value uniform (2 0 0); }\n\
-           outlet { type zeroGradient; }\n\
-           hot { type noSlip; }\n\
-           top { type noSlip; }\n\
-           frontAndBack { type empty; }\n\
-         }\n",
+        &format!(
+            "FoamFile {{ version 2.0; format ascii; class volVectorField; object U; }}\n\
+             dimensions [0 1 -1 0 0 0 0]; internalField uniform ({u0} 0 0);\n\
+             boundaryField {{\n\
+               {u_boundary}\n\
+               hot {{ type noSlip; }}\n\
+               top {{ type noSlip; }}\n\
+               frontAndBack {{ type empty; }}\n\
+             }}\n"
+        ),
     );
     write(
         &dir.join("0/p"),
-        "FoamFile { version 2.0; format ascii; class volScalarField; object p; }\n\
-         dimensions [1 -1 -2 0 0 0 0]; internalField uniform 100000;\n\
-         boundaryField {\n\
-           inlet { type zeroGradient; }\n\
-           outlet { type fixedValue; value uniform 100000; }\n\
-           hot { type zeroGradient; }\n\
-           top { type zeroGradient; }\n\
-           frontAndBack { type empty; }\n\
-         }\n",
+        &format!(
+            "FoamFile {{ version 2.0; format ascii; class volScalarField; object p; }}\n\
+             dimensions [1 -1 -2 0 0 0 0]; internalField uniform 100000;\n\
+             boundaryField {{\n\
+               {p_boundary}\n\
+               hot {{ type zeroGradient; }}\n\
+               top {{ type zeroGradient; }}\n\
+               frontAndBack {{ type empty; }}\n\
+             }}\n"
+        ),
     );
     write(
         &dir.join("0/T"),
-        "FoamFile { version 2.0; format ascii; class volScalarField; object T; }\n\
-         dimensions [0 0 0 1 0 0 0]; internalField uniform 300;\n\
-         boundaryField {\n\
-           inlet { type fixedValue; value uniform 300; }\n\
-           outlet { type zeroGradient; }\n\
-           hot { type fixedValue; value uniform 350; }\n\
-           top { type zeroGradient; }\n\
-           frontAndBack { type empty; }\n\
-         }\n",
+        &format!(
+            "FoamFile {{ version 2.0; format ascii; class volScalarField; object T; }}\n\
+             dimensions [0 0 0 1 0 0 0]; internalField uniform 300;\n\
+             boundaryField {{\n\
+               {t_boundary}\n\
+               hot {{ type fixedValue; value uniform 350; }}\n\
+               top {{ type zeroGradient; }}\n\
+               frontAndBack {{ type empty; }}\n\
+             }}\n"
+        ),
     );
     let Setup {
+        driven: _,
         end,
         energy,
         div,
@@ -171,12 +212,15 @@ fn channel(dir: &Path, s: &Setup) {
 
 /// Writes the case for OpenFOAM:
 /// `VORTIA_CHANNEL=dir cargo test --test rho_simple write_channel_for_openfoam -- --ignored`
-/// (`VORTIA_ENTHALPY=1` for the other setup).
+/// (`VORTIA_ENTHALPY=1` for the other setup, `VORTIA_DRIVEN=1` for the
+/// pressure-driven one).
 #[test]
 #[ignore]
 fn write_channel_for_openfoam() {
     let dir = std::env::var("VORTIA_CHANNEL").unwrap();
-    let setup = if std::env::var("VORTIA_ENTHALPY").is_ok() {
+    let setup = if std::env::var("VORTIA_DRIVEN").is_ok() {
+        &DRIVEN
+    } else if std::env::var("VORTIA_ENTHALPY").is_ok() {
         &ENTHALPY
     } else {
         &CONSISTENT
@@ -298,6 +342,80 @@ fn rhosimplefoam_simplec_matches_openfoam() {
             face_100_flux: 1.3907176673622536e-07,
         },
     );
+}
+
+/// The flow made by a total pressure and a total temperature at the inlet
+/// (`pressureInletVelocity` for the velocity), and an outlet that lets the
+/// flow reverse (`pressureInletOutletVelocity`, `inletOutlet`).
+#[test]
+fn rhosimplefoam_pressure_driven_matches_openfoam() {
+    check(
+        &DRIVEN,
+        &Reference {
+            first_steps: [1, 1, 1, 23, 1, 1, 1, 22],
+            totals: [("Ux", 100), ("Uy", 100), ("e", 100), ("p", 2055)],
+            checked: 100,
+            iterations: 100,
+            end: "100",
+            cells: [
+                (
+                    0,
+                    [5.4707198923598419, 0.0090019829344584919],
+                    300.644097078024,
+                    100002.39520891129,
+                    1.1561681089441458,
+                ),
+                (
+                    155,
+                    [5.5871510362622105, 0.00030337348467313031],
+                    299.98449902510703,
+                    100001.95353574178,
+                    1.1587051537674027,
+                ),
+                (
+                    299,
+                    [4.4748649792485642, -0.0051801253383147025],
+                    299.98936578277892,
+                    100000.03048622131,
+                    1.1586640716089533,
+                ),
+            ],
+            face_100_flux: 1.8701887304490299e-07,
+        },
+    );
+}
+
+/// What the driven conditions do not take yet is refused, naming it.
+#[test]
+fn rhosimplefoam_refuses_what_it_cannot_drive() {
+    let refused = |file: &str, from: &str, to: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        channel(dir.path(), &DRIVEN);
+        let path = dir.path().join(file);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(from), "{from}");
+        std::fs::write(&path, text.replace(from, to)).unwrap();
+        let case = Case::open(dir.path()).unwrap();
+        rho_simple::run(&case, |_| {}).unwrap_err().to_string()
+    };
+    let e = refused(
+        "0/p",
+        "p0 uniform 100020;",
+        "p0 uniform 100020; psi thermo:psi; gamma 1.4;",
+    );
+    assert!(e.contains("psi"), "{e}");
+    let e = refused("0/p", "p0 uniform 100020;", "");
+    assert!(e.contains("p0"), "{e}");
+    let e = refused("0/T", "gamma 1.4;", "");
+    assert!(e.contains("gamma"), "{e}");
+    let e = refused("0/T", "inletValue uniform 300;", "");
+    assert!(e.contains("inletValue"), "{e}");
+    let e = refused(
+        "0/U",
+        "pressureInletOutletVelocity;",
+        "pressureInletOutletVelocity; tangentialVelocity uniform (0 1 0);",
+    );
+    assert!(e.contains("tangentialVelocity"), "{e}");
 }
 
 #[test]
