@@ -54,6 +54,8 @@ public final class VortiaStore {
     public private(set) var results: ResultsInfo?
     public private(set) var statistics: FieldStatistics?
     public private(set) var slice: FieldTriangles?
+    /// The outer surface of the domain, for the 3D view. Loaded only while that view shows.
+    public private(set) var surface: FieldTriangles?
     public private(set) var profile: LineProfile?
     public private(set) var error: String?
     /// The fluid contour of a compressible project; nil for a box-domain case.
@@ -90,6 +92,10 @@ public final class VortiaStore {
     }
     /// Where along that axis, from 0 to 1 of the domain.
     public var sliceFraction = 0.5
+    /// The result in 3D (the domain's surface) rather than as a flat slice.
+    public var threeD = false {
+        didSet { if threeD && !oldValue { Task { await loadSurface() } } }
+    }
 
     @ObservationIgnored private var client: (any EngineClient)?
     @ObservationIgnored private var applyingFromEngine = false
@@ -206,6 +212,7 @@ public final class VortiaStore {
         results = nil
         statistics = nil
         slice = nil
+        surface = nil
         profile = nil
         residuals = []
         latest = nil
@@ -372,8 +379,14 @@ public final class VortiaStore {
     private func loadField() async {
         guard let field, let client, results != nil else { return }
         statistics = try? await client.call(.statistics(field: field), as: FieldStatistics.self)
+        if threeD { await loadSurface() }
         await loadSlice()
         await loadProfile()
+    }
+
+    public func loadSurface() async {
+        guard let field, let client, results != nil else { return }
+        surface = try? await client.call(.surface(field: field), as: FieldTriangles.self)
     }
 
     public func loadSlice() async {

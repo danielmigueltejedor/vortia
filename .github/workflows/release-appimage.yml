@@ -44,7 +44,7 @@ concurrency:
 
 jobs:
   version:
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     outputs:
       tag: ${{ steps.ver.outputs.tag }}
       version: ${{ steps.ver.outputs.version }}
@@ -82,7 +82,7 @@ jobs:
   linux-openfoam-engine:
     # The CFD engine shipped inside the AppImage. Rebuilt only when its
     # recipe changes.
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     steps:
       - uses: actions/checkout@v7
       - uses: actions/cache@v6
@@ -112,7 +112,7 @@ jobs:
     # Poiseuille and the Ghia cavity are solved and compared with their
     # references. A skipped benchmark is a failure here.
     needs: linux-openfoam-engine
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
@@ -160,7 +160,7 @@ jobs:
 
   linux-appimage:
     needs: [version, linux-openfoam-engine]
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     defaults:
       run:
         shell: bash -el {0}
@@ -173,17 +173,6 @@ jobs:
       # No system -dev packages, and the conda sysroot pinned to glibc 2.28
       # (unpinned, the solver picks the newest one, 2.39): the executable
       # must not need a newer C library than the oldest supported distribution.
-
-      - name: Link against the macOS 26 SDK
-        # AppKit draws the traffic lights in the style of the SDK the app was linked against:
-        # linked against 15, macOS 26 keeps the old flat ones instead of Liquid Glass. The macOS 15
-        # runners carry Xcode 26 beside their default; the deployment target keeps the floor.
-        run: |
-          xcode=$(ls -d /Applications/Xcode_[0-9]*.app | awk -F'[_.]' '$2 >= 26' | sort -V | tail -n 1)
-          test -n "$xcode" || { echo "no Xcode 26 on this runner" >&2; exit 1; }
-          sdk=$(DEVELOPER_DIR="$xcode/Contents/Developer" xcrun --sdk macosx --show-sdk-path)
-          echo "using $sdk"
-          { echo "DEVELOPER_DIR=$xcode/Contents/Developer"; echo "SDKROOT=$sdk"; echo "CONDA_BUILD_SYSROOT=$sdk"; } >> "$GITHUB_ENV"
 
       - name: Setup micromamba (Qt6 + VTK)
         # Pin to the commit currently tagged as v2 (Sonar githubactions:S7637).
@@ -280,7 +269,7 @@ jobs:
     # Bare distribution images plus only what any desktop install has
     # (X server, Mesa, fontconfig). No Qt, no xcb-util, no newer libstdc++.
     needs: [version, linux-appimage]
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     strategy:
       fail-fast: false
       matrix:
@@ -315,7 +304,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        os: [blacksmith-4vcpu-ubuntu-2204, blacksmith-4vcpu-ubuntu-2404]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -347,6 +336,8 @@ jobs:
     # Oldest Apple Silicon runner GitHub still offers. Qt/VTK come from
     # conda-forge (built for old macOS), not Homebrew bottles (built only
     # for the runner's own macOS version).
+    # GitHub's runner on purpose: the smoke test opens the OpenGL viewport, and Blacksmith's macOS
+    # VMs have no GPU (software OpenGL crashes Qt on macOS 26).
     runs-on: macos-26
     defaults:
       run:
@@ -357,6 +348,16 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: "13.0"
     steps:
       - uses: actions/checkout@v7
+
+      - name: Select the macOS SDK
+        run: |
+          version=$(xcrun --sdk macosx --show-sdk-version)
+          test "${version%%.*}" -ge 26
+          sdk=$(xcrun --sdk macosx --show-sdk-path)
+          {
+            echo "SDKROOT=$sdk"
+            echo "CONDA_BUILD_SYSROOT=$sdk"
+          } >> "$GITHUB_ENV"
 
       - name: Setup micromamba (Qt6 + VTK)
         uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
@@ -466,6 +467,8 @@ jobs:
     # The SwiftUI edition. Xcode 26 carries Liquid Glass; the code falls back to plain
     # materials with an older SDK, but the DMG people download should have the glass.
     needs: [version, macos-dmg]
+    # GitHub's runner on purpose: the smoke test opens the OpenGL viewport, and Blacksmith's macOS
+    # VMs have no GPU (software OpenGL crashes Qt on macOS 26).
     runs-on: macos-26
     env:
       VERSION: ${{ needs.version.outputs.version }}
@@ -512,7 +515,8 @@ jobs:
 
   macos-clean-machines:
     # Fresh runners without the build environment: mount the DMG, copy the
-    # app out and start it, on every macOS version GitHub offers for arm64.
+    # app out and start it, on every macOS version GitHub offers for arm64. GitHub's runners on
+    # purpose: starting the app needs a GPU (Blacksmith's macOS VMs have none).
     needs: [version, macos-dmg]
     strategy:
       fail-fast: false
@@ -540,7 +544,7 @@ jobs:
     # Nothing reaches a release unless every start-up test above passed.
     needs: [version, native-verification, linux-clean-distros, linux-direct-run, macos-clean-machines, macos-native-dmg]
     if: needs.version.outputs.tag != ''
-    runs-on: ubuntu-26.04
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     permissions:
       contents: write
     steps:

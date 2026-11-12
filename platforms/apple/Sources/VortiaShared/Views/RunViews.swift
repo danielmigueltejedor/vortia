@@ -160,10 +160,26 @@ struct ResultsView: View {
                         if !editing { Task { await store.loadSlice() } }
                     }
                 }
+                Picker(L10n.t(.view), selection: $store.threeD) {
+                    Text(L10n.t(.slice)).tag(false)
+                    Text(L10n.t(.threeD)).tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 220)
                 HStack(alignment: .top, spacing: 16) {
-                    SliceView(slice: store.slice, axis: store.sliceAxis)
-                        .frame(minHeight: 360)
-                        .card()
+                    Group {
+                        if store.threeD {
+                            if let surface = store.surface {
+                                FieldScene(surface: surface)
+                            } else {
+                                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                        } else {
+                            SliceView(slice: store.slice, axis: store.sliceAxis)
+                        }
+                    }
+                    .frame(minHeight: 360)
+                    .card()
                     if let statistics = store.statistics {
                         StatisticsCard(statistics: statistics).frame(width: 240).card()
                     }
