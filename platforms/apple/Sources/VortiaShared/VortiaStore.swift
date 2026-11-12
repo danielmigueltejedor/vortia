@@ -48,7 +48,7 @@ public final class VortiaStore {
     public private(set) var project: ProjectInfo?
     public private(set) var validation: Validation?
     public private(set) var job: Job = .idle
-    public private(set) var latest: Progress?
+    public private(set) var latest: VortiaKit.Progress?
     public private(set) var residuals: [ResidualPoint] = []
     public private(set) var log = ""
     public private(set) var results: ResultsInfo?
