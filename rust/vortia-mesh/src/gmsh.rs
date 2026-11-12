@@ -707,7 +707,7 @@ fn assemble(msh: Msh) -> Result<RawPolyMesh> {
     })
 }
 
-fn face_points(faces: &FaceList, face: usize) -> &[usize] {
+pub(crate) fn face_points(faces: &FaceList, face: usize) -> &[usize] {
     match (faces.offsets.get(face), faces.offsets.get(face + 1)) {
         (Some(&a), Some(&b)) => faces.points.get(a..b).unwrap_or_default(),
         _ => &[],
