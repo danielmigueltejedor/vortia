@@ -40,6 +40,18 @@ pub struct RawPolyMesh {
     /// with the mesh; reading a case leaves it empty (see
     /// [`RawPolyMesh::read_cell_zones_in`]).
     pub cell_zones: Vec<RawCellZone>,
+    /// The `faceZones` file, if the mesh has one. Written with the mesh,
+    /// never read.
+    pub face_zones: Vec<RawFaceZone>,
+}
+
+/// One entry of the `faceZones` file.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RawFaceZone {
+    pub name: String,
+    pub faces: Vec<usize>,
+    /// For each face, whether the zone's orientation is against the face's.
+    pub flip: Vec<bool>,
 }
 
 /// One entry of the `cellZones` file.
@@ -67,6 +79,7 @@ impl RawPolyMesh {
             // Nothing in the engine uses zones yet, so a case is not refused
             // for a `cellZones` it cannot read: see `read_cell_zones_in`.
             cell_zones: Vec::new(),
+            face_zones: Vec::new(),
         })
     }
 
@@ -154,37 +167,58 @@ impl RawPolyMesh {
         file("boundary", "polyBoundaryMesh", &body)?;
 
         if !self.cell_zones.is_empty() {
-            let mut body = format!("{}\n(\n", self.cell_zones.len());
-            for (n, zone) in self.cell_zones.iter().enumerate() {
-                if n > 0 {
-                    body.push('\n');
-                }
-                let _ = writeln!(body, "{}\n{{\n    type cellZone;", zone.name);
-                // OpenFOAM writes up to ten labels on the line of their count.
-                if zone.cells.len() < 11 {
-                    let cells: Vec<String> = zone.cells.iter().map(usize::to_string).collect();
-                    let _ = writeln!(
-                        body,
-                        "cellLabels      List<label> {}({});\n}}",
-                        zone.cells.len(),
-                        cells.join(" ")
-                    );
-                } else {
-                    let _ = writeln!(
-                        body,
-                        "cellLabels      List<label> \n{}\n(",
-                        zone.cells.len()
-                    );
-                    for c in &zone.cells {
-                        let _ = writeln!(body, "{c}");
-                    }
-                    body.push_str(")\n;\n}\n");
-                }
-            }
-            body.push_str(")\n");
-            file("cellZones", "regIOobject", &body)?;
+            let entries = self.cell_zones.iter().map(|z| {
+                let cells: Vec<String> = z.cells.iter().map(usize::to_string).collect();
+                (
+                    z.name.as_str(),
+                    "cellZone",
+                    list_entry("cellLabels", "label", &cells),
+                )
+            });
+            file("cellZones", "regIOobject", &zone_file(entries))?;
+        }
+        if !self.face_zones.is_empty() {
+            let entries = self.face_zones.iter().map(|z| {
+                let faces: Vec<String> = z.faces.iter().map(usize::to_string).collect();
+                let flips: Vec<String> = z.flip.iter().map(|&f| u8::from(f).to_string()).collect();
+                let mut text = list_entry("faceLabels", "label", &faces);
+                text.push_str(&list_entry("flipMap", "bool", &flips));
+                (z.name.as_str(), "faceZone", text)
+            });
+            file("faceZones", "regIOobject", &zone_file(entries))?;
         }
         Ok(())
+    }
+}
+
+/// The body of a zones file: `N( name { type …; <entries> } … )`, a blank
+/// line between the zones.
+fn zone_file<'a>(zones: impl ExactSizeIterator<Item = (&'a str, &'a str, String)>) -> String {
+    let mut body = format!("{}\n(\n", zones.len());
+    for (n, (name, kind, entries)) in zones.enumerate() {
+        if n > 0 {
+            body.push('\n');
+        }
+        let _ = writeln!(body, "{name}\n{{\n    type {kind};");
+        body.push_str(&entries);
+        body.push_str("}\n");
+    }
+    body.push_str(")\n");
+    body
+}
+
+/// One `key List<type> …;` entry as OpenFOAM lays a list out: a run of equal
+/// values as `n{v}`, up to ten values on the line of their count, more one to
+/// a line.
+fn list_entry(key: &str, ty: &str, items: &[String]) -> String {
+    let n = items.len();
+    let head = format!("{key:<16}List<{ty}> ");
+    match items.first() {
+        Some(first) if n > 1 && items.iter().all(|v| v == first) => {
+            format!("{head}{n}{{{first}}};\n")
+        }
+        _ if n < 11 => format!("{head}{n}({});\n", items.join(" ")),
+        _ => format!("{head}\n{n}\n(\n{}\n)\n;\n", items.join("\n")),
     }
 }
 
@@ -350,6 +384,7 @@ mod tests {
                 name: "fluid".into(),
                 cells: vec![1, 0],
             }],
+            face_zones: Vec::new(),
         };
         let dir = tempfile::tempdir().unwrap();
         mesh.write_dir(dir.path()).unwrap();
