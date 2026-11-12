@@ -24,7 +24,7 @@ struct StoreTests {
     @Test("progress becomes residual points, one per field with a positive residual")
     func residuals() {
         let store = VortiaStore()
-        store.apply(.progress(Progress(
+        store.apply(.progress(VortiaKit.Progress(
             time: 0.01, courantMean: 0.1, courantMax: 0.5,
             residuals: [
                 Residual(field: "Ux", initial: 0.5, final: 1e-6, iterations: 3),
