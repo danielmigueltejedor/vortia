@@ -81,6 +81,8 @@ class Bundle:
         self.frameworks = app / "Contents" / "Frameworks"
         self.plugins = app / "Contents" / "PlugIns"
         self.executable = app / "Contents" / "MacOS" / "vortia"
+        # Vortia Native starts this binary on its own, so it needs the same @rpath as the app.
+        self.engine = app / "Contents" / "MacOS" / "vortia-engine"
         self.search = search
         # install name inside the bundle -> bundled binary
         self.bundled: dict[str, Path] = {}
@@ -143,9 +145,9 @@ class Bundle:
         for rpath in dict.fromkeys(rpaths(binary)):
             changes += ["-delete_rpath", rpath]
         relative = os.path.relpath(self.frameworks, binary.parent)
-        prefix = "@executable_path" if binary == self.executable else "@loader_path"
+        prefix = "@executable_path" if binary in (self.executable, self.engine) else "@loader_path"
         changes += ["-add_rpath", f"{prefix}/{relative}" if relative != "." else prefix]
-        if binary != self.executable and self.plugins not in binary.parents:
+        if binary not in (self.executable, self.engine) and self.plugins not in binary.parents:
             own = next(name for name, path in self.bundled.items() if path == binary)
             changes += ["-id", own]
         subprocess.run(["install_name_tool", *changes, str(binary)], check=True,
@@ -154,6 +156,8 @@ class Bundle:
     def deploy(self, qt_plugins: Path) -> None:
         self.frameworks.mkdir(parents=True, exist_ok=True)
         roots: list[tuple[Path, Path]] = [(self.executable, self.executable)]
+        if is_macho(self.engine):
+            roots.append((self.engine, self.engine))
         for category, names in PLUGINS.items():
             source_dir = qt_plugins / category
             if not source_dir.is_dir():
