@@ -1,6 +1,7 @@
 // vortia-engine's protocol, without OpenFOAM: what a client can do before any run.
 
 #include "Engine.hpp"
+#include "PrivateTempDir.hpp"
 
 #include <gtest/gtest.h>
 
@@ -13,7 +14,7 @@ using nlohmann::json;
 namespace fs = std::filesystem;
 
 struct EngineTest : ::testing::Test {
-    fs::path root = fs::temp_directory_path() / ("vortia-engine-test-" + std::to_string(::getpid()));
+    fs::path root = vortia::test::makePrivateTempDir("vortia-engine-test-");
     std::vector<json> events;
     vortia::engine::Engine engine{[this](const json& e) { events.push_back(e); }};
 
