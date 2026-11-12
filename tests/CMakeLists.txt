@@ -25,7 +25,8 @@ add_executable(test_geometry
     unit/test_sketch_2d.cpp
     unit/test_sketch_snapping.cpp
     unit/test_sketch_arcs.cpp
-    unit/test_sketch_templates.cpp)
+    unit/test_sketch_templates.cpp
+    unit/test_sketch_file.cpp)
 target_include_directories(test_geometry PRIVATE ${VORTIA_TEST_SUPPORT_INCLUDE})
 target_link_libraries(test_geometry PRIVATE vortia::geometry GTest::gtest_main vortia_warnings)
 gtest_discover_tests(test_geometry)
