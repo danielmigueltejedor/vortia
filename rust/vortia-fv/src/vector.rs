@@ -32,19 +32,40 @@ pub enum VectorBc {
     ZeroGradient,
     /// The unused direction of a 2D case.
     Empty,
+    /// OpenFOAM's `directionMixed` for a value fraction that is diagonal
+    /// (`mask` holds 1 on the components that take `ref_value` and 0 on those
+    /// with a zero gradient), as `pressureInletOutletVelocity` sets it where
+    /// the flow comes in: the tangential part fixed, the normal part free.
+    Mixed {
+        mask: Vec<Vec3>,
+        ref_value: Vec<Vec3>,
+    },
 }
 
 /// One vector condition per mesh patch, in patch order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VectorBoundary {
     pub conditions: Vec<VectorBc>,
+    /// Per patch: the solver sets the value from the flow, so that a
+    /// correction of the velocity may still move it (OpenFOAM's
+    /// `assignable`, as `pressureInletVelocity` answers it).
+    pub assignable: Vec<bool>,
 }
 
 impl VectorBoundary {
     pub fn from_field(field: &VectorField, mesh: &PolyMesh) -> Result<Self> {
+        Self::from_field_with(field, mesh, &[])
+    }
+
+    /// As [`from_field`](Self::from_field), also taking the conditions named
+    /// in `driven`, whose values the solver sets from the flow:
+    /// `pressureInletVelocity` starts as its file's `value` and
+    /// `pressureInletOutletVelocity` as a zero gradient.
+    pub fn from_field_with(field: &VectorField, mesh: &PolyMesh, driven: &[&str]) -> Result<Self> {
         check_solvable(field)?;
         field.check_against(mesh)?;
         let mut conditions = Vec::with_capacity(mesh.patches().len());
+        let mut assignable = Vec::with_capacity(mesh.patches().len());
         for patch in mesh.patches() {
             let pf = field.patch_field(patch).ok_or_else(|| {
                 FvError::Condition(format!("no condition for patch '{}'", patch.name))
@@ -65,6 +86,23 @@ impl VectorBoundary {
                 "noSlip" => VectorBc::FixedValue(vec![Vec3::default(); patch.size]),
                 "zeroGradient" => VectorBc::ZeroGradient,
                 "empty" => VectorBc::Empty,
+                "pressureInletVelocity" if driven.contains(&"pressureInletVelocity") => {
+                    VectorBc::FixedValue(given()?)
+                }
+                "pressureInletOutletVelocity"
+                    if driven.contains(&"pressureInletOutletVelocity") =>
+                {
+                    if pf.settings.values("tangentialVelocity").is_some() {
+                        return Err(FvError::Condition(format!(
+                            "patch '{}': a tangentialVelocity is not supported yet",
+                            patch.name
+                        )));
+                    }
+                    VectorBc::Mixed {
+                        mask: vec![Vec3::default(); patch.size],
+                        ref_value: vec![Vec3::default(); patch.size],
+                    }
+                }
                 other => {
                     return Err(FvError::Condition(format!(
                         "patch '{}': '{other}' is not supported for vectors yet",
@@ -80,15 +118,20 @@ impl VectorBoundary {
                     pf.kind
                 )));
             }
+            assignable.push(driven.contains(&pf.kind.as_str()));
             conditions.push(bc);
         }
-        Ok(Self { conditions })
+        Ok(Self {
+            conditions,
+            assignable,
+        })
     }
 
     /// Whether the condition on patch `i` sets the value (OpenFOAM's
     /// `fixesValue`, and the opposite of `assignable`).
     pub fn fixes_value(&self, i: usize) -> bool {
         matches!(self.conditions.get(i), Some(VectorBc::FixedValue(_)))
+            && !self.assignable.get(i).copied().unwrap_or(false)
     }
 
     /// The value on every boundary face given the cell values, `None` on
@@ -101,6 +144,16 @@ impl VectorBoundary {
                     VectorBc::FixedValue(v) => v.get(i).copied(),
                     VectorBc::ZeroGradient => Some(inside(mesh, cells, f)),
                     VectorBc::Empty => None,
+                    VectorBc::Mixed { mask, ref_value } => {
+                        let pif = inside(mesh, cells, f);
+                        let m = mask.get(i).copied().unwrap_or_default();
+                        let r = ref_value.get(i).copied().unwrap_or_default();
+                        Some(Vec3::new(
+                            m.x * r.x + (1.0 - m.x) * pif.x,
+                            m.y * r.y + (1.0 - m.y) * pif.y,
+                            m.z * r.z + (1.0 - m.z) * pif.z,
+                        ))
+                    }
                 });
             }
         }
@@ -306,6 +359,14 @@ impl VectorMatrix {
                 let (internal, boundary) = match cond {
                     VectorBc::FixedValue(v) => (Vec3::default(), v.get(i).copied()),
                     VectorBc::ZeroGradient => (Vec3::new(1.0, 1.0, 1.0), Some(Vec3::default())),
+                    VectorBc::Mixed { mask, ref_value } => {
+                        let m = mask.get(i).copied().unwrap_or_default();
+                        let r = ref_value.get(i).copied().unwrap_or_default();
+                        (
+                            Vec3::new(1.0 - m.x, 1.0 - m.y, 1.0 - m.z),
+                            Some(mul_cmpt(m, r)),
+                        )
+                    }
                     VectorBc::Empty => continue,
                 };
                 if let Some(c) = m.internal_coeffs.get_mut(k) {
@@ -360,15 +421,28 @@ impl VectorMatrix {
                 let k = f.saturating_sub(n_internal);
                 let gm = gamma(f) * fv.mag_sf.get(f).copied().unwrap_or(0.0);
                 let d = dc.get(f).copied().unwrap_or(0.0);
-                if let VectorBc::FixedValue(v) = cond {
-                    let value = v.get(i).copied().unwrap_or_default();
-                    if let Some(c) = m.internal_coeffs.get_mut(k) {
-                        let g = -d;
-                        *c = Vec3::new(gm * g, gm * g, gm * g);
+                match cond {
+                    VectorBc::FixedValue(v) => {
+                        let value = v.get(i).copied().unwrap_or_default();
+                        if let Some(c) = m.internal_coeffs.get_mut(k) {
+                            let g = -d;
+                            *c = Vec3::new(gm * g, gm * g, gm * g);
+                        }
+                        if let Some(c) = m.boundary_coeffs.get_mut(k) {
+                            *c = (value * d) * -gm;
+                        }
                     }
-                    if let Some(c) = m.boundary_coeffs.get_mut(k) {
-                        *c = (value * d) * -gm;
+                    VectorBc::Mixed { mask, ref_value } => {
+                        let mk = mask.get(i).copied().unwrap_or_default();
+                        let r = ref_value.get(i).copied().unwrap_or_default();
+                        if let Some(c) = m.internal_coeffs.get_mut(k) {
+                            *c = mk * (-d * gm);
+                        }
+                        if let Some(c) = m.boundary_coeffs.get_mut(k) {
+                            *c = mul_cmpt(mk, r) * (-d * gm);
+                        }
                     }
+                    VectorBc::ZeroGradient | VectorBc::Empty => {}
                 }
             }
         }

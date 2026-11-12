@@ -131,6 +131,16 @@ pub fn grad(
                     )
                 }
                 VectorBc::ZeroGradient | VectorBc::Empty => Vec3::default(),
+                VectorBc::Mixed { mask, ref_value } => {
+                    let dc = fv.delta_coeffs.get(f).copied().unwrap_or(0.0);
+                    let m = mask.get(i).copied().unwrap_or_default();
+                    let r = ref_value.get(i).copied().unwrap_or_default();
+                    Vec3::new(
+                        dc * m.x * (r.x - inside.x),
+                        dc * m.y * (r.y - inside.y),
+                        dc * m.z * (r.z - inside.z),
+                    )
+                }
             };
             let normal = dot(n, &gc);
             let fix = outer(n, sn - normal);
@@ -235,7 +245,7 @@ mod tests {
         }
         let mesh = PolyMesh::from_raw(raw).unwrap();
         let fv = FvGeometry::new(&mesh);
-        let conditions = mesh
+        let conditions: Vec<VectorBc> = mesh
             .patches()
             .iter()
             .map(|p| match p.name.as_str() {
@@ -243,7 +253,10 @@ mod tests {
                 _ => VectorBc::ZeroGradient,
             })
             .collect();
-        let bc = VectorBoundary { conditions };
+        let bc = VectorBoundary {
+            assignable: vec![false; conditions.len()],
+            conditions,
+        };
         let (_, faces) = grad(&mesh, &fv, &bc, &[Vec3::default()]);
         let y_min = mesh.patch("yMin").unwrap();
         let k = y_min.start - mesh.n_internal_faces();

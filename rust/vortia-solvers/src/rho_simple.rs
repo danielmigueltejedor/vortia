@@ -25,12 +25,13 @@ use vortia_mesh::{PatchKind, PolyMesh};
 
 use crate::case::{Case, VELOCITY, check_dimensions, key_matches};
 use crate::control::{LinearSolver, RunControl, solve_line};
+use crate::driven::{PRESSURE_KINDS, PressureVelocity, TotalPressure, VELOCITY_KINDS};
 use crate::error::{Result, SolverError};
 use crate::ico::{Algorithm, Step, constrained_boundary, extrapolated, switch};
 use crate::laplacian::Ddt;
 use crate::rans::{Model, face_diffusivity};
 use crate::simple::{Relaxation, check_options, residual_control};
-use crate::thermo::{DENSITY, Gas, PRESSURE, Thermo};
+use crate::thermo::{DENSITY, Flow, Gas, PRESSURE, Thermo};
 
 /// The schemes `rhoSimpleFoam` asks for, checked against what the engine
 /// has.
@@ -98,6 +99,8 @@ type WithBoundary = (Vec<f64>, Vec<Option<f64>>);
 struct Pressure {
     file: ScalarField,
     bc: Boundary,
+    /// The `totalPressure` patches, whose values follow the flow.
+    total: TotalPressure,
     cells: Vec<f64>,
 }
 
@@ -105,7 +108,8 @@ impl Pressure {
     fn read(start: &std::path::Path, mesh: &PolyMesh) -> Result<Self> {
         let file = ScalarField::read(start.join("p"))?;
         check_dimensions("p", &file.dimensions, PRESSURE)?;
-        let bc = Boundary::from_field(&file, mesh)?;
+        let bc = Boundary::from_field_with(&file, mesh, PRESSURE_KINDS)?;
+        let total = TotalPressure::read(&file, mesh)?;
         if let Some(c) = bc.conditions.iter().find(|c| {
             !matches!(
                 c,
@@ -120,7 +124,12 @@ impl Pressure {
             .internal
             .expand(mesh.n_cells())
             .ok_or_else(|| SolverError::Setup("p does not fit the mesh".into()))?;
-        Ok(Self { file, bc, cells })
+        Ok(Self {
+            file,
+            bc,
+            total,
+            cells,
+        })
     }
 
     fn boundary(&self, mesh: &PolyMesh, fv: &FvGeometry) -> Vec<Option<f64>> {
@@ -193,7 +202,8 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
     let mut u_field = VectorField::read(start.join("U"))?;
     check_dimensions("U", &u_field.dimensions, VELOCITY)?;
-    let u_bc = VectorBoundary::from_field(&u_field, &mesh)?;
+    let mut u_bc = VectorBoundary::from_field_with(&u_field, &mesh, VELOCITY_KINDS)?;
+    let u_driven = PressureVelocity::read(&u_field, &mesh, &fv)?;
     let mut u = u_field
         .internal
         .expand(mesh.n_cells())
@@ -212,7 +222,8 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             MASS_FLUX,
         )?
     } else {
-        let u_b = u_bc.face_values(&mesh, &u);
+        let mut u_b = u_bc.face_values(&mesh, &u);
+        u_driven.initial_values(&mesh, &mut u_b);
         let rho_u: Vec<Vec3> = rho.iter().zip(&u).map(|(&r, &v)| v * r).collect();
         let rho_u_b: Vec<Option<Vec3>> = rho_b
             .iter()
@@ -235,10 +246,14 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let name = run.name(step);
         log(&format!("Time = {name}\n\n"));
         let p_prev = p.cells.clone();
+        let p_bc_prev = p.bc.clone();
         let (rho_prev, rho_b_prev) = (rho.clone(), rho_b.clone());
         let mut solves: Vec<(String, Performance)> = Vec::new();
 
         // UEqn.H: div(phi, U) + divDevRhoReff(U), relaxed, solved with −∇p.
+        // Its matrices update the velocity conditions that follow the flow
+        // first, from the flux and density of the last iteration.
+        u_driven.update(&mesh, &fv, &mut u_bc, &rho_b, &phi);
         let rho_nu: Vec<f64> = rho
             .iter()
             .zip(&thermo.mu)
@@ -288,7 +303,15 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
         // EEqn.H: div(phi, he) + div(phi, K or Ekp) − laplacian(αEff, he).
         let u_b = u_bc.face_values(&mesh, &u);
-        let he_bc = thermo.energy_boundary(&mesh, &fv, &p_b);
+        let he_bc = thermo.energy_boundary(
+            &mesh,
+            &fv,
+            &p_b,
+            &Flow {
+                u_b: &u_b,
+                phi: &phi,
+            },
+        );
         let kinetic = |u: Vec3, p: f64, rho: f64| match gas.energy {
             crate::thermo::Energy::Internal => 0.5 * u.dot(u) + p / rho,
             crate::thermo::Energy::Enthalpy => 0.5 * u.dot(u),
@@ -390,6 +413,9 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             }
         }
         let rho_r_atu_f = ops::interpolate_linear(&mesh, &fv, &rho_r_atu, &rho_r_atu_b);
+        // The pressure matrix updates `totalPressure` from the flux of the
+        // last iteration and the velocity just solved.
+        p.total.update(&mesh, &mut p.bc, &rho_b, &u_b, &phi);
         for non_orth in 0..=simple.n_non_orth {
             let mut m = LduMatrix::new(&mesh);
             ops::laplacian(
@@ -427,12 +453,16 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             for (pc, &prev) in p.cells.iter_mut().zip(&p_prev) {
                 *pc = prev + alpha * (*pc - prev);
             }
+            p.total.relax(&mut p.bc, &p_bc_prev, alpha);
         }
         p_b = p.boundary(&mesh, &fv);
         let grad_p = ops::grad(&mesh, &fv, &p.bc, &p.cells);
         for (((uc, &hb), &r), &g) in u.iter_mut().zip(&hbya).zip(&r_atu).zip(&grad_p) {
             *uc = hb - g * r;
         }
+        // `U.correctBoundaryConditions()`: the conditions that follow the flow
+        // take the new flux and the density of this iteration.
+        u_driven.update(&mesh, &fv, &mut u_bc, &rho_b, &phi);
         rho = mul(&p.cells, &thermo.psi);
         rho_b = mul_b(&p_b, &thermo.psi_b);
         if let Some(alpha) = alpha_rho {
@@ -451,11 +481,13 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         if written {
             u_field.internal = Data::NonUniform(u.clone());
             u_field.drop_zero_gradient_values();
+            u_field.store_patch_values(&mesh, VELOCITY_KINDS, &u_bc.face_values(&mesh, &u));
             u_field.write(&case.dir, &name)?;
             p.file.internal = Data::NonUniform(p.cells.clone());
             p.file.drop_zero_gradient_values();
+            p.file.store_patch_values(&mesh, PRESSURE_KINDS, &p_b);
             p.file.write(&case.dir, &name)?;
-            thermo.to_write().write(&case.dir, &name)?;
+            thermo.to_write(&mesh).write(&case.dir, &name)?;
             calculated_field(&mesh, "rho", Location::Cells, DENSITY, &rho, &rho_b)
                 .write(&case.dir, &name)?;
             let (phi_cells, phi_b) = split_faces(&mesh, &phi);
@@ -557,6 +589,13 @@ fn sn_grad(
                     dc * (v.get(i).copied().unwrap_or(0.0) - inside)
                 }
                 ScalarBc::FixedGradient(g) => g.get(i).copied().unwrap_or(0.0),
+                ScalarBc::Mixed {
+                    fraction,
+                    ref_value,
+                } => {
+                    let f_m = fraction.get(i).copied().unwrap_or(0.0);
+                    f_m * dc * (ref_value.get(i).copied().unwrap_or(0.0) - inside)
+                }
                 ScalarBc::ZeroGradient | ScalarBc::Reflect | ScalarBc::Empty => 0.0,
             });
         }

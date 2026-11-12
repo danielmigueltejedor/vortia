@@ -148,6 +148,18 @@ pub fn diffusion(
                     }
                 }
                 ScalarBc::ZeroGradient | ScalarBc::Reflect | ScalarBc::Empty => {}
+                ScalarBc::Mixed {
+                    fraction,
+                    ref_value,
+                } => {
+                    let k = gm
+                        * dc.get(f).copied().unwrap_or(0.0)
+                        * fraction.get(i).copied().unwrap_or(0.0);
+                    if let (Some(d), Some(s)) = (m.diag.get_mut(c), m.source.get_mut(c)) {
+                        *d += k;
+                        *s += k * ref_value.get(i).copied().unwrap_or(0.0);
+                    }
+                }
                 ScalarBc::Calculated(_) => {
                     return Err(FvError::Condition(format!(
                         "patch '{}': a 'calculated' condition cannot be solved for",
@@ -316,6 +328,13 @@ pub fn convection(
                     let g = g.get(i).copied().unwrap_or(0.0);
                     (1.0, if dc > 0.0 { g / dc } else { 0.0 })
                 }
+                ScalarBc::Mixed {
+                    fraction,
+                    ref_value,
+                } => {
+                    let f = fraction.get(i).copied().unwrap_or(0.0);
+                    (1.0 - f, f * ref_value.get(i).copied().unwrap_or(0.0))
+                }
                 ScalarBc::Empty => continue,
                 ScalarBc::Calculated(_) => {
                     return Err(FvError::Condition(format!(
@@ -449,6 +468,14 @@ pub fn laplacian(
                     (gm(f) * -d, -gm(f) * (d * v))
                 }
                 ScalarBc::FixedGradient(g) => (0.0, -gm(f) * g.get(i).copied().unwrap_or(0.0)),
+                ScalarBc::Mixed {
+                    fraction,
+                    ref_value,
+                } => {
+                    let f_m = fraction.get(i).copied().unwrap_or(0.0);
+                    let r = ref_value.get(i).copied().unwrap_or(0.0);
+                    (gm(f) * (-f_m * d), -gm(f) * (f_m * d * r))
+                }
                 ScalarBc::ZeroGradient | ScalarBc::Reflect | ScalarBc::Empty => continue,
                 ScalarBc::Calculated(_) => {
                     return Err(FvError::Condition(format!(
@@ -496,6 +523,14 @@ pub fn laplacian_flux(
                     gm(f) * -d * inside - -gm(f) * (d * v)
                 }
                 ScalarBc::FixedGradient(g) => -(-gm(f) * g.get(i).copied().unwrap_or(0.0)),
+                ScalarBc::Mixed {
+                    fraction,
+                    ref_value,
+                } => {
+                    let f_m = fraction.get(i).copied().unwrap_or(0.0);
+                    let r = ref_value.get(i).copied().unwrap_or(0.0);
+                    gm(f) * (-f_m * d) * inside - -gm(f) * (f_m * d * r)
+                }
                 _ => 0.0,
             });
         }
