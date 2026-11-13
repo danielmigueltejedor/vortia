@@ -71,6 +71,10 @@ end first (to compare with the C++ app), then the application window, then the
 3D viewer (meshes, contours, profiles), which is the largest open risk because
 VTK has no Rust equivalent.
 
+The physics Vortia needs next (heat transfer, buoyancy, conjugate heat transfer,
+turbulence, radiation, post-processing) is ordered in
+[simulation-depth.md](simulation-depth.md).
+
 ## Interface toolkit
 
 egui, styled with `nodalia-theme` from Nodalia Design (decided 2026-11-11).
