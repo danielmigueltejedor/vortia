@@ -492,7 +492,7 @@ fn vertices(dict: &Dictionary, names: &mut Names) -> Result<Vec<Vec3>> {
                     .filter(|v| matches!(v, Value::List(_)))
                     .ok_or_else(|| MeshError::Invalid(format!("vertex {i}: expected (x y z)")))?
             }
-            Value::Word(_) | Value::Str(_) | Value::Keyed(..) => {
+            Value::Word(_) | Value::Str(_) | Value::Code(_) | Value::Keyed(..) => {
                 return invalid("vertices projected onto geometry are not supported yet");
             }
             _ => return invalid(format!("vertex {i}: expected (x y z)")),

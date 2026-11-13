@@ -107,6 +107,27 @@ impl Boundary {
                         &pf.kind,
                     )?)
                 }
+                "codedMixed" if driven.contains(&"codedMixed") => {
+                    let read = |key: &str| {
+                        pf.settings
+                            .values(key)
+                            .map(|v| Data::<f64>::parse(v, key))
+                            .transpose()
+                    };
+                    if let Some(g) = read("refGradient")?
+                        && g.expand(patch.size)
+                            .is_none_or(|g| g.iter().any(|&g| g != 0.0))
+                    {
+                        return Err(FvError::Condition(format!(
+                            "patch '{}': codedMixed with a reference gradient is not supported yet",
+                            patch.name
+                        )));
+                    }
+                    ScalarBc::Mixed {
+                        fraction: values(read("valueFraction")?.as_ref(), patch, "valueFraction")?,
+                        ref_value: values(read("refValue")?.as_ref(), patch, "refValue")?,
+                    }
+                }
                 "inletOutlet" if driven.contains(&"inletOutlet") => {
                     let given = pf
                         .settings

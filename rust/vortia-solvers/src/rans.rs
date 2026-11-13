@@ -105,6 +105,9 @@ pub(crate) enum InletSource {
     Intensity(f64),
     /// `turbulentMixingLengthFrequencyInlet`: `√k / (Cmu^¼ L)`.
     MixingLength(f64),
+    /// The app's `viscosityRatioNuTilda` (`coded`): `chi μ / max(ρ, 1e-12)`
+    /// where the velocity does not leave, with `chi μ` as given.
+    ViscosityRatio(f64),
 }
 
 impl PartialEq for LogLaw {
@@ -181,21 +184,41 @@ impl ModelField {
             {
                 // As OpenFOAM's constructors: no inflow until the first update.
                 *fraction = vec![0.0; patch.size];
-                *ref_value = if *source == InletSource::Value {
-                    pf.settings
-                        .values("inletValue")
-                        .map(|v| Data::<f64>::parse(v, "inletValue"))
-                        .transpose()?
-                        .and_then(|d| d.expand(patch.size))
-                        .ok_or_else(|| {
-                            SolverError::Setup(format!(
-                                "{name}: patch '{}' needs 'inletValue' with {} items",
-                                patch.name, patch.size
-                            ))
-                        })?
+                if matches!(source, InletSource::ViscosityRatio(_)) {
+                    // A programmed condition starts from what its file holds
+                    // until it is first evaluated.
+                    let read = |key: &str| {
+                        pf.settings
+                            .values(key)
+                            .map(|v| Data::<f64>::parse(v, key))
+                            .transpose()?
+                            .and_then(|d| d.expand(patch.size))
+                            .ok_or_else(|| {
+                                SolverError::Setup(format!(
+                                    "{name}: patch '{}' needs '{key}' with {} items",
+                                    patch.name, patch.size
+                                ))
+                            })
+                    };
+                    *fraction = read("valueFraction")?;
+                    *ref_value = read("refValue")?;
                 } else {
-                    vec![0.0; patch.size]
-                };
+                    *ref_value = if *source == InletSource::Value {
+                        pf.settings
+                            .values("inletValue")
+                            .map(|v| Data::<f64>::parse(v, "inletValue"))
+                            .transpose()?
+                            .and_then(|d| d.expand(patch.size))
+                            .ok_or_else(|| {
+                                SolverError::Setup(format!(
+                                    "{name}: patch '{}' needs 'inletValue' with {} items",
+                                    patch.name, patch.size
+                                ))
+                            })?
+                    } else {
+                        vec![0.0; patch.size]
+                    };
+                }
             }
             if matches!(kind, Kind::Fixed(_)) {
                 let v = given.clone().ok_or_else(|| {
@@ -321,6 +344,9 @@ impl ModelField {
             else {
                 continue;
             };
+            if matches!(source, InletSource::ViscosityRatio(_)) {
+                continue;
+            }
             for (i, f) in patch.faces().enumerate() {
                 let b = f - n_internal;
                 let flux = phi.get(f).copied().unwrap_or(0.0);
@@ -328,7 +354,7 @@ impl ModelField {
                     *w = 1.0 - if flux >= 0.0 { 1.0 } else { 0.0 };
                 }
                 let value = match source {
-                    InletSource::Value => None,
+                    InletSource::Value | InletSource::ViscosityRatio(_) => None,
                     InletSource::Intensity(intensity) => {
                         let u = u_b.get(b).copied().flatten().unwrap_or_default();
                         Some((1.5 * (*intensity * *intensity)) * u.dot(u))
@@ -340,6 +366,45 @@ impl ModelField {
                 };
                 if let (Some(v), Some(r)) = (value, ref_value.get_mut(i)) {
                     *r = v;
+                }
+            }
+        }
+    }
+
+    /// What the programmed `viscosityRatioNuTilda` does when an equation in
+    /// the field is assembled: the reference `chi μ / max(ρ, 1e-12)` from the
+    /// density on the boundary, and the fraction 1 where the velocity on the
+    /// boundary does not point out of the domain.
+    pub(crate) fn update_viscosity_ratio(
+        &mut self,
+        mesh: &PolyMesh,
+        fv: &FvGeometry,
+        u_b: &[Option<Vec3>],
+        rho_b: &[Option<f64>],
+    ) {
+        let n_internal = mesh.n_internal_faces();
+        for (patch, kind) in mesh.patches().iter().zip(&mut self.kinds) {
+            let Kind::Mixed {
+                source: InletSource::ViscosityRatio(chi_mu),
+                ref_value,
+                fraction,
+            } = kind
+            else {
+                continue;
+            };
+            for (i, f) in patch.faces().enumerate() {
+                let b = f - n_internal;
+                let u = u_b.get(b).copied().flatten().unwrap_or_default();
+                let rho = rho_b.get(b).copied().flatten().unwrap_or(0.0);
+                if let Some(r) = ref_value.get_mut(i) {
+                    *r = *chi_mu / rho.max(1.0e-12);
+                }
+                if let Some(w) = fraction.get_mut(i) {
+                    *w = if u.dot(crate::coded::unit_normal(fv, f)) <= 0.0 {
+                        1.0
+                    } else {
+                        0.0
+                    };
                 }
             }
         }

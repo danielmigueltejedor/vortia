@@ -22,6 +22,7 @@ use vortia_mesh::PolyMesh;
 use vortia_mesh::wall::{near_wall_distance, wall_distance};
 
 use crate::case::{Case, KINEMATIC_DIFFUSIVITY};
+use crate::coded::{self, Program};
 use crate::error::Result;
 use crate::komegasst::check_wall_dist;
 use crate::rans::{
@@ -155,19 +156,33 @@ impl SpalartAllmaras {
         relax: Option<f64>,
     ) -> Result<Self> {
         check_wall_dist(case)?;
-        let nu_tilda =
-            ModelField::read(mesh, dir, "nuTilda", KINEMATIC_DIFFUSIVITY, |pf| {
-                match pf.kind.as_str() {
-                    "fixedValue" => Some(Kind::Fixed(Vec::new())),
-                    "zeroGradient" => Some(Kind::ZeroGradient),
-                    "inletOutlet" => Some(Kind::Mixed {
-                        source: InletSource::Value,
-                        ref_value: Vec::new(),
-                        fraction: Vec::new(),
-                    }),
-                    _ => None,
+        let refused = std::cell::RefCell::new(None);
+        let nu_tilda = ModelField::read(mesh, dir, "nuTilda", KINEMATIC_DIFFUSIVITY, |pf| match pf
+            .kind
+            .as_str()
+        {
+            "fixedValue" => Some(Kind::Fixed(Vec::new())),
+            "zeroGradient" => Some(Kind::ZeroGradient),
+            "inletOutlet" => Some(Kind::Mixed {
+                source: InletSource::Value,
+                ref_value: Vec::new(),
+                fraction: Vec::new(),
+            }),
+            "codedMixed" => match coded::read(&pf.settings, "nuTilda: codedMixed") {
+                Ok(Program::ViscosityRatio(chi_mu)) => Some(Kind::Mixed {
+                    source: InletSource::ViscosityRatio(chi_mu),
+                    ref_value: Vec::new(),
+                    fraction: Vec::new(),
+                }),
+                Ok(_) => None,
+                Err(e) => {
+                    *refused.borrow_mut() = Some(e);
+                    None
                 }
-            })?;
+            },
+            _ => None,
+        })
+        .map_err(|e| refused.take().unwrap_or(e))?;
         let nut = ModelField::read(mesh, dir, "nut", KINEMATIC_DIFFUSIVITY, |pf| {
             match pf.kind.as_str() {
                 "calculated" => Some(Kind::Calculated),
@@ -221,6 +236,20 @@ impl SpalartAllmaras {
         gas: &Gas,
     ) {
         self.correct_nut(mesh, fv, flow, gas);
+    }
+
+    /// What OpenFOAM's constructor of a programmed condition does: it
+    /// evaluates the condition at once, with the density and the velocity on
+    /// the boundary, and the field's value there follows.
+    pub(crate) fn evaluate_programmed(
+        &mut self,
+        mesh: &PolyMesh,
+        fv: &FvGeometry,
+        u_b: &[Option<Vec3>],
+        rho_b: &[Option<f64>],
+    ) {
+        self.nu_tilda.update_viscosity_ratio(mesh, fv, u_b, rho_b);
+        self.nu_tilda.follow_cells(mesh);
     }
 
     pub(crate) fn alphat(&self) -> &ModelField {
@@ -378,6 +407,8 @@ impl SpalartAllmaras {
         let (nu, nu_b) = Self::nu(gas);
         let u_b = u_bc.face_values(mesh, u);
         self.nu_tilda.update_inlets(mesh, phi, &u_b, None, 0.09);
+        self.nu_tilda
+            .update_viscosity_ratio(mesh, fv, &u_b, gas.rho_b);
 
         let (grad_u, _) = stress::grad(self.u_grad, mesh, fv, u_bc, u);
         let grad_nt = limited::grad(

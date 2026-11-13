@@ -17,9 +17,17 @@ use crate::error::{Result, SolverError};
 
 /// The pressure conditions this module sets.
 pub(crate) const PRESSURE_KINDS: &[&str] = &["totalPressure"];
+/// With the programmed one `rho_central` runs.
+pub(crate) const CENTRAL_PRESSURE_KINDS: &[&str] = &["totalPressure", "codedMixed"];
 /// The velocity conditions this module sets.
 pub(crate) const VELOCITY_KINDS: &[&str] =
     &["pressureInletVelocity", "pressureInletOutletVelocity"];
+/// With the programmed one `rho_central` runs.
+pub(crate) const CENTRAL_VELOCITY_KINDS: &[&str] = &[
+    "pressureInletVelocity",
+    "pressureInletOutletVelocity",
+    "codedFixedValue",
+];
 
 /// `pos0`: 1 where `x` is not negative.
 fn pos0(x: f64) -> f64 {

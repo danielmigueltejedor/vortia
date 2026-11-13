@@ -27,8 +27,11 @@ use vortia_fv::{
 use vortia_mesh::{PatchKind, PolyMesh};
 
 use crate::case::{Case, VELOCITY, check_dimensions};
+use crate::coded::Programmed;
 use crate::control::{LinearSolver, RunControl, solve_line};
-use crate::driven::{PRESSURE_KINDS, PressureVelocity, TotalPressure, VELOCITY_KINDS};
+use crate::driven::{
+    CENTRAL_PRESSURE_KINDS, CENTRAL_VELOCITY_KINDS, PressureVelocity, TotalPressure,
+};
 use crate::error::{Result, SolverError};
 use crate::ico::{Step, switch};
 use crate::rans::{Model, face_diffusivity};
@@ -288,7 +291,7 @@ impl Pressure {
     fn read(start: &std::path::Path, mesh: &PolyMesh) -> Result<(Self, Vec<f64>)> {
         let file = ScalarField::read(start.join("p"))?;
         check_dimensions("p", &file.dimensions, PRESSURE)?;
-        let bc = Boundary::from_field_with(&file, mesh, PRESSURE_KINDS)?;
+        let bc = Boundary::from_field_with(&file, mesh, CENTRAL_PRESSURE_KINDS)?;
         let total = TotalPressure::read(&file, mesh)?;
         if let Some(c) = bc.conditions.iter().find(|c| {
             !matches!(
@@ -296,6 +299,7 @@ impl Pressure {
                 ScalarBc::FixedValue(_)
                     | ScalarBc::ZeroGradient
                     | ScalarBc::Reflect
+                    | ScalarBc::Mixed { .. }
                     | ScalarBc::Empty
             )
         }) {
@@ -490,8 +494,9 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
     let mut u_field = VectorField::read(start.join("U"))?;
     check_dimensions("U", &u_field.dimensions, VELOCITY)?;
-    let mut u_bc = VectorBoundary::from_field_with(&u_field, &mesh, VELOCITY_KINDS)?;
+    let mut u_bc = VectorBoundary::from_field_with(&u_field, &mesh, CENTRAL_VELOCITY_KINDS)?;
     let u_driven = PressureVelocity::read(&u_field, &mesh, &fv)?;
+    let programmed = Programmed::read(&p.file, &u_field, &mesh)?;
     if let Some(c) = u_bc.conditions.iter().find(|c| {
         !matches!(
             c,
@@ -544,6 +549,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let n_faces = mesh.n_faces();
     let mut r_delta_t = vec![1.0 / run.delta_t; mesh.n_cells()];
     if let Some(t) = turbulence.as_mut() {
+        t.evaluate_programmed(&mesh, &fv, &u_b, &rho_b);
         t.validate(
             &mesh,
             &fv,
@@ -743,6 +749,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         }
         u = rho_u.iter().zip(&rho).map(|(&m, &r)| m / r).collect();
         u_driven.update(&mesh, &fv, &mut u_bc, &rho_b, &phi);
+        programmed.update_velocity(&mesh, &fv, &mut u_bc, (&u, &thermo.t));
         u_b = u_bc.face_values(&mesh, &u);
         // The momentum on the boundary takes the density the step began
         // with, which is not updated until the pressure is.
@@ -763,6 +770,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                 log(&solve_line(field, &perf));
             }
             u = solved;
+            programmed.update_velocity(&mesh, &fv, &mut u_bc, (&u, &thermo.t));
             u_b = u_bc.face_values(&mesh, &u);
             rho_u = rho.iter().zip(&u).map(|(&r, &x)| x * r).collect();
             rho_u_b = rho_b
@@ -847,6 +855,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         p_cells = rho.iter().zip(&thermo.psi).map(|(&r, &s)| r / s).collect();
         p.total
             .update(&mesh, &mut p.bc, (&rho_b, &thermo.psi_b), &u_b, &phi);
+        programmed.update_pressure(&mesh, &fv, &mut p.bc, &u_b, &thermo.t_b);
         p_b = p.bc.face_values(&mesh, &p_cells, &fv.delta_coeffs);
         rho_b = mul_b(&thermo.psi_b, &p_b);
         let _ = Location::Cells;

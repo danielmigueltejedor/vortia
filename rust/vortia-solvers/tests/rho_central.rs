@@ -1055,15 +1055,13 @@ const WEDGE_NOZZLE_SCHEMES: [(usize, f64, f64, f64, f64, f64); 4] = [
 /// Runs the wedge case twenty iterations and checks the four cells.
 fn check_wedge(
     nozzle_schemes: bool,
-    driven: bool,
+    edit: &dyn Fn(&Path),
     reference: &[(usize, f64, f64, f64, f64, f64)],
     rel: f64,
 ) {
     let dir = tempfile::tempdir().unwrap();
     wedge(dir.path(), nozzle_schemes, false);
-    if driven {
-        driven_conditions(dir.path());
-    }
+    edit(dir.path());
     let case = Case::open(dir.path()).unwrap();
     let steps = rho_central::run(&case, |_| {}).unwrap();
     assert_eq!(steps.len(), 20);
@@ -1104,7 +1102,7 @@ fn check_wedge(
 /// by 1e-8 once a pressure wave had reached a cell with a wedge face.
 #[test]
 fn a_viscous_gas_on_a_wedge_matches_openfoam() {
-    check_wedge(false, false, &WEDGE_REFERENCE, 1e-10);
+    check_wedge(false, &|_| {}, &WEDGE_REFERENCE, 1e-10);
 }
 
 /// The same with what the nozzle case sets: `cellLimited Gauss linear 1` for
@@ -1112,7 +1110,7 @@ fn a_viscous_gas_on_a_wedge_matches_openfoam() {
 /// Laplacians and `snGrad(U)`.
 #[test]
 fn the_nozzle_cases_gradient_and_limited_schemes_match_openfoam() {
-    check_wedge(true, false, &WEDGE_NOZZLE_SCHEMES, 1e-9);
+    check_wedge(true, &|_| {}, &WEDGE_NOZZLE_SCHEMES, 1e-9);
 }
 
 /// The nozzle case's own conditions, which follow the pressure: total
@@ -1201,7 +1199,149 @@ const WEDGE_DRIVEN: [(usize, f64, f64, f64, f64, f64); 4] = [
 /// flow, on the nozzle's wedge, agree with OpenFOAM's.
 #[test]
 fn the_nozzles_pressure_driven_conditions_match_openfoam() {
-    check_wedge(true, true, &WEDGE_DRIVEN, 1e-9);
+    check_wedge(true, &driven_conditions, &WEDGE_DRIVEN, 1e-9);
+}
+
+/// The code of `machAwarePressureOutlet`, as the nozzle example writes it.
+fn pressure_outlet(p_far: &str) -> String {
+    format!(
+        "type codedMixed;\nname machAwarePressureOutlet;\n\
+         refValue uniform {p_far}; refGradient uniform 0; valueFraction uniform 1; \
+         value uniform {p_far};\ncode\n#{{\n\
+         \x20const auto& u = patch().lookupPatchField<volVectorField>(\"U\");\n\
+         \x20const auto& t = patch().lookupPatchField<volScalarField>(\"T\");\n\
+         \x20const vectorField n(patch().nf());\n\
+         \x20this->refValue() = {p_far};\n\
+         \x20this->refGrad() = 0;\n\
+         \x20forAll(this->valueFraction(),i)\n\
+         \x20{{\n\
+         \x20 const scalar c = sqrt(1.4*287.0*max(t[i],scalar(1)));\n\
+         \x20 this->valueFraction()[i] = ((u[i]&n[i]) >= c) ? 0 : 1;\n\
+         \x20}}\n#}};"
+    )
+}
+
+/// Where the flow stays below the speed of sound the programmed pressure
+/// outlet is a fixed pressure, which OpenFOAM runs as it is: the wedge with
+/// the nozzle's schemes and a fixed atmosphere is the reference.
+#[test]
+fn the_programmed_pressure_outlet_is_a_fixed_pressure_in_subsonic_flow() {
+    check_wedge(
+        true,
+        &|dir| {
+            let path = dir.join("0/p");
+            let text = std::fs::read_to_string(&path).unwrap();
+            let fixed = "atmosphere { type fixedValue; value uniform 101325; }";
+            assert!(text.contains(fixed));
+            let coded = format!("atmosphere {{ {} }}", pressure_outlet("101325.0"));
+            std::fs::write(&path, text.replace(fixed, &coded)).unwrap();
+        },
+        &WEDGE_NOZZLE_SCHEMES,
+        1e-9,
+    );
+}
+
+/// Everything the app's case programs, together, on the wedge: the run
+/// finishes, the gas stays physical and the reservoir condition gives the
+/// outgoing characteristic where the flow comes in.
+#[test]
+fn the_apps_programmed_conditions_run_together() {
+    let dir = tempfile::tempdir().unwrap();
+    wedge(dir.path(), true, true);
+    driven_conditions(dir.path());
+    let edit = |file: &str, from: &str, to: &str| {
+        let path = dir.path().join(file);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(from), "{file}: {from}");
+        std::fs::write(&path, text.replace(from, to)).unwrap();
+    };
+    edit(
+        "0/p",
+        "atmosphere { type totalPressure; p0 uniform 101325; U U; phi phi; rho rho; \
+         psi thermo:psi; gamma 1.4; value uniform 101325; }",
+        &format!("atmosphere {{ {} }}", pressure_outlet("101325.0")),
+    );
+    let reservoir = "type codedFixedValue;\nvalue uniform (0 0 0);\n\
+        name reservoirCharacteristicVelocity;\ncode\n#{\n\
+        \x20const scalar gamma = 1.4, gasR = 287.0, totalT = 300.0;\n\
+        \x20const auto& T = patch().lookupPatchField<volScalarField>(\"T\");\n\
+        \x20const scalarField ti(T.patchInternalField());\n\
+        \x20const vectorField ui(this->patchInternalField());\n\
+        \x20const vectorField n(patch().nf());\n\
+        \x20vectorField ub(ui);\n\
+        \x20const scalar cstar = sqrt(2*gamma*gasR*totalT/(gamma+1));\n\
+        \x20forAll(ub,i) {\n\
+        \x20 const scalar un = ui[i]&n[i];\n\
+        \x20 if (un <= 0) {\n\
+        \x20  const scalar ri = un+2*sqrt(gamma*gasR*max(ti[i],scalar(1)))/(gamma-1);\n\
+        \x20  const scalar disc = -2*(gamma-1)*sqr(ri)+4*(gamma+1)*gamma*gasR*totalT/(gamma-1);\n\
+        \x20  const scalar q = min(cstar,max(scalar(0),(-(gamma-1)*ri+sqrt(max(disc,scalar(0))))/(gamma+1)));\n\
+        \x20  ub[i] = -n[i]*q;\n\
+        \x20 }\n\
+        \x20}\n\
+        \x20operator==(ub);\n#};";
+    edit(
+        "0/U",
+        "atmosphere { type pressureInletOutletVelocity; value uniform (0 0 0); }",
+        &format!("atmosphere {{ {reservoir} }}"),
+    );
+    let ratio = "type codedMixed;\nname viscosityRatioNuTilda;\n\
+        refValue uniform 0.0007; refGradient uniform 0; valueFraction uniform 1; \
+        value uniform 0.0007;\ncode\n#{\n\
+        \x20const auto& u = patch().lookupPatchField<volVectorField>(\"U\");\n\
+        \x20const auto& rho = patch().lookupPatchField<volScalarField>(\"rho\");\n\
+        \x20const vectorField n(patch().nf());\n\
+        \x20this->refGrad() = 0;\n\
+        \x20forAll(this->valueFraction(),i)\n\
+        \x20{\n\
+        \x20 this->refValue()[i] = 0.0002/max(rho[i],scalar(1e-12));\n\
+        \x20 this->valueFraction()[i] = ((u[i]&n[i]) <= 0) ? 1 : 0;\n\
+        \x20}\n#};";
+    edit(
+        "0/nuTilda",
+        "atmosphere { type zeroGradient; }",
+        &format!("atmosphere {{ {ratio} }}"),
+    );
+    let case = Case::open(dir.path()).unwrap();
+    let steps = rho_central::run(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), 20);
+    let end = dir.path().join("20");
+    let read = |name: &str| {
+        ScalarField::read(end.join(name))
+            .unwrap()
+            .internal
+            .expand(7500)
+            .unwrap()
+    };
+    let (t, p, nu_tilda) = (read("T"), read("p"), read("nuTilda"));
+    assert!(t.iter().all(|&t| t.is_finite() && t > 100.0 && t < 1000.0));
+    assert!(p.iter().all(|&p| p.is_finite() && p > 1.0e4));
+    assert!(nu_tilda.iter().all(|&n| n.is_finite() && n >= 0.0));
+    // The programs are written back as they were read, code included.
+    let u_text = std::fs::read_to_string(end.join("U")).unwrap();
+    assert!(
+        u_text.contains("reservoirCharacteristicVelocity") && u_text.contains("operator==(ub);"),
+        "{u_text}"
+    );
+}
+
+/// What differs from the code the engine knows is refused, not run.
+#[test]
+fn an_edited_program_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    wedge(dir.path(), false, false);
+    let path = dir.path().join("0/p");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let fixed = "atmosphere { type fixedValue; value uniform 101325; }";
+    let edited = pressure_outlet("101325.0").replace(">= c", "> c");
+    std::fs::write(
+        &path,
+        text.replace(fixed, &format!("atmosphere {{ {edited} }}")),
+    )
+    .unwrap();
+    let case = Case::open(dir.path()).unwrap();
+    let e = rho_central::run(&case, |_| {}).unwrap_err().to_string();
+    assert!(e.contains("differs"), "{e}");
 }
 
 /// `(cell, T, p, rho, Ux, Uy, nuTilda, nut, alphat)` after twenty iterations

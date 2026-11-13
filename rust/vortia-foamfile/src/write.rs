@@ -81,6 +81,9 @@ pub fn value(out: &mut String, v: &Value, level: usize) {
     match v {
         Value::Word(w) => out.push_str(w),
         Value::Str(s) => out.push_str(&quote(s)),
+        Value::Code(c) => {
+            let _ = write!(out, "#{{{c}#}}");
+        }
         Value::Label(l) => {
             let _ = write!(out, "{l}");
         }

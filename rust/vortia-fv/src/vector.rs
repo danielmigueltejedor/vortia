@@ -137,6 +137,9 @@ impl VectorBoundary {
                 "pressureInletVelocity" if driven.contains(&"pressureInletVelocity") => {
                     VectorBc::FixedValue(given()?)
                 }
+                "codedFixedValue" if driven.contains(&"codedFixedValue") => {
+                    VectorBc::FixedValue(given()?)
+                }
                 "pressureInletOutletVelocity"
                     if driven.contains(&"pressureInletOutletVelocity") =>
                 {
