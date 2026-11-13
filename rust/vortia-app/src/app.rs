@@ -17,6 +17,7 @@ use crate::controldict::{self, SettingsForm};
 use crate::convergence::Convergence;
 #[cfg(target_os = "linux")]
 use crate::globalmenu::{Entry, GlobalMenu, Menu};
+use crate::numerics::{self, Group};
 use crate::prefs::{self, Prefs, Theme};
 use crate::session::{Event, Outcome, Session};
 use crate::summary::{self, Summary};
@@ -86,6 +87,10 @@ struct CaseView {
     conditions_rx: Option<std::sync::mpsc::Receiver<Loaded>>,
     conditions_field: Option<String>,
     conditions_message: Option<(bool, String)>,
+    /// The numbers of the solver controls as typed (read when the tab is first looked at), and
+    /// how the last save went.
+    numerics: Option<Result<Vec<Group>, String>>,
+    numerics_message: Option<(bool, String)>,
     /// A field to colour the mesh with as soon as it is read, asked for on the command line.
     first_field: Option<String>,
     /// The mesh is read the first time it is looked at.
@@ -97,6 +102,7 @@ struct CaseView {
 #[derive(Clone, Copy)]
 pub enum TabName {
     Conditions,
+    Numerics,
     Settings,
 }
 
@@ -106,6 +112,7 @@ enum Tab {
     Run,
     Mesh,
     Conditions,
+    Numerics,
     Settings,
 }
 
@@ -129,6 +136,8 @@ impl CaseView {
             conditions_rx: None,
             conditions_field: None,
             conditions_message: None,
+            numerics: None,
+            numerics_message: None,
             first_field: None,
             viewer: None,
             viewer_rx: None,
@@ -361,6 +370,7 @@ impl VortiaApp {
         if let Screen::Case(case) = &mut self.screen {
             case.tab = match tab {
                 TabName::Conditions => Tab::Conditions,
+                TabName::Numerics => Tab::Numerics,
                 TabName::Settings => Tab::Settings,
             };
         }
@@ -764,6 +774,7 @@ impl VortiaApp {
                         ui.selectable_value(&mut case.tab, Tab::Run, "Run");
                         ui.selectable_value(&mut case.tab, Tab::Mesh, "Mesh");
                         ui.selectable_value(&mut case.tab, Tab::Conditions, "Conditions");
+                        ui.selectable_value(&mut case.tab, Tab::Numerics, "Numerics");
                         ui.selectable_value(&mut case.tab, Tab::Settings, "Settings");
                     });
                     ui.add_space(space::SM);
@@ -771,6 +782,10 @@ impl VortiaApp {
                     case.ensure_conditions(ctx);
                     if case.tab == Tab::Conditions {
                         conditions_tab(ui, p, case);
+                        return;
+                    }
+                    if case.tab == Tab::Numerics {
+                        numerics_tab(ui, p, case);
                         return;
                     }
                     if case.tab == Tab::Settings {
@@ -1095,6 +1110,74 @@ fn convergence_card(ui: &mut egui::Ui, p: &Palette, report: Option<&Convergence>
                     }
                 });
         });
+}
+
+/// The solver controls of the case (tolerances, relaxation, targets), to edit and save into its
+/// fvSolution.
+fn numerics_tab(ui: &mut egui::Ui, p: &Palette, case: &mut CaseView) {
+    let running = case.running();
+    let read = case
+        .numerics
+        .get_or_insert_with(|| numerics::read(&case.dir));
+    let (mut save, mut revert) = (false, false);
+    match read {
+        Err(message) => {
+            ui.colored_label(for_egui::color(p.status_danger_fg), message.as_str());
+        }
+        Ok(groups) => {
+            let dirty = groups
+                .iter()
+                .any(|g| g.items.iter().any(|item| item.changed()));
+            egui::ScrollArea::vertical()
+                .id_salt("numerics")
+                .auto_shrink([false, false])
+                .max_height((ui.available_height() - 90.0).max(120.0))
+                .show(ui, |ui| {
+                    ui.add_enabled_ui(!running, |ui| {
+                        for group in groups.iter_mut() {
+                            ui.add_space(space::MD);
+                            ui.label(RichText::new(group.title()).strong());
+                            let id = group.title();
+                            for item in &mut group.items {
+                                condition_row(ui, p, &item.key.clone(), item, &id);
+                            }
+                        }
+                    });
+                });
+            ui.add_space(space::MD);
+            ui.add_enabled_ui(!running && dirty, |ui| {
+                ui.horizontal(|ui| {
+                    save = accent_button(ui, p, "Save").clicked();
+                    revert = ui.button("Revert").clicked();
+                });
+            });
+            if running {
+                ui.label(
+                    RichText::new("The numbers cannot change while the case runs.").color(muted(p)),
+                );
+            }
+        }
+    }
+    if let Some((ok, message)) = &case.numerics_message {
+        let tone = if *ok {
+            p.status_success_fg
+        } else {
+            p.status_danger_fg
+        };
+        ui.colored_label(for_egui::color(tone), message.as_str());
+    }
+    if revert {
+        case.numerics = None;
+        case.numerics_message = None;
+    } else if save && let Some(Ok(groups)) = &case.numerics {
+        case.numerics_message = Some(match numerics::save(&case.dir, groups) {
+            Ok(()) => (true, "Saved to system/fvSolution.".to_owned()),
+            Err(message) => (false, message),
+        });
+        if matches!(case.numerics_message, Some((true, _))) {
+            case.numerics = None;
+        }
+    }
 }
 
 /// The boundary conditions of one field of the case, to edit and save into the field's file.
@@ -1571,6 +1654,33 @@ mod tests {
         let text = std::fs::read_to_string(case.path().join("0/T")).unwrap();
         assert!(text.contains("value uniform 350;"), "{text}");
         assert!(text.contains("internalField uniform 300;"), "{text}");
+    }
+
+    #[test]
+    fn the_solver_numbers_of_a_case_are_shown_and_saved() {
+        let case = case_dir();
+        std::fs::write(
+            case.path().join("system/fvSolution"),
+            "solvers\n{\n    p\n    {\n        solver PCG;\n        relTol 0.01;\n    }\n}\n",
+        )
+        .unwrap();
+        let ctx = Context::default();
+        let mut app = VortiaApp::with_prefs(Prefs::default(), None);
+        app.open_case(case.path()).unwrap();
+        app.show_tab(TabName::Numerics);
+        frame(&mut app, &ctx);
+        let Screen::Case(view) = &mut app.screen else {
+            panic!("the case closed");
+        };
+        let groups = view.numerics.as_mut().unwrap().as_mut().unwrap();
+        assert_eq!(groups[0].title(), "solvers / p");
+        groups[0].items[1].text = "0.1".into();
+        numerics::save(&view.dir, groups).unwrap();
+        let text = std::fs::read_to_string(case.path().join("system/fvSolution")).unwrap();
+        assert!(
+            text.contains("relTol 0.1;") && text.contains("solver PCG;"),
+            "{text}"
+        );
     }
 
     #[test]

@@ -21,7 +21,7 @@ pub struct Item {
 }
 
 impl Item {
-    fn new(key: &str, values: &[Value]) -> Self {
+    pub(crate) fn new(key: &str, values: &[Value]) -> Self {
         let (text, editable) = render(values);
         Self {
             key: key.to_owned(),
@@ -31,7 +31,7 @@ impl Item {
         }
     }
 
-    fn fixed(key: &str, text: &str) -> Self {
+    pub(crate) fn fixed(key: &str, text: &str) -> Self {
         Self {
             key: key.to_owned(),
             text: text.to_owned(),
@@ -246,7 +246,7 @@ fn shape(text: &str) -> Result<(bool, usize, String), String> {
 }
 
 /// The text to write for `item`: the typed value, if it keeps the form of the original.
-fn checked(item: &Item) -> Result<String, String> {
+pub(crate) fn checked(item: &Item) -> Result<String, String> {
     let typed = shape(&item.text).map_err(|e| format!("{}: {e}", item.key))?;
     let before = shape(&item.original).map_err(|e| format!("{}: {e}", item.key))?;
     if (typed.0, typed.1) != (before.0, before.1) {
@@ -260,6 +260,11 @@ fn checked(item: &Item) -> Result<String, String> {
 
 /// `text` with the value of `key` in the block of `patch` replaced.
 fn set_in_patch(text: &str, patch: &str, key: &str, value: &str) -> Result<String, String> {
+    set_at(text, &["boundaryField", patch], key, value)
+}
+
+/// `text` with the value of `key` replaced in the block reached by `path` from the top.
+pub(crate) fn set_at(text: &str, path: &[&str], key: &str, value: &str) -> Result<String, String> {
     let mut stack: Vec<String> = Vec::new();
     let mut pending: Option<String> = None;
     let (mut in_comment, mut in_code, mut found) = (false, false, false);
@@ -272,7 +277,7 @@ fn set_in_patch(text: &str, patch: &str, key: &str, value: &str) -> Result<Strin
             out.push_str(line);
             continue;
         }
-        let inside = matches!(stack.as_slice(), [a, b] if a == "boundaryField" && b == patch);
+        let inside = stack.iter().map(String::as_str).eq(path.iter().copied());
         if !found
             && inside
             && let Some(replaced) = replace_in_line(line, &code, key, value)?
@@ -307,7 +312,8 @@ fn set_in_patch(text: &str, patch: &str, key: &str, value: &str) -> Result<Strin
         Ok(out)
     } else {
         Err(format!(
-            "'{key}' of {patch} is not written the way the editor reads; edit it in the file."
+            "'{key}' of {} is not written the way the editor reads; edit it in the file.",
+            path.last().copied().unwrap_or("the file")
         ))
     }
 }

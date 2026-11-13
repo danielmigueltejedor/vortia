@@ -22,7 +22,7 @@ fn main() -> eframe::Result {
         "Vortia",
         options,
         Box::new(|cc| {
-            // `vortia-app CASE [--run] [--mesh] [--field NAME] [--conditions] [--settings]`: open a case,
+            // `vortia-app CASE [--run] [--mesh] [--field NAME] [--conditions] [--numerics] [--settings]`: open a case,
             // start it at once, or show its mesh (coloured with a field), conditions or settings.
             let mut args = std::env::args_os().skip(1);
             let case = args.next();
@@ -37,6 +37,8 @@ fn main() -> eframe::Result {
                 app.show_mesh();
             } else if has("--conditions") {
                 app.show_tab(TabName::Conditions);
+            } else if has("--numerics") {
+                app.show_tab(TabName::Numerics);
             } else if has("--settings") {
                 app.show_tab(TabName::Settings);
             }
