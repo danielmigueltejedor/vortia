@@ -1,0 +1,187 @@
+//! `probe`, `sample`, `patch`, `flux` and `volume`: looking into a case's
+//! results from the command line, with the numbers OpenFOAM's `postProcess`
+//! gives for the same files.
+
+use std::process::ExitCode;
+
+use vortia_core::Vec3;
+use vortia_post::{Case, PatchStats, VolumeStats};
+
+use crate::{shown, usage_error};
+
+/// Runs one of the five; `None` when `args` is not one of them.
+pub fn run(args: &[&str]) -> Option<ExitCode> {
+    Some(match args {
+        ["probe", case, field, x, y, z, time @ ..] if time.len() <= 1 => point(&[x, y, z])
+            .map_or_else(
+                || usage_error("the point needs three numbers"),
+                |p| finish(probe(case, field, p, time.first().copied())),
+            ),
+        ["sample", case, field, a @ .., points] if a.len() == 6 || a.len() == 7 => {
+            // The last two words are the point count and an optional time.
+            let (a, count, time) = if a.len() == 7 {
+                (a.get(..6)?, *a.get(6)?, Some(*points))
+            } else {
+                (a, *points, None)
+            };
+            match (
+                point(a.get(..3)?),
+                point(a.get(3..6)?),
+                count.parse::<usize>(),
+            ) {
+                (Some(start), Some(end), Ok(n)) => finish(sample(case, field, start, end, n, time)),
+                _ => usage_error("the line needs two points and a number of points"),
+            }
+        }
+        ["patch", case, patch, field, time @ ..] if time.len() <= 1 => {
+            finish(patch_stats(case, patch, field, time.first().copied()))
+        }
+        ["flux", case, patch, time @ ..] if time.len() <= 1 => {
+            finish(flux(case, patch, time.first().copied()))
+        }
+        ["volume", case, field, time @ ..] if time.len() <= 1 => {
+            finish(volume(case, field, time.first().copied()))
+        }
+        ["probe" | "sample" | "patch" | "flux" | "volume", ..] => {
+            usage_error("wrong number of arguments")
+        }
+        _ => return None,
+    })
+}
+
+fn point(words: &[&str]) -> Option<Vec3> {
+    let n: Vec<f64> = words
+        .iter()
+        .map(|w| w.parse::<f64>().ok().filter(|v| v.is_finite()))
+        .collect::<Option<_>>()?;
+    match n.as_slice() {
+        [x, y, z] => Some(Vec3::new(*x, *y, *z)),
+        _ => None,
+    }
+}
+
+fn finish(result: Result<String, String>) -> ExitCode {
+    match result {
+        Ok(text) => {
+            let _ = std::io::Write::write_all(&mut std::io::stdout(), text.as_bytes());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("vortia: {}", shown(&e));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn open(case: &str, time: Option<&str>) -> Result<(Case, String), String> {
+    let case = Case::open(case).map_err(|e| e.to_string())?;
+    let time = match time {
+        Some(t) => t.to_owned(),
+        None => case.latest_time().map_err(|e| e.to_string())?,
+    };
+    Ok((case, time))
+}
+
+fn numbers(values: &[f64]) -> String {
+    let parts: Vec<String> = values.iter().map(|v| format!("{v:e}")).collect();
+    if let [one] = parts.as_slice() {
+        one.clone()
+    } else {
+        format!("({})", parts.join(" "))
+    }
+}
+
+fn probe(case: &str, field: &str, at: Vec3, time: Option<&str>) -> Result<String, String> {
+    let (case, time) = open(case, time)?;
+    let s = case.probe(&time, field, at).map_err(|e| e.to_string())?;
+    match s.cell {
+        Some(cell) => Ok(format!(
+            "Time {}  {}  cell {cell}  {}\n",
+            shown(&time),
+            shown(field),
+            numbers(&s.value)
+        )),
+        None => Err(format!(
+            "the point ({:e} {:e} {:e}) is outside the mesh",
+            at.x, at.y, at.z
+        )),
+    }
+}
+
+fn sample(
+    case: &str,
+    field: &str,
+    start: Vec3,
+    end: Vec3,
+    points: usize,
+    time: Option<&str>,
+) -> Result<String, String> {
+    let (case, time) = open(case, time)?;
+    let (values, samples) = case
+        .sample_line(&time, field, start, end, points)
+        .map_err(|e| e.to_string())?;
+    Ok(vortia_post::line_csv(field, &values, &samples))
+}
+
+fn patch_stats(case: &str, patch: &str, field: &str, time: Option<&str>) -> Result<String, String> {
+    let (case, time) = open(case, time)?;
+    let s: PatchStats = case
+        .patch_stats(&time, field, patch)
+        .map_err(|e| e.to_string())?;
+    Ok(format!(
+        "Time {}  patch {}  {}\n    faces    {}\n    area     {:e}\n    integral {}\n    average  {}\n    min      {}\n    max      {}\n",
+        shown(&time),
+        shown(patch),
+        shown(field),
+        s.faces,
+        s.area,
+        numbers(&s.integral),
+        numbers(&s.average),
+        numbers(&s.min),
+        numbers(&s.max),
+    ))
+}
+
+fn flux(case: &str, patch: &str, time: Option<&str>) -> Result<String, String> {
+    let (case, time) = open(case, time)?;
+    let q = case.flux(&time, patch).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "Time {}  patch {}  flux {q:e}  (positive out of the domain)\n",
+        shown(&time),
+        shown(patch)
+    ))
+}
+
+fn volume(case: &str, field: &str, time: Option<&str>) -> Result<String, String> {
+    let (case, time) = open(case, time)?;
+    let s: VolumeStats = case.volume_stats(&time, field).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "Time {}  {}\n    cells    {}\n    volume   {:e}\n    integral {}\n    average  {}\n    min      {}\n    max      {}\n",
+        shown(&time),
+        shown(field),
+        s.cells,
+        s.volume,
+        numbers(&s.integral),
+        numbers(&s.average),
+        numbers(&s.min),
+        numbers(&s.max),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_point_needs_three_finite_numbers() {
+        assert_eq!(point(&["1", "2", "3"]), Some(Vec3::new(1.0, 2.0, 3.0)));
+        assert_eq!(point(&["1", "2"]), None);
+        assert_eq!(point(&["1", "nan", "3"]), None);
+        assert_eq!(point(&["1", "inf", "3"]), None);
+    }
+
+    #[test]
+    fn other_commands_are_not_taken() {
+        assert!(run(&["solve", "case"]).is_none());
+    }
+}

@@ -32,6 +32,8 @@ macro_rules! out {
     }};
 }
 
+mod post;
+
 const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20      vortia fields [CASE [TIME]]\n\
     \x20      vortia solve [CASE]\n\
@@ -39,7 +41,12 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20      vortia setfields [CASE]\n\
     \x20      vortia gmshtofoam [-keepOrientation] FILE [CASE]\n\
     \x20      vortia fluenttofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\
-    \x20      vortia cgnstofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\n\
+    \x20      vortia cgnstofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\
+    \x20      vortia probe CASE FIELD X Y Z [TIME]\n\
+    \x20      vortia sample CASE FIELD X0 Y0 Z0 X1 Y1 Z1 POINTS [TIME]\n\
+    \x20      vortia patch CASE PATCH FIELD [TIME]\n\
+    \x20      vortia flux CASE PATCH [TIME]\n\
+    \x20      vortia volume CASE FIELD [TIME]\n\n\
     check-mesh   read CASE/constant/polyMesh (default: the current directory)\n\
     \x20            and report its size, geometry and quality\n\
     fields       read every field of TIME (default: the latest), check it\n\
@@ -49,7 +56,12 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     setfields    set the cells of the start time as CASE/system/setFieldsDict says\n\
     gmshtofoam   convert a Gmsh .msh file into CASE/constant/polyMesh\n\
     fluenttofoam convert a Fluent .msh file into CASE/constant/polyMesh\n\
-    cgnstofoam   convert a CGNS (ADF) file into CASE/constant/polyMesh";
+    cgnstofoam   convert a CGNS (ADF) file into CASE/constant/polyMesh\n\
+    probe        the value of FIELD in the cell holding the point\n\
+    sample       FIELD along a line, as CSV: distance, point, cell, value\n\
+    patch        area, integral, average and range of FIELD over a patch\n\
+    flux         what flows out through a patch (the sum of phi on it)\n\
+    volume       volume, integral, average and range of FIELD over the domain";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -86,10 +98,10 @@ fn main() -> ExitCode {
             out!("{USAGE}");
             ExitCode::SUCCESS
         }
-        _ => {
+        other => post::run(other).unwrap_or_else(|| {
             eprintln!("{USAGE}");
             ExitCode::from(2)
-        }
+        }),
     }
 }
 

@@ -2695,6 +2695,7 @@ dependencies = [
  "vortia-fields",
  "vortia-foamfile",
  "vortia-mesh",
+ "vortia-post",
  "vortia-solvers",
 ]
 
@@ -2747,6 +2748,18 @@ dependencies = [
  "thiserror 2.0.21",
  "vortia-core",
  "vortia-foamfile",
+]
+
+[[package]]
+name = "vortia-post"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+ "vortia-core",
+ "vortia-fields",
+ "vortia-foamfile",
+ "vortia-mesh",
 ]
 
 [[package]]
