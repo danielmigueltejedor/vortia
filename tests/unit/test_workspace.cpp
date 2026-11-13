@@ -969,9 +969,9 @@ TEST(ApplicationPreferences, RoundTripAndInvalidValuesUseSafeDefaults) {
     auto p=ApplicationPreferences::load(settings);EXPECT_TRUE(p.snapToGrid);EXPECT_EQ(p.checkpointInterval,500);
     p.cfdZoomSensitivity=1.8;p.cfdPanSensitivity=.7;p.defaultProcesses=3;p.snapSpacing=.25;p.zoomSensitivity=1.7;p.automaticPreview=false;p.density="compact";
     p.showToolLabels=false;p.automaticMeshPreview=false;
-    EXPECT_FALSE(p.rustEngine);p.rustEngine=true;
+    EXPECT_TRUE(p.rustEngine);p.rustEngine=false;
     p.save(settings);auto loaded=ApplicationPreferences::load(settings);
-    EXPECT_TRUE(loaded.rustEngine);
+    EXPECT_FALSE(loaded.rustEngine);
     EXPECT_FALSE(loaded.showToolLabels);EXPECT_FALSE(loaded.automaticMeshPreview);
     EXPECT_DOUBLE_EQ(loaded.cfdZoomSensitivity,1.8);EXPECT_DOUBLE_EQ(loaded.cfdPanSensitivity,.7);EXPECT_EQ(loaded.defaultProcesses,3);EXPECT_DOUBLE_EQ(loaded.snapSpacing,.25);EXPECT_FALSE(loaded.automaticPreview);
     EXPECT_EQ(loaded.flowDefaults().value("solver").toObject().value("processes").toInt(),3);
