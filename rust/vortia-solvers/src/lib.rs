@@ -27,6 +27,7 @@ pub mod rho_central;
 pub mod rho_simple;
 pub mod scalar_transport;
 pub mod simple;
+pub(crate) mod spalart;
 pub(crate) mod thermo;
 
 pub use case::Case;

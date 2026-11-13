@@ -648,7 +648,7 @@ fn boundary_grad(
 
 /// Refuses a wall distance other than `meshWave` with its walls corrected,
 /// the one the engine has.
-fn check_wall_dist(case: &Case) -> Result<()> {
+pub(crate) fn check_wall_dist(case: &Case) -> Result<()> {
     let d = case.schemes.dict("wallDist").ok_or_else(|| {
         SolverError::Setup("kOmegaSST needs fvSchemes/wallDist { method meshWave; }".into())
     })?;

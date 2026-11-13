@@ -841,7 +841,7 @@ fn a_viscous_gas_needs_the_schemes_of_its_stress() {
 /// twenty iterations), with local time stepping and the nozzle case's
 /// `Minmod` for the velocity. OpenFOAM v1912 ran the same files for the
 /// reference.
-fn wedge(dir: &Path, nozzle_schemes: bool) {
+fn wedge(dir: &Path, nozzle_schemes: bool, spalart: bool) {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/nozzle-practice-2026");
     let mesh = dir.join("constant/polyMesh");
     std::fs::create_dir_all(&mesh).unwrap();
@@ -884,6 +884,42 @@ fn wedge(dir: &Path, nozzle_schemes: bool) {
          walls { type fixedValue; value uniform (0 0 0); } \
          atmosphere { type zeroGradient; }",
     );
+    if spalart {
+        field(
+            "nuTilda",
+            "volScalarField",
+            "[0 2 -1 0 0 0 0]",
+            "0.09",
+            "inlet { type fixedValue; value uniform 0.09; } \
+             walls { type fixedValue; value uniform 0; } \
+             atmosphere { type zeroGradient; }",
+        );
+        field(
+            "nut",
+            "volScalarField",
+            "[0 2 -1 0 0 0 0]",
+            "0",
+            "inlet { type calculated; value uniform 0; } \
+             walls { type nutUSpaldingWallFunction; value uniform 0; } \
+             atmosphere { type calculated; value uniform 0; }",
+        );
+        field(
+            "alphat",
+            "volScalarField",
+            "[1 -1 -1 0 0 0 0]",
+            "0",
+            "inlet { type calculated; value uniform 0; } \
+             walls { type compressible::alphatWallFunction; Prt 0.85; value uniform 0; } \
+             atmosphere { type calculated; value uniform 0; }",
+        );
+        write(
+            &dir.join("constant/turbulenceProperties"),
+            &format!(
+                "{HEADER}simulationType RAS; \
+                 RAS {{ RASModel SpalartAllmaras; turbulence on; printCoeffs on; }}"
+            ),
+        );
+    }
     write(
         &dir.join("system/controlDict"),
         &format!(
@@ -894,6 +930,11 @@ fn wedge(dir: &Path, nozzle_schemes: bool) {
     );
     // The nozzle case's own gradient, Laplacian and snGrad schemes, or the
     // plain ones.
+    let div_nu_tilda = if spalart {
+        "div(phi,nuTilda) bounded Gauss upwind;"
+    } else {
+        ""
+    };
     let (grad, laplacian, sn_grad) = if nozzle_schemes {
         (
             "cellLimited Gauss linear 1",
@@ -908,7 +949,8 @@ fn wedge(dir: &Path, nozzle_schemes: bool) {
         &format!(
             "{HEADER}fluxScheme Kurganov; ddtSchemes {{ default localEuler; }} \
              gradSchemes {{ default {grad}; }} \
-             divSchemes {{ default none; div(tauMC) Gauss linear; }} \
+             divSchemes {{ default none; div(tauMC) Gauss linear; {div_nu_tilda} }} \
+             wallDist {{ method meshWave; }} \
              laplacianSchemes {{ default {laplacian}; }} \
              interpolationSchemes {{ default linear; reconstruct(rho) vanLeer; \
              reconstruct(U) Minmod; reconstruct(T) vanLeer; }} \
@@ -920,9 +962,11 @@ fn wedge(dir: &Path, nozzle_schemes: bool) {
         &format!(
             "{HEADER}solvers {{ \"(rho|rhoU|rhoE)\" {{ solver diagonal; }} \
              \"(U|e)\" {{ solver PCG; preconditioner DIC; tolerance 1e-15; relTol 0; \
-             maxIter 1000; }} }}"
+             maxIter 1000; }} nuTilda {{ solver smoothSolver; smoother symGaussSeidel; \
+             tolerance 1e-13; relTol 0; maxIter 1000; }} }}"
         ),
     );
+    let mu = if spalart { "0.004" } else { "0.05" };
     write(
         &dir.join("constant/thermophysicalProperties"),
         &format!(
@@ -930,7 +974,7 @@ fn wedge(dir: &Path, nozzle_schemes: bool) {
              thermo hConst; equationOfState perfectGas; specie specie; \
              energy sensibleInternalEnergy; }} \
              mixture {{ specie {{ nMoles 1; molWeight 28.96; }} \
-             thermodynamics {{ Cp 1004.5; Hf 0; }} transport {{ mu 0.05; Pr 0.7; }} }}"
+             thermodynamics {{ Cp 1004.5; Hf 0; }} transport {{ mu {mu}; Pr 0.7; }} }}"
         ),
     );
 }
@@ -1011,7 +1055,7 @@ const WEDGE_NOZZLE_SCHEMES: [(usize, f64, f64, f64, f64, f64); 4] = [
 /// Runs the wedge case twenty iterations and checks the four cells.
 fn check_wedge(nozzle_schemes: bool, reference: &[(usize, f64, f64, f64, f64, f64)], rel: f64) {
     let dir = tempfile::tempdir().unwrap();
-    wedge(dir.path(), nozzle_schemes);
+    wedge(dir.path(), nozzle_schemes, false);
     let case = Case::open(dir.path()).unwrap();
     let steps = rho_central::run(&case, |_| {}).unwrap();
     assert_eq!(steps.len(), 20);
@@ -1061,4 +1105,149 @@ fn a_viscous_gas_on_a_wedge_matches_openfoam() {
 #[test]
 fn the_nozzle_cases_gradient_and_limited_schemes_match_openfoam() {
     check_wedge(true, &WEDGE_NOZZLE_SCHEMES, 1e-9);
+}
+
+/// `(cell, T, p, rho, Ux, Uy, nuTilda, nut, alphat)` after twenty iterations
+/// of the nozzle's schemes with Spalart–Allmaras, `nutUSpaldingWallFunction`
+/// and `compressible::alphatWallFunction`, in the cells of `WEDGE_REFERENCE`.
+type SpalartRow = (usize, [f64; 5], [f64; 3]);
+
+const SPALART_REFERENCE: [SpalartRow; 4] = [
+    (
+        0,
+        [
+            317.6096889884029,
+            160296.19531019704,
+            1.7578971223857849,
+            25.613381125816236,
+            -0.11322483012443968,
+        ],
+        [
+            0.06194184421661786,
+            0.06086198198771704,
+            0.10698910299890325,
+        ],
+    ),
+    (
+        2175,
+        [
+            316.37045468741076,
+            159848.28968152916,
+            1.759851645469654,
+            24.87405033986418,
+            1.9899999016615053,
+        ],
+        [
+            0.020234876923422414,
+            0.013424998185898932,
+            0.023626005147881355,
+        ],
+    ),
+    (
+        3749,
+        [
+            296.40365030615294,
+            151685.6676687623,
+            1.782481303057863,
+            50.102857317953095,
+            -1.8207384210702973,
+        ],
+        [0.08904966119775758, 0.08854251275173182, 0.1578253735057244],
+    ),
+    (
+        74,
+        [
+            299.6516109510237,
+            149905.30157884036,
+            1.742466186075441,
+            15.621107716892633,
+            -0.163478014939858,
+        ],
+        [0.08979206976211496, 0.0892582479030983, 0.15552947879948792],
+    ),
+];
+
+/// `(wall face, nut, alphat)` on the wall patch after the same run.
+const SPALART_WALL: [(usize, f64, f64); 4] = [
+    (0, 2.8837178707875194e-08, 5.897004550636459e-08),
+    (10, 8.804187362661253e-09, 1.7759610310015812e-08),
+    (35, 4.5464717060572646e-13, 9.315214024868711e-13),
+    (69, 1.0145559627703152e-07, 1.718813170164361e-07),
+];
+
+/// Spalart–Allmaras on the wedge: the model's equation, its wall distance,
+/// the Spalding wall function and the turbulent diffusion of momentum and
+/// energy agree with OpenFOAM's.
+#[test]
+fn spalart_allmaras_on_a_wedge_matches_openfoam() {
+    let dir = tempfile::tempdir().unwrap();
+    wedge(dir.path(), true, true);
+    let case = Case::open(dir.path()).unwrap();
+    let steps = rho_central::run(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), 20);
+    let end = dir.path().join("20");
+    let read = |name: &str| {
+        ScalarField::read(end.join(name))
+            .unwrap()
+            .internal
+            .expand(7500)
+            .unwrap()
+    };
+    let (t, p, rho) = (read("T"), read("p"), read("rho"));
+    let (nu_tilda, nut, alphat) = (read("nuTilda"), read("nut"), read("alphat"));
+    let u = VectorField::read(end.join("U"))
+        .unwrap()
+        .internal
+        .expand(7500)
+        .unwrap();
+    let close = |got: f64, want: f64, what: &str| {
+        assert!(
+            (got - want).abs() <= 1e-8 * want.abs().max(1e-3),
+            "{what}: {got} vs {want}"
+        );
+    };
+    for &(c, [tc, pc, rc, ux, uy], [nt, nu_t, at]) in &SPALART_REFERENCE {
+        close(t[c], tc, &format!("T, cell {c}"));
+        close(p[c], pc, &format!("p, cell {c}"));
+        close(rho[c], rc, &format!("rho, cell {c}"));
+        close(u[c].x, ux, &format!("Ux, cell {c}"));
+        close(u[c].y, uy, &format!("Uy, cell {c}"));
+        close(nu_tilda[c], nt, &format!("nuTilda, cell {c}"));
+        close(nut[c], nu_t, &format!("nut, cell {c}"));
+        close(alphat[c], at, &format!("alphat, cell {c}"));
+    }
+    let wall = |name: &str| {
+        let field = ScalarField::read(end.join(name)).unwrap();
+        field
+            .boundary
+            .iter()
+            .find(|b| b.key == "walls")
+            .and_then(|b| b.value.as_ref())
+            .and_then(|v| v.expand(70))
+            .unwrap()
+    };
+    let (wall_nut, wall_alphat) = (wall("nut"), wall("alphat"));
+    for &(f, n, a) in &SPALART_WALL {
+        let tiny = |got: f64, want: f64, what: &str| {
+            assert!(
+                (got - want).abs() <= 1e-8 * want.abs().max(1e-7),
+                "{what}, wall face {f}: {got} vs {want}"
+            );
+        };
+        tiny(wall_nut[f], n, "nut");
+        tiny(wall_alphat[f], a, "alphat");
+    }
+}
+
+/// Spalart–Allmaras needs a viscous gas, and `simpleFoam` does not run it.
+#[test]
+fn spalart_allmaras_asks_for_what_it_needs() {
+    let dir = tempfile::tempdir().unwrap();
+    wedge(dir.path(), false, true);
+    let thermo = dir.path().join("constant/thermophysicalProperties");
+    let text = std::fs::read_to_string(&thermo).unwrap();
+    std::fs::write(&thermo, text.replace("mu 0.004", "mu 0")).unwrap();
+    let case = Case::open(dir.path()).unwrap();
+    let err = rho_central::run(&case, |_| {}).unwrap_err().to_string();
+    assert!(err.contains("viscous"), "{err}");
 }

@@ -30,8 +30,9 @@ use crate::case::{Case, VELOCITY, check_dimensions};
 use crate::control::{LinearSolver, RunControl, solve_line};
 use crate::error::{Result, SolverError};
 use crate::ico::{Step, switch};
-use crate::rans::face_diffusivity;
+use crate::rans::{Model, face_diffusivity};
 use crate::rho_simple::{WithBoundary, calculated_field, mul, mul_b, read_calculated};
+use crate::spalart::{self, SpalartAllmaras};
 use crate::thermo::{DENSITY, Flow, Gas, PRESSURE, Thermo};
 
 /// `max(a, b)` as OpenFOAM writes it, which keeps `b` when `a` is not
@@ -269,6 +270,9 @@ struct Start {
     tau_dot: Vec<Vec3>,
     /// `∇·tauMC` in every cell.
     div_tau: Vec<Vec3>,
+    /// `muEff` in the cells and on the boundary faces.
+    mu_eff: Vec<f64>,
+    mu_eff_b: Vec<Option<f64>>,
 }
 
 /// The pressure, its conditions and its value on the boundary faces.
@@ -450,6 +454,22 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     } else {
         None
     };
+    let turbulence_coeffs = match Model::read(case)? {
+        Model::Laminar => None,
+        Model::SpalartAllmaras(ras) => {
+            if viscous.is_none() {
+                return Err(SolverError::Setup(
+                    "SpalartAllmaras needs a viscous gas: set transport mu".into(),
+                ));
+            }
+            Some(ras.dict("SpalartAllmarasCoeffs").cloned().unwrap_or(ras))
+        }
+        _ => {
+            return Err(SolverError::Setup(
+                "rhoCentralFoam runs laminar flow or SpalartAllmaras only".into(),
+            ));
+        }
+    };
     let stepping = Stepping::read(case)?;
     if stepping == Stepping::Euler && switch(&case.control, "adjustTimeStep") == Some(true) {
         return Err(SolverError::Setup(
@@ -513,10 +533,29 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         .collect();
 
     let valid = solution_directions(&mesh, &fv);
+    let mut turbulence = turbulence_coeffs
+        .as_ref()
+        .map(|coeffs| SpalartAllmaras::read(case, &mesh, &fv, &start, Some(coeffs), None))
+        .transpose()?;
     let gamma = thermo.gas.cp_by_cpv();
     let n_internal = mesh.n_internal_faces();
     let n_faces = mesh.n_faces();
     let mut r_delta_t = vec![1.0 / run.delta_t; mesh.n_cells()];
+    if let Some(t) = turbulence.as_mut() {
+        t.validate(
+            &mesh,
+            &fv,
+            (&u, &u_bc),
+            &spalart::Gas {
+                rho: &rho,
+                rho_b: &rho_b,
+                rho_old: &rho,
+                mu: &thermo.mu,
+                mu_b: &thermo.mu_b,
+                r_delta_t: &r_delta_t,
+            },
+        );
+    }
     let volumes = fv.volumes();
     let total_volume: f64 = volumes.iter().sum();
 
@@ -623,15 +662,19 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
         // tauMC and what the step started from, for the viscous terms.
         let viscous_start = viscous.as_ref().map(|v| {
-            let (tau, tau_b) = dev2_stress(
-                v.velocity_grad,
-                &mesh,
-                &fv,
-                &u_bc,
-                &u,
-                &thermo.mu,
-                &thermo.mu_b,
-            );
+            let (mu_eff, mu_eff_b) = match &turbulence {
+                Some(t) => t.mu_eff(&spalart::Gas {
+                    rho: &rho,
+                    rho_b: &rho_b,
+                    rho_old: &rho,
+                    mu: &thermo.mu,
+                    mu_b: &thermo.mu_b,
+                    r_delta_t: &r_delta_t,
+                }),
+                None => (thermo.mu.clone(), thermo.mu_b.clone()),
+            };
+            let (tau, tau_b) =
+                dev2_stress(v.velocity_grad, &mesh, &fv, &u_bc, &u, &mu_eff, &mu_eff_b);
             let tau_dot = dot_interpolate_tensor(&mesh, &fv, &tau, &tau_b);
             let component =
                 |pick: fn(&Vec3) -> f64| -> Vec<f64> { tau_dot.iter().map(pick).collect() };
@@ -652,6 +695,8 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                 he: thermo.he.clone(),
                 tau_dot,
                 div_tau,
+                mu_eff,
+                mu_eff_b,
             }
         });
 
@@ -690,8 +735,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             .collect();
 
         if let (Some(v), Some(start)) = (&viscous, &viscous_start) {
-            let eqn =
-                momentum_equation(&mesh, &fv, &u_bc, v, &thermo, start, (&rho, &u), &r_delta_t)?;
+            let eqn = momentum_equation(&mesh, &fv, &u_bc, v, start, (&rho, &u), &r_delta_t)?;
             let mut solved = u.clone();
             let perfs = eqn.solve_segregated(&mesh, &mut solved, None, valid, |m, x, _| {
                 v.u_solver.0.solve(m, x, &v.u_solver.1)
@@ -716,7 +760,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                 // The work of the viscous stress: σ·U on every face.
                 let (g, _) = stress::grad(v.velocity_grad, &mesh, &fv, &u_bc, &u);
                 let sn = correction::face_sn_grad_vector(&mesh, &fv, &u_bc, &u, v.face_sn_grad, &g);
-                let mu_f = face_diffusivity(&mesh, &fv, &thermo.mu, &thermo.mu_b);
+                let mu_f = face_diffusivity(&mesh, &fv, &start.mu_eff, &start.mu_eff_b);
                 let sigma_dot_u: Vec<f64> = (0..n_faces)
                     .map(|f| {
                         let mu = mu_f.get(f).copied().unwrap_or(0.0);
@@ -763,6 +807,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                     phi: &phi,
                 },
                 &r_delta_t,
+                turbulence.as_ref().map(|t| t.alphat()),
                 &mut log,
             )?;
             rho_e = rho
@@ -776,6 +821,23 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         p_b = p.bc.face_values(&mesh, &p_cells, &fv.delta_coeffs);
         rho_b = mul_b(&thermo.psi_b, &p_b);
         let _ = Location::Cells;
+        if let (Some(t), Some(start)) = (turbulence.as_mut(), &viscous_start) {
+            t.correct(
+                &mesh,
+                &fv,
+                (&u, &u_bc),
+                &phi,
+                &spalart::Gas {
+                    rho: &rho,
+                    rho_b: &rho_b,
+                    rho_old: &start.rho,
+                    mu: &thermo.mu,
+                    mu_b: &thermo.mu_b,
+                    r_delta_t: &r_delta_t,
+                },
+                &mut log,
+            )?;
+        }
 
         for line in ["rho", "rhoU", "rhoE"] {
             log(&format!(
@@ -793,6 +855,9 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             p.file.store_patch_values(&mesh, &[], &p_b);
             p.file.write(&case.dir, &name)?;
             thermo.to_write(&mesh).write(&case.dir, &name)?;
+            if let Some(t) = &turbulence {
+                t.write(&mesh, &case.dir, &name)?;
+            }
             calculated_field(&mesh, "rho", Location::Cells, DENSITY, &rho, &rho_b)
                 .write(&case.dir, &name)?;
             if stepping != Stepping::Euler {
@@ -830,7 +895,6 @@ fn momentum_equation(
     fv: &FvGeometry,
     u_bc: &VectorBoundary,
     v: &Viscous,
-    thermo: &Thermo,
     start: &Start,
     (rho, u): (&[f64], &[Vec3]),
     r_delta_t: &[f64],
@@ -839,7 +903,7 @@ fn momentum_equation(
     let mut eqn = VectorMatrix::new(mesh);
     eqn.ldu.diag = diag;
     eqn.source = source;
-    let mu_f = face_diffusivity(mesh, fv, &thermo.mu, &thermo.mu_b);
+    let mu_f = face_diffusivity(mesh, fv, &start.mu_eff, &start.mu_eff_b);
     let mut lap = VectorMatrix::laplacian(
         mesh,
         fv,
@@ -876,6 +940,7 @@ fn diffuse_energy(
     (rho, p, p_b): (&[f64], &[f64], &[Option<f64>]),
     flow: &Flow<'_>,
     r_delta_t: &[f64],
+    alphat: Option<&crate::rans::ModelField>,
     log: &mut impl FnMut(&str),
 ) -> Result<()> {
     let he_bc = thermo.energy_boundary(mesh, fv, p_b, flow);
@@ -891,11 +956,20 @@ fn diffuse_energy(
     eqn.ldu.diag = diag;
     eqn.ldu.source = source;
     let cp_by_cpv = thermo.gas.cp_by_cpv();
-    let alpha_eff: Vec<f64> = thermo.alpha.iter().map(|&a| cp_by_cpv * a).collect();
+    let turbulent = |a: f64, t: Option<f64>| cp_by_cpv * (a + t.unwrap_or(0.0));
+    let alpha_eff: Vec<f64> = thermo
+        .alpha
+        .iter()
+        .enumerate()
+        .map(|(i, &a)| turbulent(a, alphat.and_then(|t| t.cells.get(i).copied())))
+        .collect();
     let alpha_eff_b: Vec<Option<f64>> = thermo
         .alpha_b
         .iter()
-        .map(|a| a.map(|a| cp_by_cpv * a))
+        .enumerate()
+        .map(|(i, a)| {
+            a.map(|a| turbulent(a, alphat.and_then(|t| t.faces.get(i).copied().flatten())))
+        })
         .collect();
     let alpha_f = face_diffusivity(mesh, fv, &alpha_eff, &alpha_eff_b);
     let mut lap = ScalarMatrix::laplacian(

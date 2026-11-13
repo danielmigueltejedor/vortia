@@ -155,6 +155,12 @@ impl Pressure {
 /// Refuses a turbulence model or source the engine does not have.
 fn check_models(case: &Case) -> Result<Model> {
     let model = Model::read(case)?;
+    if matches!(model, Model::SpalartAllmaras(_)) {
+        return Err(SolverError::Setup(
+            "rhoSimpleFoam with SpalartAllmaras is not supported yet; use kOmegaSST or laminar"
+                .into(),
+        ));
+    }
     if matches!(model, Model::KEpsilon(_)) {
         return Err(SolverError::Setup(
             "rhoSimpleFoam with kEpsilon is not supported yet; use kOmegaSST or laminar".into(),

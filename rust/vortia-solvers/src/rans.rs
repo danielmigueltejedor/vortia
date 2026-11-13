@@ -77,6 +77,11 @@ pub(crate) enum Kind {
     },
     /// `nutkWallFunction`.
     NutWall(LogLaw),
+    /// `nutUSpaldingWallFunction`: `κ` and `E`.
+    NutSpalding {
+        kappa: f64,
+        e: f64,
+    },
     /// `inletOutlet` and the inlets built on it: `ref_value` where the flow
     /// comes in, a zero gradient where it leaves. The reference and the
     /// fraction are updated when an equation in the field is assembled.
@@ -245,6 +250,7 @@ impl ModelField {
                 | Kind::EpsilonWall(_)
                 | Kind::OmegaWall { .. }
                 | Kind::Calculated
+                | Kind::NutSpalding { .. }
                 | Kind::NutWall(_) => ScalarBc::FixedValue(
                     patch
                         .faces()
@@ -381,6 +387,8 @@ pub(crate) struct EquationSetup {
     sn_grad: SnGrad,
     /// `grad(<field>)`, the gradient the non-orthogonal correction takes.
     grad: GradScheme,
+    /// The coefficient of a `limited` Laplacian.
+    limit: Option<f64>,
     solver: LinearSolver,
     controls: vortia_fv::Controls,
     relax: Option<f64>,
@@ -399,7 +407,8 @@ impl EquationSetup {
         relax: Option<f64>,
     ) -> Result<Self> {
         let convection = case.convection(&format!("div(phi,{field})"))?;
-        let sn_grad = case.laplacian_sn_grad(&format!("laplacian({diffusivity},{field})"))?;
+        let (sn_grad, limit) =
+            case.limited_laplacian_sn_grad(&format!("laplacian({diffusivity},{field})"))?;
         let grad = match sn_grad {
             SnGrad::Corrected => case.grad_scheme(&format!("grad({field})"))?,
             _ => GradScheme::GaussLinear,
@@ -409,6 +418,7 @@ impl EquationSetup {
             convection,
             sn_grad,
             grad,
+            limit,
             solver,
             controls,
             relax,
@@ -421,6 +431,8 @@ pub(crate) enum Model {
     Laminar,
     KEpsilon(Option<Dictionary>),
     KOmegaSst(Option<Dictionary>),
+    /// `rhoCentralFoam` only; the RAS dictionary, for its coefficients.
+    SpalartAllmaras(Dictionary),
 }
 
 impl Model {
@@ -453,9 +465,10 @@ impl Model {
                     Some("kOmegaSST") => {
                         Self::KOmegaSst(coeffs("kOmegaSST").or_else(|| Some(ras.clone())))
                     }
+                    Some("SpalartAllmaras") => Self::SpalartAllmaras(ras.clone()),
                     other => {
                         return Err(SolverError::Setup(format!(
-                            "RAS model '{}' is not supported yet; use kEpsilon or kOmegaSST",
+                            "RAS model '{}' is not supported yet; use kEpsilon, kOmegaSST or SpalartAllmaras",
                             other.unwrap_or("")
                         )));
                     }
@@ -495,6 +508,11 @@ impl Turbulence {
     ) -> Result<Option<Self>> {
         Ok(match Model::read(case)? {
             Model::Laminar => None,
+            Model::SpalartAllmaras(_) => {
+                return Err(SolverError::Setup(
+                    "RAS model 'SpalartAllmaras' runs in rhoCentralFoam only; use kEpsilon or kOmegaSST".into(),
+                ));
+            }
             Model::KEpsilon(coeffs) => Some(Self::KEpsilon(Box::new(KEpsilon::read(
                 case,
                 mesh,
@@ -607,7 +625,10 @@ pub(crate) fn transport(
         ScalarMatrix::laplacian(mesh, fv, &bc, gamma, setup.sn_grad.without_correction())?;
     if setup.is_corrected() {
         let g = limited::grad(setup.grad, mesh, fv, &field.cells, &field.faces);
-        let corr = correction::sn_grad_correction(mesh, fv, &g);
+        let mut corr = correction::sn_grad_correction(mesh, fv, &g);
+        if let Some(k) = setup.limit {
+            corr = correction::limit_correction(mesh, fv, &field.cells, &corr, k, f64::abs);
+        }
         let flux = correction::scale_by_gamma_mag_sf(fv, gamma, &corr);
         correction::subtract_divergence(&mut lap.ldu.source, mesh, &flux);
     }
@@ -839,13 +860,25 @@ pub(crate) fn bound(
     field: &mut ModelField,
     log: &mut dyn FnMut(&str),
 ) {
+    bound_at(mesh, fv, name, field, SMALL, log);
+}
+
+/// [`bound`] holding the field to `floor` instead of `SMALL`.
+pub(crate) fn bound_at(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    name: &str,
+    field: &mut ModelField,
+    floor: f64,
+    log: &mut dyn FnMut(&str),
+) {
     let min = field
         .cells
         .iter()
         .copied()
         .chain(field.faces.iter().flatten().copied())
         .fold(f64::INFINITY, f64::min);
-    if min >= SMALL {
+    if min >= floor {
         return;
     }
     let max = field
@@ -859,16 +892,16 @@ pub(crate) fn bound(
         "bounding {name}, min: {min} max: {max} average: {average}\n"
     ));
 
-    // fvc::average(max(ψ, SMALL)): Σ |S_f| ψ_f / Σ |S_f| over each cell's faces.
-    let floored: Vec<f64> = field.cells.iter().map(|&v| v.max(SMALL)).collect();
+    // fvc::average(max(ψ, floor)): Σ |S_f| ψ_f / Σ |S_f| over each cell's faces.
+    let floored: Vec<f64> = field.cells.iter().map(|&v| v.max(floor)).collect();
     let mut sum = vec![0.0; mesh.n_cells()];
     let mut area = vec![0.0; mesh.n_cells()];
     for (f, (&o, &n)) in mesh.owner().iter().zip(mesh.neighbour()).enumerate() {
         let w = fv.weights.get(f).copied().unwrap_or(0.5);
         let a = fv.mag_sf.get(f).copied().unwrap_or(0.0);
         let (p, q) = (
-            floored.get(o).copied().unwrap_or(SMALL),
-            floored.get(n).copied().unwrap_or(SMALL),
+            floored.get(o).copied().unwrap_or(floor),
+            floored.get(n).copied().unwrap_or(floor),
         );
         let face = a * (w * (p - q) + q);
         for c in [o, n] {
@@ -888,18 +921,18 @@ pub(crate) fn bound(
         };
         let a = fv.mag_sf.get(f).copied().unwrap_or(0.0);
         if let Some(s) = sum.get_mut(o) {
-            *s += a * v.max(SMALL);
+            *s += a * v.max(floor);
         }
         if let Some(s) = area.get_mut(o) {
             *s += a;
         }
     }
     for ((v, &s), &a) in field.cells.iter_mut().zip(&sum).zip(&area) {
-        let average = if a > 0.0 { s / a } else { SMALL };
+        let average = if a > 0.0 { s / a } else { floor };
         let pos0 = if -*v >= 0.0 { 1.0 } else { 0.0 };
-        *v = v.max(average * pos0).max(SMALL);
+        *v = v.max(average * pos0).max(floor);
     }
     for v in field.faces.iter_mut().flatten() {
-        *v = v.max(SMALL);
+        *v = v.max(floor);
     }
 }
