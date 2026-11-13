@@ -699,6 +699,7 @@ fn run_as(case: &Case, mut log: impl FnMut(&str), vortia: bool) -> Result<Vec<St
     };
     let mut converged = false;
     for step in 1..=run.n_steps {
+        crate::cancel::check()?;
         let name = run.name(step);
 
         // The directed face values of the primitive fields.
