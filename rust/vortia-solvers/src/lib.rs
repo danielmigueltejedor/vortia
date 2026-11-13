@@ -14,6 +14,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod cancel;
 pub mod case;
 pub(crate) mod coded;
 pub mod control;

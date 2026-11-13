@@ -16,6 +16,9 @@ pub enum SolverError {
 
     #[error("{0}")]
     Setup(String),
+
+    #[error("the run was stopped")]
+    Cancelled,
 }
 
 pub type Result<T> = std::result::Result<T, SolverError>;

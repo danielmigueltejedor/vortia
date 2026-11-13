@@ -47,7 +47,7 @@ All under [`rust/`](../../rust), one workspace:
 | `vortia-fv` | Finite-volume operators, LDU matrices, linear solvers | Diffusion, Euler time derivative, Gauss gradient, PCG/DIC |
 | `vortia-solvers` | Laplacian, PISO/SIMPLE incompressible, k-ω SST, compressible | Diffusion (`laplacianFoam`), transport (`scalarTransportFoam`), PISO (`icoFoam`), SIMPLE with k-ε and k-ω SST (`simpleFoam`), laminar compressible SIMPLE/SIMPLEC (`rhoSimpleFoam`) |
 | `vortia-cli` | `vortia` command: one subcommand per stage | `blockmesh`, `check-mesh`, `fields`, `solve` |
-| `vortia-app` | Desktop app: egui in the Nodalia Design Language | First window: welcome, recent cases, a run of the engine on a thread with its log and convergence report, Preferences / shortcuts / About; Linux draws its own window controls. Next: the case's settings, the 3D viewer, the D-Bus global menu |
+| `vortia-app` | Desktop app: egui in the Nodalia Design Language | First window: welcome, recent cases, a run of the engine on a thread with its log and convergence report, Preferences / shortcuts / About; Linux draws its own window controls. Stop button. Next: the case's settings, the 3D viewer, the D-Bus global menu |
 
 ## Stages
 
@@ -80,5 +80,6 @@ that by itself, so the app carries a small exporter of its own.
 
 `vortia-app` opens a case folder (`vortia-app CASE [--run]`), runs the solver the
 `controlDict` names in-process on its own thread, and shows the solver's log and
-the convergence report as they arrive. The engine has no cancel yet, so a run
-cannot be stopped from the window; that comes with a stop flag in the solvers.
+the convergence report as they arrive. A run is stopped with a flag
+the solvers check at the top of each step (`vortia_solvers::cancel`), so a stop never
+leaves a step half done and what was written before stays.

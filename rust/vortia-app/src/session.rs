@@ -4,6 +4,8 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::JoinHandle;
 
@@ -16,8 +18,17 @@ pub enum Event {
     Log(String),
     /// A convergence report (the log line carries it too).
     Report(Convergence),
-    /// The run is over: `Err` says why it stopped.
-    Finished(Result<(), String>),
+    /// The run is over.
+    Finished(Outcome),
+}
+
+/// How a run ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Done,
+    /// The user stopped it; what was written before stays.
+    Stopped,
+    Failed(String),
 }
 
 /// The stack the engine's thread gets: the solvers recurse a little over the mesh and the
@@ -29,6 +40,7 @@ pub struct Session {
     events: Receiver<Event>,
     thread: Option<JoinHandle<()>>,
     finished: bool,
+    stop: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -37,12 +49,14 @@ impl Session {
     pub fn start(case: &Path, wake: impl Fn() + Send + 'static) -> std::io::Result<Self> {
         let (tx, events) = channel();
         let dir = case.to_path_buf();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
         let thread = std::thread::Builder::new()
             .name("vortia-engine".into())
             .stack_size(STACK)
             .spawn(move || {
-                let result = run(&dir, &tx, &wake);
-                let _ = tx.send(Event::Finished(result));
+                let outcome = run(&dir, &tx, &wake, flag);
+                let _ = tx.send(Event::Finished(outcome));
                 wake();
             })?;
         Ok(Self {
@@ -50,6 +64,7 @@ impl Session {
             events,
             thread: Some(thread),
             finished: false,
+            stop,
         })
     }
 
@@ -70,27 +85,43 @@ impl Session {
         out
     }
 
+    /// Asks the engine to stop at the start of its next step.
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
     pub fn is_finished(&self) -> bool {
         self.finished
     }
 }
 
-fn run(dir: &Path, tx: &Sender<Event>, wake: &(impl Fn() + Send)) -> Result<(), String> {
-    let outcome = catch_unwind(AssertUnwindSafe(|| {
+fn run(
+    dir: &Path,
+    tx: &Sender<Event>,
+    wake: &(impl Fn() + Send),
+    stop: Arc<AtomicBool>,
+) -> Outcome {
+    let result = catch_unwind(AssertUnwindSafe(|| {
         let case = vortia_solvers::Case::open(dir)?;
-        vortia_solvers::run(&case, |chunk| {
-            for line in chunk.lines() {
-                if let Some(report) = Convergence::from_log_line(line) {
-                    let _ = tx.send(Event::Report(report));
+        vortia_solvers::cancel::with_flag(stop, || {
+            vortia_solvers::run(&case, |chunk| {
+                for line in chunk.lines() {
+                    if let Some(report) = Convergence::from_log_line(line) {
+                        let _ = tx.send(Event::Report(report));
+                    }
+                    let _ = tx.send(Event::Log(line.to_owned()));
                 }
-                let _ = tx.send(Event::Log(line.to_owned()));
-            }
-            wake();
+                wake();
+            })
         })
     }));
-    match outcome {
-        Ok(result) => result.map_err(|e| e.to_string()),
-        Err(_) => Err("the engine stopped unexpectedly; the case was left as it was".into()),
+    match result {
+        Ok(Ok(())) => Outcome::Done,
+        Ok(Err(vortia_solvers::SolverError::Cancelled)) => Outcome::Stopped,
+        Ok(Err(e)) => Outcome::Failed(e.to_string()),
+        Err(_) => {
+            Outcome::Failed("the engine stopped unexpectedly; the case was left as it was".into())
+        }
     }
 }
 
@@ -120,7 +151,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut s = Session::start(&dir.path().join("nothing"), || {}).unwrap();
         let events = drain(&mut s);
-        assert!(matches!(events.last(), Some(Event::Finished(Err(_)))));
+        assert!(matches!(
+            events.last(),
+            Some(Event::Finished(Outcome::Failed(_)))
+        ));
     }
 
     #[test]
@@ -140,13 +174,15 @@ mod tests {
         let mut s = Session::start(dir.path(), || {}).unwrap();
         let events = drain(&mut s);
         match events.last() {
-            Some(Event::Finished(Err(message))) => assert!(message.contains("interFoam")),
+            Some(Event::Finished(Outcome::Failed(message))) => {
+                assert!(message.contains("interFoam"))
+            }
             other => panic!("{other:?}"),
         }
     }
 
-    #[test]
-    fn a_run_streams_its_log_and_then_finishes_well() {
+    /// A diffusion case on the nozzle mesh that runs `end` steps.
+    fn diffusion_case(end: u32) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path();
         let mesh_src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -161,7 +197,7 @@ mod tests {
             &d.join("system/controlDict"),
             &format!(
                 "{h}application laplacianFoam; startFrom startTime; startTime 0; \
-                 endTime 1; deltaT 1; writeControl timeStep; writeInterval 1;"
+                 endTime {end}; deltaT 1; writeControl timeStep; writeInterval 1;"
             ),
         );
         write(
@@ -194,9 +230,19 @@ mod tests {
                front { type wedge; } back { type wedge; }\n\
              }\n",
         );
+        dir
+    }
+
+    #[test]
+    fn a_run_streams_its_log_and_then_finishes_well() {
+        let dir = diffusion_case(1);
+        let d = dir.path();
         let mut s = Session::start(d, || {}).unwrap();
         let events = drain(&mut s);
-        assert!(matches!(events.last(), Some(Event::Finished(Ok(())))));
+        assert!(matches!(
+            events.last(),
+            Some(Event::Finished(Outcome::Done))
+        ));
         let lines: Vec<&str> = events
             .iter()
             .filter_map(|e| match e {
@@ -207,5 +253,19 @@ mod tests {
         assert!(lines.iter().any(|l| l.contains("Time =")), "{lines:?}");
         assert!(lines.iter().all(|l| !l.contains('\n')));
         assert!(d.join("1/T").exists());
+    }
+
+    #[test]
+    fn a_run_can_be_stopped_and_says_it_was() {
+        let dir = diffusion_case(50);
+        let mut s = Session::start(dir.path(), || {}).unwrap();
+        s.stop();
+        let events = drain(&mut s);
+        assert!(matches!(
+            events.last(),
+            Some(Event::Finished(Outcome::Stopped))
+        ));
+        // Stopped before its first step: nothing was written.
+        assert!(!dir.path().join("1").exists());
     }
 }

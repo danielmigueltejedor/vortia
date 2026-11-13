@@ -14,7 +14,7 @@ use nodalia_theme::{Accent, Mode, Palette, component, font_size, for_egui, icons
 
 use crate::convergence::Convergence;
 use crate::prefs::{self, Prefs, Theme};
-use crate::session::{Event, Session};
+use crate::session::{Event, Outcome, Session};
 
 /// The accent of the app.
 const ACCENT: Accent = Accent::Vortia;
@@ -60,7 +60,9 @@ struct CaseView {
     session: Option<Session>,
     log: VecDeque<String>,
     report: Option<Convergence>,
-    outcome: Option<Result<(), String>>,
+    outcome: Option<Outcome>,
+    /// A stop was asked for and the engine has not ended yet.
+    stopping: bool,
 }
 
 impl CaseView {
@@ -175,6 +177,7 @@ impl VortiaApp {
             log: VecDeque::new(),
             report: None,
             outcome: None,
+            stopping: false,
         }));
         Ok(())
     }
@@ -200,8 +203,11 @@ impl VortiaApp {
                 case.log.clear();
                 case.report = None;
                 case.outcome = None;
+                case.stopping = false;
             }
-            Err(e) => case.outcome = Some(Err(format!("The engine could not start: {e}"))),
+            Err(e) => {
+                case.outcome = Some(Outcome::Failed(format!("The engine could not start: {e}")))
+            }
         }
     }
 
@@ -454,19 +460,35 @@ impl VortiaApp {
                 );
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.add_enabled_ui(!case.running(), |ui| {
+                if let Some(session) = &case.session {
+                    let stopping = case.stopping;
+                    let label = if stopping { "Stopping…" } else { "Stop" };
+                    let button = ui.add_enabled(!stopping, egui::Button::new(label));
+                    if button.clicked() {
+                        session.stop();
+                        case.stopping = true;
+                    }
+                } else {
                     run = accent_button(ui, p, "Run").clicked();
                     close = ui.button("Close case").clicked();
-                });
+                }
             });
         });
         ui.add_space(space::MD);
 
-        if let Some(Err(message)) = &case.outcome {
-            ui.colored_label(for_egui::color(p.status_danger_fg), message);
-            ui.add_space(space::SM);
-        } else if matches!(case.outcome, Some(Ok(()))) {
-            ui.colored_label(for_egui::color(p.status_success_fg), "The run finished.");
+        if let Some(outcome) = &case.outcome {
+            match outcome {
+                Outcome::Failed(message) => {
+                    ui.colored_label(for_egui::color(p.status_danger_fg), message)
+                }
+                Outcome::Stopped => ui.colored_label(
+                    for_egui::color(p.status_warning_fg),
+                    "The run was stopped; what was written before stays in the case.",
+                ),
+                Outcome::Done => {
+                    ui.colored_label(for_egui::color(p.status_success_fg), "The run finished.")
+                }
+            };
             ui.add_space(space::SM);
         } else if case.running() {
             ui.horizontal(|ui| {
@@ -860,7 +882,7 @@ mod tests {
                     r#"{"status":"stabilizing","automatic":true,"stableSamples":1,"requiredSamples":5,"globalMass":1e-4}"#,
                 );
                 view.log.push_back("Time = 1".into());
-                view.outcome = Some(Err("boom".into()));
+                view.outcome = Some(Outcome::Failed("boom".into()));
             }
             frame(&mut app, &ctx);
         }
@@ -880,7 +902,10 @@ mod tests {
                 panic!("left the case");
             };
             if let Some(outcome) = &view.outcome {
-                assert!(outcome.is_err(), "the solver is not set up: {outcome:?}");
+                assert!(
+                    matches!(outcome, Outcome::Failed(_)),
+                    "the solver is not set up: {outcome:?}"
+                );
                 break;
             }
             assert!(start.elapsed() < Duration::from_secs(60), "no outcome");
@@ -906,6 +931,7 @@ mod tests {
             log: VecDeque::new(),
             report: None,
             outcome: None,
+            stopping: false,
         };
         for n in 0..MAX_LOG + 10 {
             view.push_log(n.to_string());

@@ -105,6 +105,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
     let mut steps = Vec::new();
     for step in 1..=run.n_steps {
+        crate::cancel::check()?;
         let name = run.name(step);
         log(&format!("Time = {name}\n"));
         let old = t.clone();

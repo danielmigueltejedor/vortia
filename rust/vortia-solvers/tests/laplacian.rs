@@ -204,3 +204,30 @@ fn a_smoother_in_blocks_reaches_the_single_block_answer() {
         assert_eq!(run(blocks, 5).len(), 7500, "{blocks}");
     }
 }
+
+#[test]
+fn a_run_stops_between_steps_when_its_flag_is_set() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let dir = nozzle_case("steadyState", "5", "1", 0);
+    let case = Case::open(dir.path()).unwrap();
+    let flag = Arc::new(AtomicBool::new(false));
+    let seen = flag.clone();
+    let result = vortia_solvers::cancel::with_flag(flag, || {
+        laplacian::run(&case, |line| {
+            // The stop arrives while the second step is under way.
+            if line.starts_with("Time = 2") {
+                seen.store(true, Ordering::Relaxed);
+            }
+        })
+    });
+    assert!(matches!(
+        result,
+        Err(vortia_solvers::SolverError::Cancelled)
+    ));
+    // The step that was running finished and was written; the next never began.
+    assert!(dir.path().join("2/T").exists());
+    assert!(!dir.path().join("3").exists());
+}
