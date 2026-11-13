@@ -4,10 +4,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
-## [0.9.0] — 2026-11-13
+## [0.9.1] — 2026-11-13
 
-Vortia empieza como Vortia Native, con una bienvenida para crear o abrir un
-proyecto, y Vortia Native se actualiza sola como Vortia.
+La 0.9.0 no llegó a publicarse: su bienvenida tapaba la barra superior en
+Linux y la app de macOS fallaba al salir. Esta versión la sustituye.
 
 ### Añadido
 - **Bienvenida:** sin proyecto abierto, Vortia muestra Nuevo proyecto, Abrir
