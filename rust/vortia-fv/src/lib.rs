@@ -2,6 +2,7 @@
 //!
 //! - [`LduMatrix`]: sparse matrices addressed by the mesh's faces.
 //! - [`solve`]: iterative solvers with OpenFOAM's residual definition.
+//! - [`block`]: the Gauss–Seidel smoother cut into blocks that run on threads.
 //! - [`FvGeometry`]: interpolation weights and face-gradient coefficients.
 //! - [`bc`]: scalar boundary conditions, evaluated.
 //! - [`ops`]: gradient, diffusion, convection and time-derivative operators.
@@ -19,6 +20,7 @@
 )]
 
 pub mod bc;
+pub mod block;
 pub mod correction;
 pub mod error;
 pub mod fvgeom;
@@ -31,6 +33,7 @@ pub mod stress;
 pub mod vector;
 
 pub use bc::{Boundary, ScalarBc};
+pub use block::{smooth_sym_gauss_seidel_blocks, thread_count};
 pub use error::{FvError, Result};
 pub use fvgeom::FvGeometry;
 pub use ldu::LduMatrix;

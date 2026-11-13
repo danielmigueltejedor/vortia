@@ -31,7 +31,7 @@ impl Default for Controls {
 }
 
 impl Controls {
-    fn converged(&self, initial: f64, current: f64) -> bool {
+    pub(crate) fn converged(&self, initial: f64, current: f64) -> bool {
         current < self.tolerance
             || (self.rel_tol > f64::EPSILON && current < self.rel_tol * initial)
     }
@@ -61,7 +61,7 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-fn sum_mag(a: &[f64]) -> f64 {
+pub(crate) fn sum_mag(a: &[f64]) -> f64 {
     a.iter().map(|v| v.abs()).sum()
 }
 
@@ -325,24 +325,25 @@ pub fn pbicgstab_dilu(m: &LduMatrix, x: &mut [f64], c: &Controls) -> Result<Perf
 /// rows below as each value is finished.
 fn sym_gauss_seidel(m: &LduMatrix, x: &mut [f64], own_start: &[usize], b_prime: &mut [f64]) {
     let n = m.n_cells();
-    let row = |c: usize| {
-        let a = own_start.get(c).copied().unwrap_or(0);
-        let b = own_start.get(c + 1).copied().unwrap_or(a);
-        a..b
-    };
+    // The faces row `c` owns, as slices: one range check per row instead of
+    // one per coefficient.
     let relax = |c: usize, x: &mut [f64], b_prime: &mut [f64]| {
+        let (Some(&start), Some(&end)) = (own_start.get(c), own_start.get(c + 1)) else {
+            return;
+        };
+        let (Some(upper), Some(lower), Some(neighbours)) = (
+            m.upper.get(start..end),
+            m.lower.get(start..end),
+            m.u.get(start..end),
+        ) else {
+            return;
+        };
         let mut v = b_prime.get(c).copied().unwrap_or(0.0);
-        for f in row(c) {
-            let (Some(&up), Some(&u)) = (m.upper.get(f), m.u.get(f)) else {
-                continue;
-            };
+        for (&up, &u) in upper.iter().zip(neighbours) {
             v -= up * x.get(u).copied().unwrap_or(0.0);
         }
         v /= m.diag.get(c).copied().unwrap_or(1.0);
-        for f in row(c) {
-            let (Some(&lo), Some(&u)) = (m.lower.get(f), m.u.get(f)) else {
-                continue;
-            };
+        for (&lo, &u) in lower.iter().zip(neighbours) {
             if let Some(b) = b_prime.get_mut(u) {
                 *b -= lo * v;
             }

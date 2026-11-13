@@ -6,6 +6,7 @@ license.workspace = true
 description = "Finite-volume discretisation and linear solvers of the Vortia engine"
 
 [dependencies]
+rayon = "1.12.0"
 thiserror = "2"
 vortia-core = { path = "../vortia-core" }
 vortia-fields = { path = "../vortia-fields" }

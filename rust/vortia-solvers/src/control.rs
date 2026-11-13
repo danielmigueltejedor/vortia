@@ -5,7 +5,7 @@
 //! GPL-3.0-or-later), measured against OpenFOAM v1912 where they are subtle.
 
 use vortia_fv::{
-    Controls, LduMatrix, Performance, pbicgstab_dilu, pcg_dic, smooth_sym_gauss_seidel,
+    Controls, LduMatrix, Performance, pbicgstab_dilu, pcg_dic, smooth_sym_gauss_seidel_blocks,
 };
 
 use crate::case::{Case, DEFAULT_TIME_PRECISION, MAX_TIME_PRECISION, time_name, time_name_with};
@@ -144,8 +144,10 @@ fn distinct_precision(requested: u32, start: f64, dt: f64, n_steps: u64) -> Resu
 pub enum LinearSolver {
     PcgDic,
     PbicgstabDilu,
-    /// `smoothSolver` with `symGaussSeidel`, `nSweeps` per check.
-    SymGaussSeidel(usize),
+    /// `smoothSolver` with `symGaussSeidel`: `nSweeps` per check, on `nBlocks`
+    /// blocks of cells (Vortia's own entry, absent from OpenFOAM's
+    /// dictionaries; one block is OpenFOAM's smoother).
+    SymGaussSeidel(usize, usize),
 }
 
 impl LinearSolver {
@@ -162,7 +164,13 @@ impl LinearSolver {
                     .and_then(|v| usize::try_from(v).ok())
                     .unwrap_or(1)
                     .clamp(1, 1000);
-                Self::SymGaussSeidel(sweeps)
+                let blocks = case
+                    .solver_dict(field)?
+                    .label("nBlocks")
+                    .and_then(|v| usize::try_from(v).ok())
+                    .unwrap_or(1)
+                    .clamp(1, vortia_fv::block::MAX_BLOCKS);
+                Self::SymGaussSeidel(sweeps, blocks)
             }
             _ => {
                 return Err(SolverError::Setup(format!(
@@ -178,7 +186,9 @@ impl LinearSolver {
         Ok(match self {
             Self::PcgDic => pcg_dic(m, x, c)?,
             Self::PbicgstabDilu => pbicgstab_dilu(m, x, c)?,
-            Self::SymGaussSeidel(sweeps) => smooth_sym_gauss_seidel(m, x, c, sweeps)?,
+            Self::SymGaussSeidel(sweeps, blocks) => {
+                smooth_sym_gauss_seidel_blocks(m, x, c, sweeps, blocks)?
+            }
         })
     }
 }
