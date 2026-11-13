@@ -2,7 +2,7 @@
 
 Leyenda: ✅ completado · 🟡 en curso · ⬜ pendiente · 🧪 validado con backend real
 
-**Versión publicada:** 0.7.0 (Vortia Native para macOS, `vortia-engine` y el motor en Rust con importación de mallas Gmsh, Fluent y CGNS; antes, 0.3.0: instaladores autónomos con OpenFOAM integrado, verificación nativa, k-ω SST, fuerzas). Estado por áreas: `docs/CAPABILITY_MATRIX.md`.
+**Versión publicada:** 0.7.1 (corrige la actualización desde la app; Vortia Native para macOS, `vortia-engine` y el motor en Rust con importación de mallas Gmsh, Fluent y CGNS; antes, 0.3.0: instaladores autónomos con OpenFOAM integrado, verificación nativa, k-ω SST, fuerzas). Estado por áreas: `docs/CAPABILITY_MATRIX.md`.
 
 ## Dirección
 
