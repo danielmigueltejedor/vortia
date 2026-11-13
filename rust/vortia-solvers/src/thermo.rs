@@ -62,6 +62,12 @@ impl Gas {
     /// Reads `constant/thermophysicalProperties`, refusing what the engine
     /// does not have.
     pub(crate) fn read(case: &Case) -> Result<Self> {
+        Self::read_with(case, false)
+    }
+
+    /// As [`read`](Self::read), taking a zero `mu` (an inviscid gas) when
+    /// `inviscid_ok`.
+    pub(crate) fn read_with(case: &Case, inviscid_ok: bool) -> Result<Self> {
         let d = read_dict(&case.dir.join("constant").join("thermophysicalProperties"))?;
         let thermo = d.dict("thermoType").ok_or_else(|| {
             SolverError::Setup("thermophysicalProperties has no thermoType".into())
@@ -113,7 +119,17 @@ impl Gas {
         };
         let w = positive("molWeight", get("specie", "molWeight")?)?;
         let cp = positive("Cp", get("thermodynamics", "Cp")?)?;
-        let mu = positive("mu", get("transport", "mu")?)?;
+        let mu = if inviscid_ok {
+            let mu = get("transport", "mu")?;
+            if mu < 0.0 {
+                return Err(SolverError::Setup(format!(
+                    "mu must not be negative, not {mu}"
+                )));
+            }
+            mu
+        } else {
+            positive("mu", get("transport", "mu")?)?
+        };
         let pr = positive("Pr", get("transport", "Pr")?)?;
         let rr = 1.0e3 * (N_A * K_B);
         let gas = Self {
@@ -487,6 +503,44 @@ impl Thermo {
             }
         }
         Ok(())
+    }
+
+    /// Whether every temperature condition is `fixedValue`, `zeroGradient`
+    /// or `empty`, the ones a solver that sets the energy cell by cell can
+    /// follow.
+    pub(crate) fn has_plain_conditions(&self) -> bool {
+        self.kinds
+            .iter()
+            .all(|k| matches!(k, TKind::Fixed | TKind::ZeroGradient | TKind::Empty))
+    }
+
+    /// Sets the energy of the cells and evaluates its conditions as
+    /// `e.correctBoundaryConditions()` does for `fixedEnergy` and
+    /// `gradientEnergy` (a zero-gradient temperature keeps the cell's
+    /// energy on its faces), then `hePsiThermo::calculate` at `p`.
+    pub(crate) fn set_energy(
+        &mut self,
+        mesh: &PolyMesh,
+        he: Vec<f64>,
+        p: &[f64],
+        p_b: &[Option<f64>],
+    ) -> Result<()> {
+        self.he = he;
+        let n_internal = mesh.n_internal_faces();
+        for (patch, kind) in mesh.patches().iter().zip(&self.kinds) {
+            if *kind != TKind::ZeroGradient {
+                continue;
+            }
+            for f in patch.faces() {
+                let inside = mesh.owner().get(f).and_then(|&c| self.he.get(c)).copied();
+                if let Some(v) = self.he_b.get_mut(f - n_internal)
+                    && v.is_some()
+                {
+                    *v = inside;
+                }
+            }
+        }
+        self.correct(mesh, p, p_b)
     }
 
     /// The energy's conditions as an equation sees them, after the

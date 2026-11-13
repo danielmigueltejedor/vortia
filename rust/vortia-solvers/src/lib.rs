@@ -23,6 +23,7 @@ pub(crate) mod kepsilon;
 pub(crate) mod komegasst;
 pub mod laplacian;
 pub(crate) mod rans;
+pub mod rho_central;
 pub mod rho_simple;
 pub mod scalar_transport;
 pub mod simple;
@@ -38,6 +39,7 @@ pub fn run(case: &Case, log: impl FnMut(&str)) -> Result<()> {
         Some("scalarTransportFoam") => scalar_transport::run(case, log).map(|_| ()),
         Some("icoFoam") => ico::run(case, log).map(|_| ()),
         Some("simpleFoam") => simple::run(case, log).map(|_| ()),
+        Some("rhoCentralFoam") => rho_central::run(case, log).map(|_| ()),
         Some("rhoSimpleFoam") => rho_simple::run(case, log).map(|_| ()),
         Some(other) => Err(SolverError::Setup(format!(
             "the engine has no counterpart of '{other}' yet"
