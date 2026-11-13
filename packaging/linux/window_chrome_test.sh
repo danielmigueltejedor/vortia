@@ -11,8 +11,8 @@ chmod +x "$image"
 work="$(mktemp -d)"
 fail=0
 # No desktop top bar takes the menus here, so they sit in a 34 px row above the header that holds
-# the tabs and the window buttons (kMenuRowHeight in MainWindow.cpp); the header is 44 px, so its
-# middle is 22 px below the row.
+# the tabs (kMenuRowHeight in MainWindow.cpp). The window buttons go up to that row, the top of
+# the window; the header is 44 px, so its middle is 22 px below the row.
 menu_row=34
 bad() { echo "FAIL: $*"; fail=1; }
 
@@ -86,8 +86,8 @@ echo "after second double click: $x4 $y4 ${w4}x${h4}"
 if (( w4 < 1500 )); then echo "OK: restored"; else bad "second double click did not restore"; fi
 
 echo "== the close button of the bar closes the application =="
-# Rightmost button: 8 px margin + half of a 26 px button + its 3 px margin.
-xdotool mousemove $((x4 + w4 - 8 - 3 - 13)) $((y4 + menu_row + 22)) click 1
+# Rightmost button, in the menu row: 8 px margin + half of a 26 px button + its 3 px margin.
+xdotool mousemove $((x4 + w4 - 8 - 3 - 13)) $((y4 + menu_row / 2)) click 1
 for _ in $(seq 1 20); do kill -0 "$app_pid" 2>/dev/null || break; sleep 0.5; done
 if kill -0 "$app_pid" 2>/dev/null; then bad "application still running after clicking close"; else echo "OK: closed"; fi
 

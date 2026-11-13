@@ -61,15 +61,23 @@ public:
     /// Additional widgets whose empty area drags the window (e.g. a tab bar).
     void addDragArea(QWidget* widget);
 
+    /// Moves the window buttons to the ends of another bar, such as a row that now sits above
+    /// the header, so that they stay in the window's top corners. The new bar drags the window
+    /// too.
+    void moveButtons(QWidget* header, QBoxLayout* headerRow);
+
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    void placeButtons(QBoxLayout* row);
     void placeResizeHandles();
     void syncMaximizeButtons();
 
     QWidget* window_;
     QWidget* header_;
+    QWidget* leftButtons_ = nullptr;
+    QWidget* rightButtons_ = nullptr;
     QList<QWidget*> dragAreas_;
     QList<QWidget*> resizeHandles_;
     QList<QToolButton*> maximizeButtons_;

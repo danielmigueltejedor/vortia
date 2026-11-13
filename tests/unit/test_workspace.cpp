@@ -1557,6 +1557,10 @@ TEST(WorkspaceFlow, InlineMenusSitInTheirOwnRowAboveTheProjectTabs) {
     EXPECT_GE(tabs->mapTo(&window,QPoint(0,0)).y(),menus->height());
     auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);
     if(ribbon->isVisible())EXPECT_GE(ribbon->mapTo(&window,QPoint(0,0)).y(),header->mapTo(&window,QPoint(0,0)).y()+header->height());
+    // The window controls go up with the menus, to the window's top corner.
+    const auto controls=window.findChildren<QWidget*>("ndl-window-buttons");
+    ASSERT_FALSE(controls.isEmpty());
+    for(QWidget* group:controls)EXPECT_TRUE(menus->isAncestorOf(group));
 }
 
 TEST(WorkspaceFlow, EngineeringWorkspacePersistsWithoutInvalidatingPreparedPhysics) {

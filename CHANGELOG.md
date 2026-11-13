@@ -4,6 +4,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.3] — 2026-11-13
+
+### Corregido
+- **Linux:** los botones de la ventana vuelven a la esquina superior derecha.
+  Cuando los menús se quedan en la ventana, ocupan la fila de arriba, y los
+  botones suben con ellos en lugar de quedarse en la fila de las pestañas.
+- **Linux:** si la barra superior del escritorio ya muestra los menús de
+  Vortia, como en Nodalix, la ventana deja de repetirlos en su propia fila.
+
 ## [0.9.2] — 2026-11-13
 
 La 0.9.0 y la 0.9.1 no llegaron a publicarse: con la bienvenida abierta, los

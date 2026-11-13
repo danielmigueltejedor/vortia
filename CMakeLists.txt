@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Vortia
-    VERSION 0.9.2
+    VERSION 0.9.3
     DESCRIPTION "Open professional CFD desktop application powered by OpenFOAM"
     HOMEPAGE_URL "https://github.com/vortia/vortia"
     LANGUAGES CXX)
