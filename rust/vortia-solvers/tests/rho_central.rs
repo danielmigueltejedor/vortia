@@ -1059,11 +1059,25 @@ fn check_wedge(
     reference: &[(usize, f64, f64, f64, f64, f64)],
     rel: f64,
 ) {
+    check_wedge_as(rho_central::run, nozzle_schemes, edit, reference, rel);
+}
+
+/// What a solver of this file runs a case with.
+type Steps = vortia_solvers::Result<Vec<vortia_solvers::ico::Step>>;
+type Logged = fn(&Case, &mut dyn FnMut(&str)) -> Steps;
+
+fn check_wedge_as(
+    run: fn(&Case, fn(&str)) -> Steps,
+    nozzle_schemes: bool,
+    edit: &dyn Fn(&Path),
+    reference: &[(usize, f64, f64, f64, f64, f64)],
+    rel: f64,
+) {
     let dir = tempfile::tempdir().unwrap();
     wedge(dir.path(), nozzle_schemes, false);
     edit(dir.path());
     let case = Case::open(dir.path()).unwrap();
-    let steps = rho_central::run(&case, |_| {}).unwrap();
+    let steps = run(&case, |_| {}).unwrap();
     assert_eq!(steps.len(), 20);
     let end = dir.path().join("20");
     let read = |name: &str| {
@@ -1111,6 +1125,216 @@ fn a_viscous_gas_on_a_wedge_matches_openfoam() {
 #[test]
 fn the_nozzle_cases_gradient_and_limited_schemes_match_openfoam() {
     check_wedge(true, &|_| {}, &WEDGE_NOZZLE_SCHEMES, 1e-9);
+}
+
+/// What `vortiaCentralFoam` asks of a case: the controls of the solver
+/// and no swirl.
+fn vortia_controls(dir: &Path, extra: &str) {
+    let path = dir.join("system/controlDict");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let text = text.replace("rhoCentralFoam", "vortiaCentralFoam");
+    std::fs::write(&path, format!("{text} noSwirl true; {extra}")).unwrap();
+}
+
+/// With the bound on diffusion out of reach, the app's solver takes the
+/// steps of `rhoCentralFoam`: its other differences (the damped fall of the
+/// time step, the rejection of non-physical candidates, no swirl) do not
+/// bind on this case.
+#[test]
+fn vortia_central_foam_without_its_diffusion_bound_matches_openfoam() {
+    check_wedge_as(
+        rho_central::run_vortia,
+        true,
+        &|dir| vortia_controls(dir, "maxDiffusionCo 1e300;"),
+        &WEDGE_NOZZLE_SCHEMES,
+        1e-9,
+    );
+}
+
+/// `#include "localTimeStep"` and the `timeActivatedFileUpdate` that swaps
+/// that file are what the app's controlDict uses for its start-up and
+/// marching time steps.
+#[test]
+fn a_local_time_step_file_is_included_and_swapped_on_schedule() {
+    let swap = |from: &str, to: &str, at: u32| {
+        let (from, to) = (from.to_owned(), to.to_owned());
+        move |dir: &Path| {
+            let sys = dir.join("system");
+            let path = sys.join("controlDict");
+            let text = std::fs::read_to_string(&path).unwrap();
+            // The controls move out of the dictionary into the files.
+            let text = text.replace(
+                "maxCo 0.5; maxDeltaT 1; rDeltaTSmoothingCoeff 0.1;",
+                "#include \"localTimeStep\"",
+            );
+            std::fs::write(sys.join("localTimeStep"), &from).unwrap();
+            std::fs::write(sys.join("localTimeStep.startup"), &from).unwrap();
+            std::fs::write(sys.join("localTimeStep.march"), &to).unwrap();
+            std::fs::write(
+                &path,
+                format!(
+                    "{text}\nfunctions {{ startupSchedule {{ type timeActivatedFileUpdate; \
+                     libs (utilityFunctionObjects); fileToUpdate \"<system>/localTimeStep\"; \
+                     timeVsFile ((0 \"<system>/localTimeStep.startup\") \
+                     ({at} \"<system>/localTimeStep.march\")); }} }}"
+                ),
+            )
+            .unwrap();
+        }
+    };
+    let same = "maxCo 0.5; maxDeltaT 1; rDeltaTSmoothingCoeff 0.1;";
+    // The same controls from a file, swapped for themselves, change nothing.
+    check_wedge(true, &swap(same, same, 10), &WEDGE_NOZZLE_SCHEMES, 1e-9);
+    // A different file from step 11 on does.
+    let dir = tempfile::tempdir().unwrap();
+    wedge(dir.path(), true, false);
+    swap(
+        same,
+        "maxCo 0.25; maxDeltaT 1; rDeltaTSmoothingCoeff 0.1;",
+        10,
+    )(dir.path());
+    let case = Case::open(dir.path()).unwrap();
+    rho_central::run(&case, |_| {}).unwrap();
+    let p = ScalarField::read(dir.path().join("20/p"))
+        .unwrap()
+        .internal
+        .expand(7500)
+        .unwrap();
+    let (c, _, want, ..) = WEDGE_NOZZLE_SCHEMES[2];
+    assert!(
+        (p[c] - want).abs() > 1e-6 * want.abs(),
+        "the scheduled file had no effect: {} vs {want}",
+        p[c]
+    );
+}
+
+/// A file is `#include`d by its name in `system` alone.
+#[test]
+fn an_include_that_leaves_system_is_refused() {
+    for name in ["../secret", "/etc/passwd", "a/b", ".hidden"] {
+        let dir = tempfile::tempdir().unwrap();
+        wedge(dir.path(), false, false);
+        let path = dir.path().join("system/controlDict");
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, format!("{text} #include \"{name}\"")).unwrap();
+        let e = Case::open(dir.path()).err().expect("refused").to_string();
+        assert!(e.contains("#include"), "{name}: {e}");
+    }
+}
+
+#[test]
+fn vortia_central_foam_asks_for_what_it_needs() {
+    let run = |edit: &dyn Fn(&Path)| {
+        let dir = tempfile::tempdir().unwrap();
+        wedge(dir.path(), true, false);
+        edit(dir.path());
+        let case = Case::open(dir.path()).unwrap();
+        rho_central::run_vortia(&case, |_| {})
+            .unwrap_err()
+            .to_string()
+    };
+    let e = run(&|dir| {
+        let path = dir.join("system/controlDict");
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(path, text.replace("rhoCentralFoam", "vortiaCentralFoam")).unwrap();
+    });
+    assert!(e.contains("noSwirl"), "{e}");
+    let e = run(&|dir| vortia_controls(dir, "maxDiffusionCo 0;"));
+    assert!(e.contains("maxDiffusionCo"), "{e}");
+    let e = run(&|dir| {
+        vortia_controls(dir, "");
+        let path = dir.join("system/fvSchemes");
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(path, text.replace("localEuler", "Euler")).unwrap();
+    });
+    assert!(e.contains("localEuler"), "{e}");
+    let e = run(&|dir| {
+        vortia_controls(dir, "");
+        // A swirl in the start, in the cells.
+        let text = std::fs::read_to_string(dir.join("0/U")).unwrap();
+        std::fs::write(
+            dir.join("0/U"),
+            text.replace(
+                "internalField uniform (0 0 0)",
+                "internalField uniform (0 0 1)",
+            ),
+        )
+        .unwrap();
+    });
+    assert!(e.contains("azimuthal"), "{e}");
+}
+
+/// `rDeltaT` after the last of twenty steps, and what the solver logged.
+fn r_delta_t_of(run: Logged, edit: &dyn Fn(&Path)) -> (Vec<f64>, String) {
+    let dir = tempfile::tempdir().unwrap();
+    wedge(dir.path(), true, false);
+    edit(dir.path());
+    let case = Case::open(dir.path()).unwrap();
+    let mut log = String::new();
+    run(&case, &mut |line: &str| log.push_str(line)).unwrap();
+    let r = ScalarField::read(dir.path().join("20/rDeltaT"))
+        .unwrap()
+        .internal
+        .expand(7500)
+        .unwrap();
+    (r, log)
+}
+
+fn viscous(dir: &Path, mu: &str) {
+    let path = dir.join("constant/thermophysicalProperties");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(path, text.replace("mu 0.05;", &format!("mu {mu};"))).unwrap();
+}
+
+/// A gas this viscous diffuses across a cell faster than a wave crosses it:
+/// the acoustic Courant number alone would let the step run past that.
+#[test]
+fn the_bound_on_diffusion_shortens_the_time_step_of_a_very_viscous_gas() {
+    let (plain, _) = r_delta_t_of(|c, l| rho_central::run(c, l), &|d| viscous(d, "50"));
+    let (bound, _) = r_delta_t_of(|c, l| rho_central::run_vortia(c, l), &|d| {
+        viscous(d, "50");
+        vortia_controls(d, "");
+    });
+    let max = |v: &[f64]| v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    assert!(
+        max(&bound) > 10.0 * max(&plain),
+        "{} vs {}",
+        max(&bound),
+        max(&plain)
+    );
+    // Looser, the bound lets go.
+    let (loose, _) = r_delta_t_of(|c, l| rho_central::run_vortia(c, l), &|d| {
+        viscous(d, "50");
+        vortia_controls(d, "maxDiffusionCo 1000;");
+    });
+    assert!(max(&loose) < max(&bound));
+}
+
+/// A time step the Courant number allows can still leave no positive
+/// density or energy: the step goes back to where it began with half the
+/// local steps, where `rhoCentralFoam` ends in an error.
+#[test]
+fn a_candidate_without_a_positive_density_or_energy_is_rejected_and_retried() {
+    let wild = |dir: &Path| {
+        let path = dir.join("system/controlDict");
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(
+            path,
+            text.replace("maxCo 0.5; maxDeltaT 1;", "maxCo 40; maxDeltaT 1;"),
+        )
+        .unwrap();
+    };
+    let dir = tempfile::tempdir().unwrap();
+    wedge(dir.path(), true, false);
+    wild(dir.path());
+    let case = Case::open(dir.path()).unwrap();
+    assert!(rho_central::run(&case, |_| {}).is_err());
+    let (r, log) = r_delta_t_of(|c, l| rho_central::run_vortia(c, l), &|d| {
+        wild(d);
+        vortia_controls(d, "maxDiffusionCo 1e300;");
+    });
+    assert!(log.contains("Vortia: rejected"), "{log}");
+    assert!(r.iter().all(|&r| r.is_finite() && r > 0.0));
 }
 
 /// The nozzle case's own conditions, which follow the pressure: total

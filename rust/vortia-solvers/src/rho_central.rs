@@ -112,17 +112,51 @@ impl Schemes {
     }
 }
 
-/// How the equations advance in time.
+/// The controls of a local time step.
 #[derive(Debug, Clone, Copy, PartialEq)]
+struct LocalTime {
+    max_co: f64,
+    max_delta_t: f64,
+    smoothing: f64,
+}
+
+impl LocalTime {
+    /// `maxCo`, `maxDeltaT` and `rDeltaTSmoothingCoeff` from `over` where it
+    /// has them, else from `controlDict`.
+    fn read(case: &Case, over: Option<&vortia_foamfile::Dictionary>) -> Result<Self> {
+        let get = |key: &str| {
+            over.and_then(|d| d.scalar(key))
+                .or(case.control.scalar(key))
+        };
+        let max_co = get("maxCo")
+            .ok_or_else(|| SolverError::Setup("controlDict has no number 'maxCo'".into()))?;
+        if !(max_co > 0.0 && max_co.is_finite()) {
+            return Err(SolverError::Setup("maxCo must be positive".into()));
+        }
+        let max_delta_t = get("maxDeltaT").unwrap_or(1.0e15);
+        if max_delta_t.is_nan() || max_delta_t <= 0.0 {
+            return Err(SolverError::Setup("maxDeltaT must be positive".into()));
+        }
+        Ok(Self {
+            max_co,
+            max_delta_t,
+            smoothing: get("rDeltaTSmoothingCoeff").unwrap_or(0.02),
+        })
+    }
+}
+
+/// How the equations advance in time.
+#[derive(Debug, Clone, PartialEq)]
 enum Stepping {
     /// One `deltaT` everywhere.
     Euler,
     /// `localEuler`: each cell has the time step its Courant number allows,
     /// from `setRDeltaT.H`.
     Local {
-        max_co: f64,
-        max_delta_t: f64,
-        smoothing: f64,
+        base: LocalTime,
+        /// What a `timeActivatedFileUpdate` of the included `localTimeStep`
+        /// makes of the controls from each time on.
+        schedule: Vec<(f64, LocalTime)>,
     },
 }
 
@@ -151,40 +185,45 @@ impl Stepping {
         if found != Some(true) {
             return Ok(Self::Euler);
         }
-        let max_co = case.scalar("maxCo")?;
-        if !(max_co > 0.0 && max_co.is_finite()) {
-            return Err(SolverError::Setup("maxCo must be positive".into()));
+        let base = LocalTime::read(case, None)?;
+        let mut schedule = Vec::new();
+        for file in &case.included {
+            for (time, dict) in case.file_schedule(file)? {
+                schedule.push((time, LocalTime::read(case, Some(&dict))?));
+            }
         }
-        let max_delta_t = case.control.scalar("maxDeltaT").unwrap_or(1.0e15);
-        if max_delta_t.is_nan() || max_delta_t <= 0.0 {
-            return Err(SolverError::Setup("maxDeltaT must be positive".into()));
+        schedule.sort_by(|a, b| a.0.total_cmp(&b.0));
+        Ok(Self::Local { base, schedule })
+    }
+
+    /// The controls in force when the step that starts at `time` is taken:
+    /// those of the last scheduled file whose time has been reached by the
+    /// end of the step before (the file is swapped then, and the next
+    /// iteration reads it).
+    fn at(&self, time: f64) -> Option<LocalTime> {
+        match self {
+            Self::Euler => None,
+            Self::Local { base, schedule } => Some(
+                schedule
+                    .iter()
+                    .rev()
+                    .find(|(t, _)| *t <= time)
+                    .map_or(*base, |(_, v)| *v),
+            ),
         }
-        Ok(Self::Local {
-            max_co,
-            max_delta_t,
-            smoothing: case.control.scalar("rDeltaTSmoothingCoeff").unwrap_or(0.02),
-        })
     }
 }
 
-/// `setRDeltaT.H`: the reciprocal time step of each cell, from the sums of
-/// its faces' largest fluxes, smoothed so neighbours stay within a ratio.
-fn local_r_delta_t(
-    mesh: &PolyMesh,
-    volumes: &[f64],
-    sum_amax: &[f64],
-    (max_co, max_delta_t, smoothing): (f64, f64, f64),
-) -> Vec<f64> {
-    let floor = 1.0 / max_delta_t;
-    let mut r: Vec<f64> = sum_amax
+/// `setRDeltaT.H`: the reciprocal time step of each cell from the sums of
+/// its faces' largest fluxes, before the bound on diffusion and the
+/// smoothing.
+fn local_r_delta_t(volumes: &[f64], sum_amax: &[f64], time: LocalTime) -> Vec<f64> {
+    let floor = 1.0 / time.max_delta_t;
+    sum_amax
         .iter()
         .zip(volumes)
-        .map(|(&s, &v)| max(floor, s / ((2.0 * max_co) * v)))
-        .collect();
-    if smoothing < 1.0 {
-        smooth(mesh, &mut r, smoothing);
-    }
-    r
+        .map(|(&s, &v)| max(floor, s / ((2.0 * time.max_co) * v)))
+        .collect()
 }
 
 /// What a viscous gas adds: the schemes and the solvers of the velocity and
@@ -446,9 +485,27 @@ fn advance_vector(
         .collect()
 }
 
-/// Runs the case and returns what each step did. `log` receives the lines
-/// OpenFOAM would print.
-pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
+/// Runs the case as `rhoCentralFoam` and returns what each step did. `log`
+/// receives the lines OpenFOAM would print.
+pub fn run(case: &Case, log: impl FnMut(&str)) -> Result<Vec<Step>> {
+    run_as(case, log, false)
+}
+
+/// Runs the case as the app's `vortiaCentralFoam`: `rhoCentralFoam` with a
+/// bound on the time step of the diffusion, a damped fall of the local time
+/// step, the velocity of the swirl held at zero and the candidate updates
+/// that leave the gas without a positive density or temperature rejected.
+pub fn run_vortia(case: &Case, log: impl FnMut(&str)) -> Result<Vec<Step>> {
+    run_as(case, log, true)
+}
+
+/// Candidate updates one step may reject, as `vortiaCentralFoam` allows.
+const MAX_REJECTIONS: usize = 30;
+
+/// The temperature the energy is not allowed to reach down to.
+const MINIMUM_TEMPERATURE: f64 = 1.0e-6;
+
+fn run_as(case: &Case, mut log: impl FnMut(&str), vortia: bool) -> Result<Vec<Step>> {
     let (mesh, fv) = case.mesh()?;
     let gas = Gas::read_with(case, true)?;
     if gas.energy != crate::thermo::Energy::Internal {
@@ -484,6 +541,28 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             "rhoCentralFoam with adjustTimeStep is not supported yet; use a fixed deltaT".into(),
         ));
     }
+    let max_diffusion_co = if vortia {
+        if stepping == Stepping::Euler {
+            return Err(SolverError::Setup(
+                "vortiaCentralFoam requires localEuler".into(),
+            ));
+        }
+        if switch(&case.control, "noSwirl") != Some(true) {
+            return Err(SolverError::Setup(
+                "vortiaCentralFoam requires an x-axis wedge in the xy plane and noSwirl true"
+                    .into(),
+            ));
+        }
+        let co = case.control.scalar("maxDiffusionCo").unwrap_or(0.1);
+        if !(co > 0.0 && co.is_finite()) {
+            return Err(SolverError::Setup(
+                "maxDiffusionCo must be positive and finite".into(),
+            ));
+        }
+        Some(co)
+    } else {
+        None
+    };
     let schemes = Schemes::read(case)?;
     let run = RunControl::read(case)?;
     let start = case.dir.join(&run.start_name);
@@ -515,11 +594,21 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         .internal
         .expand(mesh.n_cells())
         .ok_or_else(|| SolverError::Setup("U does not fit the mesh".into()))?;
+    if vortia {
+        if u.iter().any(|v| v.z.abs() > 1.0e-8) {
+            return Err(SolverError::Setup(
+                "the start contains azimuthal velocity; initialise a fresh no-swirl case".into(),
+            ));
+        }
+        for v in &mut u {
+            v.z = 0.0;
+        }
+    }
     let mut u_b = u_bc.face_values(&mesh, &u);
     u_driven.initial_values(&mesh, &mut u_b);
 
     let (mut rho, mut rho_b): WithBoundary =
-        if start.join("rho").is_file() || start.join("rho.gz").is_file() {
+        if !vortia && (start.join("rho").is_file() || start.join("rho.gz").is_file()) {
             read_calculated(&mesh, &start.join("rho"), DENSITY)?
         } else {
             (mul(&p_cells, &thermo.psi), mul_b(&p_b, &thermo.psi_b))
@@ -540,6 +629,15 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         .collect();
 
     let valid = solution_directions(&mesh, &fv);
+    let wedge = mesh
+        .patches()
+        .iter()
+        .any(|p| p.kind == PatchKind::Wedge && p.size > 0);
+    if vortia && !(wedge && valid[0] && valid[1]) {
+        return Err(SolverError::Setup(
+            "vortiaCentralFoam requires an x-axis wedge in the xy plane".into(),
+        ));
+    }
     let mut turbulence = turbulence_coeffs
         .as_ref()
         .map(|coeffs| SpalartAllmaras::read(case, &mesh, &fv, &start, Some(coeffs), None))
@@ -566,6 +664,18 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     }
     let volumes = fv.volumes();
     let total_volume: f64 = volumes.iter().sum();
+
+    // The energy a candidate update may not reach down to, from the
+    // pressure the run starts with (a perfect gas's does not depend on it).
+    let minimum_e = (
+        p_cells
+            .iter()
+            .map(|&p| thermo.gas.he(p, MINIMUM_TEMPERATURE))
+            .collect::<Vec<_>>(),
+        p_b.iter()
+            .map(|p| p.map(|p| thermo.gas.he(p, MINIMUM_TEMPERATURE)))
+            .collect::<Vec<_>>(),
+    );
 
     let mut steps = Vec::new();
     for step in 1..=run.n_steps {
@@ -650,14 +760,48 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let mean_co = 0.5 * (sum_amax.iter().sum::<f64>() / total_volume) * run.delta_t;
         let co = 0.5 * max_co * run.delta_t;
         log(&format!("Mean and max Courant Numbers = {mean_co} {co}\n"));
-        if let Stepping::Local {
-            max_co,
-            max_delta_t,
-            smoothing,
-        } = stepping
-        {
-            r_delta_t =
-                local_r_delta_t(&mesh, volumes, &sum_amax, (max_co, max_delta_t, smoothing));
+        if let Some(local) = stepping.at(run.start_time + (step - 1) as f64 * run.delta_t) {
+            let mut r = local_r_delta_t(volumes, &sum_amax, local);
+            // vortiaCentralFoam also bounds the time step of the explicit
+            // viscous work and the heat diffusion, which the acoustic
+            // Courant number does not.
+            if let (Some(co), Some(_)) = (max_diffusion_co, &viscous) {
+                let gas = spalart::Gas {
+                    rho: &rho,
+                    rho_b: &rho_b,
+                    rho_old: &rho,
+                    mu: &thermo.mu,
+                    mu_b: &thermo.mu_b,
+                    r_delta_t: &r_delta_t,
+                };
+                let (mu_eff, mu_eff_b) = match &turbulence {
+                    Some(t) => t.mu_eff(&gas),
+                    None => (thermo.mu.clone(), thermo.mu_b.clone()),
+                };
+                let (alpha_eff, alpha_eff_b) =
+                    alpha_eff(&thermo, turbulence.as_ref().map(|t| t.alphat()));
+                let rate = diffusion_rate(
+                    &mesh,
+                    &fv,
+                    (&rho, &rho_b),
+                    (&mu_eff, &mu_eff_b),
+                    (&alpha_eff, &alpha_eff_b),
+                    gamma,
+                );
+                for (r, d) in r.iter_mut().zip(&rate) {
+                    *r = max(*r, d / co);
+                }
+            }
+            if vortia || local.smoothing < 1.0 {
+                smooth(&mesh, &mut r, local.smoothing);
+            }
+            // The step may not lengthen by more than a tenth at once.
+            if vortia && step >= 3 {
+                for (r, &before) in r.iter_mut().zip(&r_delta_t) {
+                    *r = max(*r, 0.9 * before);
+                }
+            }
+            r_delta_t = r;
             let low = r_delta_t.iter().copied().fold(f64::INFINITY, f64::min);
             let high = r_delta_t.iter().copied().fold(f64::NEG_INFINITY, f64::max);
             log(&format!(
@@ -723,141 +867,216 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             }
         });
 
-        // Density, momentum, then velocity.
-        let rho_new = advance(
-            &rho,
-            &ops::surface_integrate(&mesh, &fv, &phi),
-            volumes,
-            &r_delta_t,
-        );
-        let rho_u_new = advance_vector(&mesh, &fv, valid, &rho_u, &phi_up, &r_delta_t);
-        rho_u = rho_u_new;
-        rho = rho_new;
-        // `rho.correctBoundaryConditions()` leaves the faces of the other
-        // patches alone (`calculated`) but takes the cell's density on a
-        // wedge, whose condition is a constraint.
-        for patch in mesh.patches() {
-            if patch.kind != PatchKind::Wedge {
-                continue;
+        // vortiaCentralFoam goes back to the state the step began with when
+        // a candidate update leaves no positive density, energy or
+        // temperature, and tries again with half the local steps.
+        let snapshot = vortia.then(|| {
+            (
+                (rho.clone(), rho_b.clone(), rho_u.clone(), rho_e.clone()),
+                (
+                    u_bc.clone(),
+                    thermo.clone(),
+                    p_cells.clone(),
+                    p.bc.clone(),
+                    p_b.clone(),
+                ),
+            )
+        });
+        let mut rejections = 0usize;
+        'attempt: loop {
+            macro_rules! reject {
+                ($what:expr) => {{
+                    log(&format!(
+                        "Vortia: rejected {}; halving local steps\n",
+                        $what
+                    ));
+                    rejections += 1;
+                    if rejections > MAX_REJECTIONS {
+                        return Err(SolverError::Setup(format!(
+                            "no positive conservative update after {MAX_REJECTIONS} reductions"
+                        )));
+                    }
+                    for r in &mut r_delta_t {
+                        *r *= 2.0;
+                    }
+                    if let Some((first, second)) = &snapshot {
+                        (rho, rho_b, rho_u, rho_e) = first.clone();
+                        (u_bc, thermo, p_cells, p.bc, p_b) = second.clone();
+                    }
+                    continue 'attempt;
+                }};
             }
-            for f in patch.faces() {
-                let cell = mesh.owner().get(f).and_then(|&c| rho.get(c)).copied();
-                if let (Some(slot), Some(cell)) = (rho_b.get_mut(f - n_internal), cell) {
-                    *slot = Some(cell);
+            // Density, momentum, then velocity.
+            let rho_new = advance(
+                &rho,
+                &ops::surface_integrate(&mesh, &fv, &phi),
+                volumes,
+                &r_delta_t,
+            );
+            if vortia && rho_new.iter().any(|&r| !r.is_finite() || r <= 1.0e-12) {
+                reject!("a non-positive density");
+            }
+            let rho_u_new = advance_vector(&mesh, &fv, valid, &rho_u, &phi_up, &r_delta_t);
+            rho_u = rho_u_new;
+            rho = rho_new;
+            // `rho.correctBoundaryConditions()` leaves the faces of the other
+            // patches alone (`calculated`) but takes the cell's density on a
+            // wedge, whose condition is a constraint.
+            for patch in mesh.patches() {
+                if patch.kind != PatchKind::Wedge {
+                    continue;
+                }
+                for f in patch.faces() {
+                    let cell = mesh.owner().get(f).and_then(|&c| rho.get(c)).copied();
+                    if let (Some(slot), Some(cell)) = (rho_b.get_mut(f - n_internal), cell) {
+                        *slot = Some(cell);
+                    }
                 }
             }
-        }
-        u = rho_u.iter().zip(&rho).map(|(&m, &r)| m / r).collect();
-        u_driven.update(&mesh, &fv, &mut u_bc, &rho_b, &phi);
-        programmed.update_velocity(&mesh, &fv, &mut u_bc, (&u, &thermo.t));
-        u_b = u_bc.face_values(&mesh, &u);
-        // The momentum on the boundary takes the density the step began
-        // with, which is not updated until the pressure is.
-        rho_u_b = rho_b
-            .iter()
-            .zip(&u_b)
-            .map(|(r, v)| r.zip(*v).map(|(r, v)| v * r))
-            .collect();
-
-        if let (Some(v), Some(start)) = (&viscous, &viscous_start) {
-            let eqn = momentum_equation(&mesh, &fv, &u_bc, v, start, (&rho, &u), &r_delta_t)?;
-            let mut solved = u.clone();
-            let perfs = eqn.solve_segregated(&mesh, &mut solved, None, valid, |m, x, _| {
-                v.u_solver.0.solve(m, x, &v.u_solver.1)
-            })?;
-            for (cmpt, perf) in perfs {
-                let field = ["Ux", "Uy", "Uz"].get(cmpt).copied().unwrap_or("U");
-                log(&solve_line(field, &perf));
+            u = rho_u.iter().zip(&rho).map(|(&m, &r)| m / r).collect();
+            if vortia {
+                for (v, m) in u.iter_mut().zip(&mut rho_u) {
+                    v.z = 0.0;
+                    m.z = 0.0;
+                }
             }
-            u = solved;
+            u_driven.update(&mesh, &fv, &mut u_bc, &rho_b, &phi);
             programmed.update_velocity(&mesh, &fv, &mut u_bc, (&u, &thermo.t));
             u_b = u_bc.face_values(&mesh, &u);
-            rho_u = rho.iter().zip(&u).map(|(&r, &x)| x * r).collect();
+            // The momentum on the boundary takes the density the step began
+            // with, which is not updated until the pressure is.
             rho_u_b = rho_b
                 .iter()
                 .zip(&u_b)
-                .map(|(r, x)| r.zip(*x).map(|(r, x)| x * r))
+                .map(|(r, v)| r.zip(*v).map(|(r, v)| v * r))
                 .collect();
-        }
 
-        // Energy, temperature and pressure.
-        let rho_e_new = match (&viscous, &viscous_start) {
-            (Some(v), Some(start)) => {
-                // The work of the viscous stress: σ·U on every face.
-                let (g, _) = stress::grad(v.velocity_grad, &mesh, &fv, &u_bc, &u);
-                let sn = correction::face_sn_grad_vector(&mesh, &fv, &u_bc, &u, v.face_sn_grad, &g);
-                let mu_f = face_diffusivity(&mesh, &fv, &start.mu_eff, &start.mu_eff_b);
-                let sigma_dot_u: Vec<f64> = (0..n_faces)
-                    .map(|f| {
-                        let mu = mu_f.get(f).copied().unwrap_or(0.0);
-                        let mag = fv.mag_sf.get(f).copied().unwrap_or(0.0);
-                        let sn = sn.get(f).copied().unwrap_or_default();
-                        let tau = start.tau_dot.get(f).copied().unwrap_or_default();
-                        let u = u_face.get(f).copied().unwrap_or_default();
-                        (sn * (mu * mag) + tau).dot(u)
-                    })
+            if let (Some(v), Some(start)) = (&viscous, &viscous_start) {
+                let eqn = momentum_equation(&mesh, &fv, &u_bc, v, start, (&rho, &u), &r_delta_t)?;
+                let mut solved = u.clone();
+                let perfs = eqn.solve_segregated(&mesh, &mut solved, None, valid, |m, x, _| {
+                    v.u_solver.0.solve(m, x, &v.u_solver.1)
+                })?;
+                for (cmpt, perf) in perfs {
+                    let field = ["Ux", "Uy", "Uz"].get(cmpt).copied().unwrap_or("U");
+                    log(&solve_line(field, &perf));
+                }
+                u = solved;
+                if vortia {
+                    for v in &mut u {
+                        v.z = 0.0;
+                    }
+                }
+                programmed.update_velocity(&mesh, &fv, &mut u_bc, (&u, &thermo.t));
+                u_b = u_bc.face_values(&mesh, &u);
+                rho_u = rho.iter().zip(&u).map(|(&r, &x)| x * r).collect();
+                rho_u_b = rho_b
+                    .iter()
+                    .zip(&u_b)
+                    .map(|(r, x)| r.zip(*x).map(|(r, x)| x * r))
                     .collect();
-                advance_with(
+            }
+
+            // Energy, temperature and pressure.
+            let rho_e_new = match (&viscous, &viscous_start) {
+                (Some(v), Some(start)) => {
+                    // The work of the viscous stress: σ·U on every face.
+                    let (g, _) = stress::grad(v.velocity_grad, &mesh, &fv, &u_bc, &u);
+                    let sn =
+                        correction::face_sn_grad_vector(&mesh, &fv, &u_bc, &u, v.face_sn_grad, &g);
+                    let mu_f = face_diffusivity(&mesh, &fv, &start.mu_eff, &start.mu_eff_b);
+                    let sigma_dot_u: Vec<f64> = (0..n_faces)
+                        .map(|f| {
+                            let mu = mu_f.get(f).copied().unwrap_or(0.0);
+                            let mag = fv.mag_sf.get(f).copied().unwrap_or(0.0);
+                            let sn = sn.get(f).copied().unwrap_or_default();
+                            let tau = start.tau_dot.get(f).copied().unwrap_or_default();
+                            let u = u_face.get(f).copied().unwrap_or_default();
+                            (sn * (mu * mag) + tau).dot(u)
+                        })
+                        .collect();
+                    advance_with(
+                        &rho_e,
+                        &ops::surface_integrate(&mesh, &fv, &phi_ep),
+                        &ops::surface_integrate(&mesh, &fv, &sigma_dot_u),
+                        volumes,
+                        &r_delta_t,
+                    )
+                }
+                _ => advance(
                     &rho_e,
                     &ops::surface_integrate(&mesh, &fv, &phi_ep),
-                    &ops::surface_integrate(&mesh, &fv, &sigma_dot_u),
                     volumes,
                     &r_delta_t,
-                )
+                ),
+            };
+            rho_e = rho_e_new;
+            let e: Vec<f64> = rho_e
+                .iter()
+                .zip(&rho)
+                .zip(&u)
+                .map(|((&re, &r), &v)| re / r - 0.5 * mag_sqr(v))
+                .collect();
+            if vortia && !energy_is_physical(&e, &[], &minimum_e) {
+                reject!("an explicit energy below the minimum");
             }
-            _ => advance(
-                &rho_e,
-                &ops::surface_integrate(&mesh, &fv, &phi_ep),
-                volumes,
-                &r_delta_t,
-            ),
-        };
-        rho_e = rho_e_new;
-        let e: Vec<f64> = rho_e
-            .iter()
-            .zip(&rho)
-            .zip(&u)
-            .map(|((&re, &r), &v)| re / r - 0.5 * mag_sqr(v))
-            .collect();
-        thermo.set_energy(
-            &mesh,
-            e,
-            &p_cells,
-            &p_b,
-            &Flow {
-                u_b: &u_b,
-                phi: &phi,
-            },
-        )?;
-        if let (Some(v), Some(start)) = (&viscous, &viscous_start) {
-            diffuse_energy(
+            let set = thermo.set_energy(
                 &mesh,
-                &fv,
-                v,
-                &mut thermo,
-                start,
-                (&rho, &p_cells, &p_b),
+                e,
+                &p_cells,
+                &p_b,
                 &Flow {
                     u_b: &u_b,
                     phi: &phi,
                 },
-                &r_delta_t,
-                turbulence.as_ref().map(|t| t.alphat()),
-                &mut log,
-            )?;
-            rho_e = rho
-                .iter()
-                .zip(&thermo.he)
-                .zip(&u)
-                .map(|((&r, &e), &v)| r * (e + 0.5 * mag_sqr(v)))
-                .collect();
+            );
+            match set {
+                Ok(()) => {}
+                Err(_) if vortia => reject!("a temperature that is not positive"),
+                Err(e) => return Err(e),
+            }
+            if vortia && !energy_is_physical(&[], &thermo.he_b, &minimum_e) {
+                reject!("an explicit energy below the minimum");
+            }
+            if let (Some(v), Some(start)) = (&viscous, &viscous_start) {
+                let diffused = diffuse_energy(
+                    &mesh,
+                    &fv,
+                    v,
+                    &mut thermo,
+                    start,
+                    (&rho, &p_cells, &p_b),
+                    &Flow {
+                        u_b: &u_b,
+                        phi: &phi,
+                    },
+                    &r_delta_t,
+                    turbulence.as_ref().map(|t| t.alphat()),
+                    &mut log,
+                );
+                match diffused {
+                    Ok(()) => {}
+                    Err(_) if vortia => reject!("a temperature that is not positive"),
+                    Err(e) => return Err(e),
+                }
+                if vortia && !energy_is_physical(&thermo.he, &thermo.he_b, &minimum_e) {
+                    reject!("a diffused energy below the minimum");
+                }
+                rho_e = rho
+                    .iter()
+                    .zip(&thermo.he)
+                    .zip(&u)
+                    .map(|((&r, &e), &v)| r * (e + 0.5 * mag_sqr(v)))
+                    .collect();
+            }
+            p_cells = rho.iter().zip(&thermo.psi).map(|(&r, &s)| r / s).collect();
+            p.total
+                .update(&mesh, &mut p.bc, (&rho_b, &thermo.psi_b), &u_b, &phi);
+            programmed.update_pressure(&mesh, &fv, &mut p.bc, &u_b, &thermo.t_b);
+            p_b = p.bc.face_values(&mesh, &p_cells, &fv.delta_coeffs);
+            rho_b = mul_b(&thermo.psi_b, &p_b);
+            break;
         }
-        p_cells = rho.iter().zip(&thermo.psi).map(|(&r, &s)| r / s).collect();
-        p.total
-            .update(&mesh, &mut p.bc, (&rho_b, &thermo.psi_b), &u_b, &phi);
-        programmed.update_pressure(&mesh, &fv, &mut p.bc, &u_b, &thermo.t_b);
-        p_b = p.bc.face_values(&mesh, &p_cells, &fv.delta_coeffs);
-        rho_b = mul_b(&thermo.psi_b, &p_b);
         let _ = Location::Cells;
         if let (Some(t), Some(start)) = (turbulence.as_mut(), &viscous_start) {
             t.correct(
@@ -882,7 +1101,8 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                 "diagonal:  Solving for {line}, Initial residual = 0, Final residual = 0, No Iterations 0\n"
             ));
         }
-        let written = run.writes(step);
+        // vortiaCentralFoam always keeps the state its run ends on.
+        let written = run.writes(step) || (vortia && step == run.n_steps);
         if written {
             u_field.internal = Data::NonUniform(u.clone());
             u_field.drop_zero_gradient_values();
@@ -993,22 +1213,7 @@ fn diffuse_energy(
     let mut eqn = ScalarMatrix::new(mesh);
     eqn.ldu.diag = diag;
     eqn.ldu.source = source;
-    let cp_by_cpv = thermo.gas.cp_by_cpv();
-    let turbulent = |a: f64, t: Option<f64>| cp_by_cpv * (a + t.unwrap_or(0.0));
-    let alpha_eff: Vec<f64> = thermo
-        .alpha
-        .iter()
-        .enumerate()
-        .map(|(i, &a)| turbulent(a, alphat.and_then(|t| t.cells.get(i).copied())))
-        .collect();
-    let alpha_eff_b: Vec<Option<f64>> = thermo
-        .alpha_b
-        .iter()
-        .enumerate()
-        .map(|(i, a)| {
-            a.map(|a| turbulent(a, alphat.and_then(|t| t.faces.get(i).copied().flatten())))
-        })
-        .collect();
+    let (alpha_eff, alpha_eff_b) = alpha_eff(thermo, alphat);
     let alpha_f = face_diffusivity(mesh, fv, &alpha_eff, &alpha_eff_b);
     let mut lap = ScalarMatrix::laplacian(
         mesh,
@@ -1033,6 +1238,94 @@ fn diffuse_energy(
     log(&solve_line("e", &perf));
     thermo.he_b = he_bc.face_values(mesh, &thermo.he, &fv.delta_coeffs);
     thermo.correct(mesh, p, p_b)
+}
+
+/// Whether every energy, cells and boundary faces, is finite and above the
+/// minimum (`vortiaCentralFoam`'s `energyIsPhysical`; either list may be
+/// left empty to check the other alone).
+fn energy_is_physical(
+    he: &[f64],
+    he_b: &[Option<f64>],
+    minimum: &(Vec<f64>, Vec<Option<f64>>),
+) -> bool {
+    he.iter()
+        .zip(&minimum.0)
+        .all(|(e, m)| e.is_finite() && e > m)
+        && he_b.iter().zip(&minimum.1).all(|(e, m)| match (e, m) {
+            (Some(e), Some(m)) => e.is_finite() && e > m,
+            _ => true,
+        })
+}
+
+/// `thermo.alphaEff(alphat)` of a gas solved for the internal energy:
+/// `γ (α + αt)`, in the cells and on the boundary faces.
+fn alpha_eff(
+    thermo: &Thermo,
+    alphat: Option<&crate::rans::ModelField>,
+) -> (Vec<f64>, Vec<Option<f64>>) {
+    let cp_by_cpv = thermo.gas.cp_by_cpv();
+    let turbulent = |a: f64, t: Option<f64>| cp_by_cpv * (a + t.unwrap_or(0.0));
+    let cells = thermo
+        .alpha
+        .iter()
+        .enumerate()
+        .map(|(i, &a)| turbulent(a, alphat.and_then(|t| t.cells.get(i).copied())))
+        .collect();
+    let faces = thermo
+        .alpha_b
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            a.map(|a| turbulent(a, alphat.and_then(|t| t.faces.get(i).copied().flatten())))
+        })
+        .collect();
+    (cells, faces)
+}
+
+/// The rate at which each cell's explicit viscous work and heat diffusion
+/// would cross it, `Σ (Γ f |Sf| δ) / V` with `Γ = max(4/3 μEff/ρ,
+/// γ αEff/ρ)` interpolated to the faces: what `vortiaCentralFoam`'s
+/// `setRDeltaT.H` divides by `maxDiffusionCo`.
+fn diffusion_rate(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    (rho, rho_b): (&[f64], &[Option<f64>]),
+    (mu_eff, mu_eff_b): (&[f64], &[Option<f64>]),
+    (alpha_eff, alpha_eff_b): (&[f64], &[Option<f64>]),
+    gamma: f64,
+) -> Vec<f64> {
+    let diffusivity =
+        |mu: f64, alpha: f64, rho: f64| max(4.0 / 3.0 * mu / rho, gamma * alpha / rho);
+    let cells: Vec<f64> = rho
+        .iter()
+        .zip(mu_eff)
+        .zip(alpha_eff)
+        .map(|((&r, &m), &a)| diffusivity(m, a, r))
+        .collect();
+    let faces: Vec<Option<f64>> = rho_b
+        .iter()
+        .zip(mu_eff_b)
+        .zip(alpha_eff_b)
+        .map(|((r, m), a)| match (r, m, a) {
+            (Some(r), Some(m), Some(a)) => Some(diffusivity(*m, *a, *r)),
+            _ => None,
+        })
+        .collect();
+    let on_faces = face_diffusivity(mesh, fv, &cells, &faces);
+    let flux: Vec<f64> = on_faces
+        .iter()
+        .enumerate()
+        .map(|(f, g)| {
+            let mag_sf = fv.mag_sf.get(f).copied().unwrap_or(0.0);
+            let delta = fv.delta_coeffs.get(f).copied().unwrap_or(0.0);
+            g * mag_sf * delta
+        })
+        .collect();
+    surface_sum(mesh, &flux)
+        .iter()
+        .zip(fv.volumes())
+        .map(|(s, v)| s / v)
+        .collect()
 }
 
 /// `fvc::surfaceSum`: every cell's sum of its faces' values, the boundary
@@ -1061,4 +1354,95 @@ fn surface_sum(mesh: &PolyMesh, face: &[f64]) -> Vec<f64> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use vortia_core::Aabb;
+    use vortia_mesh::blocks::structured_box;
+
+    use super::*;
+
+    /// A cube of side 1 in 3×3×3 cells.
+    fn cube() -> (PolyMesh, FvGeometry) {
+        let bounds = Aabb {
+            min: Vec3::default(),
+            max: Vec3::new(1.0, 1.0, 1.0),
+        };
+        let mesh = structured_box(bounds, [3, 3, 3]).unwrap();
+        let fv = FvGeometry::new(&mesh);
+        (mesh, fv)
+    }
+
+    /// The rate is `Σ Γ |Sf| δ / V`: a cell with six interior faces has
+    /// `6 Γ / h²`, and a corner cell, whose three boundary faces are half a
+    /// cell away, `9 Γ / h²`. The larger of the viscous and the thermal
+    /// diffusivity is the one that counts.
+    #[test]
+    fn the_diffusion_rate_is_the_sum_of_the_faces_diffusivity_over_the_cell() {
+        let (mesh, fv) = cube();
+        let n = mesh.n_cells();
+        let n_b = mesh.n_faces() - mesh.n_internal_faces();
+        let rate = |mu: f64, alpha: f64| {
+            diffusion_rate(
+                &mesh,
+                &fv,
+                (&vec![2.0; n], &vec![Some(2.0); n_b]),
+                (&vec![mu; n], &vec![Some(mu); n_b]),
+                (&vec![alpha; n], &vec![Some(alpha); n_b]),
+                1.4,
+            )
+        };
+        let extremes = |r: Vec<f64>| {
+            (
+                r.iter().copied().fold(f64::INFINITY, f64::min),
+                r.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            )
+        };
+        // Viscous: 4/3 · 4 / 2 = 8/3.
+        let (low, high) = extremes(rate(4.0, 0.1));
+        assert!((low - 54.0 * 8.0 / 3.0).abs() < 1e-9, "{low}");
+        assert!((high - 81.0 * 8.0 / 3.0).abs() < 1e-9, "{high}");
+        // Thermal: 1.4 · 10 / 2 = 7.
+        let (low, high) = extremes(rate(4.0, 10.0));
+        assert!((low - 54.0 * 7.0).abs() < 1e-9, "{low}");
+        assert!((high - 81.0 * 7.0).abs() < 1e-9, "{high}");
+    }
+
+    #[test]
+    fn an_energy_at_or_below_the_minimum_or_not_a_number_is_not_physical() {
+        let minimum = (vec![-5.0, -5.0], vec![Some(-5.0), None]);
+        assert!(energy_is_physical(
+            &[1.0, -4.0],
+            &[Some(0.0), Some(f64::NAN)],
+            &minimum
+        ));
+        assert!(!energy_is_physical(&[1.0, -5.0], &[], &minimum));
+        assert!(!energy_is_physical(&[1.0, f64::NAN], &[], &minimum));
+        assert!(!energy_is_physical(&[], &[Some(-6.0), None], &minimum));
+    }
+
+    #[test]
+    fn the_time_controls_in_force_are_those_of_the_last_file_reached() {
+        let time = |max_co: f64| LocalTime {
+            max_co,
+            max_delta_t: 1.0,
+            smoothing: 0.5,
+        };
+        let stepping = Stepping::Local {
+            base: time(0.2),
+            schedule: vec![(0.0, time(0.1)), (5000.0, time(0.3))],
+        };
+        // The step that starts at 4999 is the one before the file is swapped
+        // at 5000, which the next one reads.
+        assert_eq!(stepping.at(0.0), Some(time(0.1)));
+        assert_eq!(stepping.at(4999.0), Some(time(0.1)));
+        assert_eq!(stepping.at(5000.0), Some(time(0.3)));
+        assert_eq!(Stepping::Euler.at(0.0), None);
+        let plain = Stepping::Local {
+            base: time(0.2),
+            schedule: Vec::new(),
+        };
+        assert_eq!(plain.at(1.0e9), Some(time(0.2)));
+    }
 }

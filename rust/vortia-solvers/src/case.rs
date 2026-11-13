@@ -14,6 +14,8 @@ use crate::error::{Result, SolverError};
 pub struct Case {
     pub dir: PathBuf,
     pub control: Dictionary,
+    /// The files `controlDict` `#include`s, which `control` already holds.
+    pub included: Vec<String>,
     pub schemes: Dictionary,
     pub solution: Dictionary,
 }
@@ -30,6 +32,51 @@ pub fn read_dict(path: &Path) -> Result<Dictionary> {
         ))),
         None => Ok(d),
     }
+}
+
+/// `controlDict`, each `#include "name"` of its top level replaced by the
+/// entries of `system/name` (a plain file name: no directory, so a case
+/// cannot send the engine elsewhere), and the names it included.
+fn read_control(system: &Path) -> Result<(Dictionary, Vec<String>)> {
+    let path = system.join("controlDict");
+    let raw = FoamFile::open(&path)?.dictionary()?.1;
+    let mut control = Dictionary::new();
+    let mut included = Vec::new();
+    for (key, entry) in raw.entries() {
+        let Entry::Directive(args) = entry else {
+            control.insert(key, entry.clone());
+            continue;
+        };
+        let name = match (key, args.as_slice()) {
+            ("#include", [one]) => one.as_word().filter(|n| plain_file_name(n)),
+            _ => None,
+        };
+        let Some(name) = name else {
+            return Err(SolverError::Setup(format!(
+                "{}: '{key}' is not supported yet; #include takes the name of a file in system",
+                path.display()
+            )));
+        };
+        for (k, e) in read_dict(&system.join(name))?.entries() {
+            control.set(k, e.clone());
+        }
+        included.push(name.to_owned());
+    }
+    match first_directive(&control) {
+        Some(key) => Err(SolverError::Setup(format!(
+            "{}: '{key}' is not supported yet",
+            path.display()
+        ))),
+        None => Ok((control, included)),
+    }
+}
+
+/// A file name with no path in it.
+fn plain_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && !name.starts_with('.')
+        && !name.contains(['/', '\\', '\0'])
 }
 
 /// SI exponents: kg, m, s, K, mol, A, cd.
@@ -98,8 +145,10 @@ impl Case {
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref().to_owned();
         let system = dir.join("system");
+        let (control, included) = read_control(&system)?;
         Ok(Self {
-            control: read_dict(&system.join("controlDict"))?,
+            control,
+            included,
             // `grad(U) $limited;` and `div(phi,e) $energy;` share entries.
             // fvSolution keeps its own references (see `solver_dict`).
             schemes: read_dict(&system.join("fvSchemes"))?
@@ -124,6 +173,55 @@ impl Case {
             )));
         }
         Ok((mesh, fv))
+    }
+
+    /// What `timeActivatedFileUpdate` does to an included file: from each
+    /// time on, the entries of the file that time names replace it. Empty
+    /// when `controlDict` has no such function object. Files that are not
+    /// plain names in `system`, or that `controlDict` did not include, are
+    /// refused.
+    pub fn file_schedule(&self, file: &str) -> Result<Vec<(f64, Dictionary)>> {
+        let Some(functions) = self.control.dict("functions") else {
+            return Ok(Vec::new());
+        };
+        let bad = |what: String| SolverError::Setup(format!("controlDict functions: {what}"));
+        let in_system = |value: Option<&str>| -> Option<String> {
+            let name = value?.strip_prefix("<system>/")?;
+            plain_file_name(name).then(|| name.to_owned())
+        };
+        let mut out = Vec::new();
+        for (name, entry) in functions.entries() {
+            let Entry::Dict(d) = entry else { continue };
+            if d.word("type") != Some("timeActivatedFileUpdate") {
+                continue;
+            }
+            let target = in_system(d.word("fileToUpdate"))
+                .ok_or_else(|| bad(format!("{name}: fileToUpdate must be \"<system>/file\"")))?;
+            if target != file {
+                continue;
+            }
+            if !self.included.iter().any(|i| i == file) {
+                return Err(bad(format!("{name}: '{file}' is not #included")));
+            }
+            let pairs = d
+                .values("timeVsFile")
+                .and_then(|v| v.first())
+                .and_then(Value::as_list)
+                .ok_or_else(|| bad(format!("{name}: timeVsFile is not a list")))?;
+            for pair in pairs {
+                let item = pair.as_list().unwrap_or_default();
+                let time = item.first().and_then(Value::as_scalar);
+                let source = in_system(item.get(1).and_then(Value::as_word));
+                let (Some(time), Some(source)) = (time, source) else {
+                    return Err(bad(format!(
+                        "{name}: timeVsFile entries are (time \"<system>/file\")"
+                    )));
+                };
+                out.push((time, read_dict(&self.dir.join("system").join(source))?));
+            }
+        }
+        out.sort_by(|a, b| a.0.total_cmp(&b.0));
+        Ok(out)
     }
 
     pub fn application(&self) -> Option<&str> {
