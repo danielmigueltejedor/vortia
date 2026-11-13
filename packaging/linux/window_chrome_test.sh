@@ -10,6 +10,10 @@ image="$(readlink -f "$1")"
 chmod +x "$image"
 work="$(mktemp -d)"
 fail=0
+# No desktop top bar takes the menus here, so they sit in a 34 px row above the header that holds
+# the tabs and the window buttons (kMenuRowHeight in MainWindow.cpp); the header is 44 px, so its
+# middle is 22 px below the row.
+menu_row=34
 bad() { echo "FAIL: $*"; fail=1; }
 
 export DISPLAY=":97"
@@ -52,7 +56,7 @@ echo "frame extents: ${extents:-none}"
 case "$extents" in ""|"0, 0, 0, 0") echo "OK" ;; *) bad "the window still has a system frame" ;; esac
 
 echo "== drag the empty part of the top bar =="
-xdotool mousemove $((x0 + w0 / 2)) $((y0 + 22)) mousedown 1
+xdotool mousemove $((x0 + w0 / 2)) $((y0 + menu_row + 22)) mousedown 1
 for step in 1 2 3 4 5 6; do xdotool mousemove_relative 30 20; sleep 0.1; done
 xdotool mouseup 1
 sleep 1
@@ -70,12 +74,12 @@ echo "after resize: $x2 $y2 ${w2}x${h2}"
 if (( w2 - w1 > 100 && h2 == h1 )); then echo "OK: resized"; else bad "window did not resize from its edge"; fi
 
 echo "== double click on the top bar maximizes, and restores =="
-xdotool mousemove $((x2 + w2 / 2)) $((y2 + 22)) click --repeat 2 --delay 80 1
+xdotool mousemove $((x2 + w2 / 2)) $((y2 + menu_row + 22)) click --repeat 2 --delay 80 1
 sleep 1.5
 read -r x3 y3 w3 h3 < <(geometry)
 echo "after double click: $x3 $y3 ${w3}x${h3}"
 if (( w3 >= 1580 && h3 >= 950 )); then echo "OK: maximized"; else bad "double click did not maximize"; fi
-xdotool mousemove $((x3 + w3 / 2)) $((y3 + 22)) click --repeat 2 --delay 80 1
+xdotool mousemove $((x3 + w3 / 2)) $((y3 + menu_row + 22)) click --repeat 2 --delay 80 1
 sleep 1.5
 read -r x4 y4 w4 h4 < <(geometry)
 echo "after second double click: $x4 $y4 ${w4}x${h4}"
@@ -83,7 +87,7 @@ if (( w4 < 1500 )); then echo "OK: restored"; else bad "second double click did 
 
 echo "== the close button of the bar closes the application =="
 # Rightmost button: 8 px margin + half of a 26 px button + its 3 px margin.
-xdotool mousemove $((x4 + w4 - 8 - 3 - 13)) $((y4 + 22)) click 1
+xdotool mousemove $((x4 + w4 - 8 - 3 - 13)) $((y4 + menu_row + 22)) click 1
 for _ in $(seq 1 20); do kill -0 "$app_pid" 2>/dev/null || break; sleep 0.5; done
 if kill -0 "$app_pid" 2>/dev/null; then bad "application still running after clicking close"; else echo "OK: closed"; fi
 
