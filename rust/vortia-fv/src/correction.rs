@@ -11,7 +11,9 @@ use vortia_core::Vec3;
 use vortia_mesh::PolyMesh;
 
 use crate::fvgeom::FvGeometry;
+use crate::ops::SnGrad;
 use crate::stress::{Tensor, dot};
+use crate::vector::{VectorBc, VectorBoundary};
 
 /// `corrVec · (w ∇ψ_P + (1 − w) ∇ψ_N)` on every internal face, from the cell
 /// gradients `g` of a scalar.
@@ -51,6 +53,46 @@ pub fn sn_grad_correction_vector(mesh: &PolyMesh, fv: &FvGeometry, g: &[Tensor])
             },
         )
         .collect()
+}
+
+/// `fvc::snGrad(U)` on every face: across an internal face the cell
+/// difference over the distance, plus, for a `Corrected` scheme, the
+/// correction from the cells' gradients `g`; on a boundary face what the
+/// condition gives (nothing through a zero gradient or an empty patch).
+pub fn face_sn_grad_vector(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    bc: &VectorBoundary,
+    cells: &[Vec3],
+    scheme: SnGrad,
+    g: &[Tensor],
+) -> Vec<Vec3> {
+    let coeffs = scheme.coeffs(fv);
+    let cell = |c: Option<&usize>| c.and_then(|&c| cells.get(c)).copied().unwrap_or_default();
+    let corr = (scheme == SnGrad::Corrected).then(|| sn_grad_correction_vector(mesh, fv, g));
+    let mut out = Vec::with_capacity(mesh.n_faces());
+    for f in 0..mesh.n_internal_faces() {
+        let (o, n) = (cell(mesh.owner().get(f)), cell(mesh.neighbour().get(f)));
+        let c = corr.as_ref().and_then(|c| c.get(f)).copied();
+        out.push((n - o) * coeffs.get(f).copied().unwrap_or(0.0) + c.unwrap_or_default());
+    }
+    for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
+        for (i, f) in patch.faces().enumerate() {
+            let inside = cell(mesh.owner().get(f));
+            let dc = fv.delta_coeffs.get(f).copied().unwrap_or(0.0);
+            out.push(match cond {
+                VectorBc::FixedValue(v) => (v.get(i).copied().unwrap_or_default() - inside) * dc,
+                VectorBc::Mixed { mask, ref_value } => {
+                    let m = mask.get(i).copied().unwrap_or_default();
+                    let r = ref_value.get(i).copied().unwrap_or_default() - inside;
+                    Vec3::new(m.x * r.x, m.y * r.y, m.z * r.z) * dc
+                }
+                VectorBc::Wedge { cell_t, .. } => VectorBc::wedge_sn_grad(cell_t, inside, dc),
+                VectorBc::ZeroGradient | VectorBc::Empty => Vec3::default(),
+            });
+        }
+    }
+    out
 }
 
 /// `Γ_f |S_f|` times a correction, on every internal face.

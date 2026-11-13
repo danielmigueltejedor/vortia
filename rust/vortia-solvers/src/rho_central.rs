@@ -2,29 +2,37 @@
 //! scheme of Kurganov and Tadmor, explicit in time.
 //!
 //! The engine's counterpart of OpenFOAM's `rhoCentralFoam` (OpenFOAM v1912,
-//! GPL-3.0-or-later), inviscid, with a fixed time step or, under
+//! GPL-3.0-or-later), laminar, with a fixed time step or, under
 //! `ddtSchemes localEuler`, a time step of its own for each cell: the densities of
 //! mass, momentum and energy are advanced from the fluxes of the two
 //! directed face values the limited `reconstruct(...)` schemes give, and
 //! the velocity, the energy, the temperature and the pressure follow from
-//! them, in the order the original takes them. It reads `T`, `U` and `p`
+//! them, in the order the original takes them. A viscous gas adds the
+//! implicit diffusion of the velocity and the energy and the work of the
+//! viscous stress, as the original does. It reads `T`, `U` and `p`
 //! (and `rho` when present) and writes them back with `rho`.
 
 use vortia_core::Vec3;
 use vortia_fields::{Data, Location, ScalarField, VectorField};
-use vortia_fv::ops;
+use vortia_fv::limited::{self, GradScheme};
+use vortia_fv::ops::{self, SnGrad};
 use vortia_fv::reconstruct::{Reconstruction, interpolate};
 use vortia_fv::smooth::smooth;
+use vortia_fv::stress::{self, dev2_stress, dot_interpolate_tensor};
 use vortia_fv::vector::solution_directions;
-use vortia_fv::{Boundary, ScalarBc, VectorBc, VectorBoundary};
+use vortia_fv::{
+    Boundary, Controls, FvGeometry, ScalarBc, ScalarMatrix, VectorBc, VectorBoundary, VectorMatrix,
+    correction,
+};
 use vortia_mesh::{PatchKind, PolyMesh};
 
 use crate::case::{Case, VELOCITY, check_dimensions};
-use crate::control::RunControl;
+use crate::control::{LinearSolver, RunControl, solve_line};
 use crate::error::{Result, SolverError};
 use crate::ico::{Step, switch};
+use crate::rans::face_diffusivity;
 use crate::rho_simple::{WithBoundary, calculated_field, mul, mul_b, read_calculated};
-use crate::thermo::{DENSITY, Gas, PRESSURE, Thermo};
+use crate::thermo::{DENSITY, Flow, Gas, PRESSURE, Thermo};
 
 /// `max(a, b)` as OpenFOAM writes it, which keeps `b` when `a` is not
 /// greater, NaN included.
@@ -157,6 +165,93 @@ fn local_r_delta_t(
     r
 }
 
+/// What a viscous gas adds: the schemes and the solvers of the velocity and
+/// the energy equations.
+struct Viscous {
+    velocity_grad: GradScheme,
+    energy_grad: GradScheme,
+    momentum_sn_grad: SnGrad,
+    energy_sn_grad: SnGrad,
+    /// `snGrad(U)`, of the work of the viscous stress.
+    face_sn_grad: SnGrad,
+    u_solver: (LinearSolver, Controls),
+    e_solver: (LinearSolver, Controls),
+}
+
+impl Viscous {
+    fn read(case: &Case) -> Result<Self> {
+        let stress = case.scheme("divSchemes", "div(tauMC)")?;
+        if stress != ["Gauss", "linear"] {
+            return Err(SolverError::Setup(format!(
+                "div scheme '{}' for div(tauMC) is not supported yet; use Gauss linear",
+                stress.join(" ")
+            )));
+        }
+        let mu = case.scheme("interpolationSchemes", "interpolate(muEff)")?;
+        if mu != ["linear"] {
+            return Err(SolverError::Setup(format!(
+                "interpolation scheme '{}' for muEff is not supported yet; use linear",
+                mu.join(" ")
+            )));
+        }
+        Ok(Self {
+            velocity_grad: case.grad_scheme("grad(U)")?,
+            energy_grad: case.grad_scheme("grad(e)")?,
+            momentum_sn_grad: case.laplacian_sn_grad("laplacian(muEff,U)")?,
+            energy_sn_grad: case.laplacian_sn_grad("laplacian(alphaEff,e)")?,
+            face_sn_grad: case.face_sn_grad("snGrad(U)")?,
+            u_solver: LinearSolver::read(case, "U")?,
+            e_solver: LinearSolver::read(case, "e")?,
+        })
+    }
+}
+
+/// The diagonal and the source of `fvm::ddt(ρ, ψ) − fvc::ddt(ρ, ψ)` for
+/// Euler or local Euler: `fvm::ddt`'s, then `V` times `fvc::ddt` added to the
+/// source, in OpenFOAM's order. `old_*` are the step's start.
+fn ddt_correction<T>(
+    rho: &[f64],
+    old_rho: &[f64],
+    old_x: &[T],
+    x: &[T],
+    volumes: &[f64],
+    r_delta_t: &[f64],
+) -> (Vec<f64>, Vec<T>)
+where
+    T: std::ops::Mul<f64, Output = T>
+        + std::ops::Sub<Output = T>
+        + std::ops::Add<Output = T>
+        + Copy,
+{
+    let mut diag = Vec::with_capacity(rho.len());
+    let mut source = Vec::with_capacity(rho.len());
+    for (((((&r, &r0), &x0), &x), &v), &rd) in rho
+        .iter()
+        .zip(old_rho)
+        .zip(old_x)
+        .zip(x)
+        .zip(volumes)
+        .zip(r_delta_t)
+    {
+        diag.push(rd * r * v);
+        // fvm::ddt's source, then the cell's `fvc::ddt` taken off it.
+        let fvm = x0 * (rd * r0) * v;
+        source.push(fvm + (x * r - x0 * r0) * rd * v);
+    }
+    (diag, source)
+}
+
+/// What the viscous terms read of the start of the step.
+struct Start {
+    rho: Vec<f64>,
+    u: Vec<Vec3>,
+    he: Vec<f64>,
+    /// `Sf & tauMC` on every face.
+    tau_dot: Vec<Vec3>,
+    /// `∇·tauMC` in every cell.
+    div_tau: Vec<Vec3>,
+}
+
 /// The pressure, its conditions and its value on the boundary faces.
 struct Pressure {
     file: ScalarField,
@@ -196,6 +291,8 @@ struct FaceFlux {
     phi_ep: f64,
     /// The larger of the two estimated fluxes, for the Courant number.
     amax_sf: f64,
+    /// `a_pos U_pos + a_neg U_neg`, the velocity the stress works with.
+    u_face: Vec3,
 }
 
 /// One side of a face: the reconstructed fields.
@@ -242,6 +339,7 @@ fn face_flux(flux: FluxScheme, sf: Vec3, mag_sf: f64, pos: Side, neg: Side) -> F
             + a_sf * p_pos
             - a_sf * p_neg,
         amax_sf: max(aphiv_pos.abs(), aphiv_neg.abs()),
+        u_face: u_pos * a_pos + u_neg * a_neg,
     }
 }
 
@@ -254,6 +352,27 @@ fn advance(old: &[f64], div: &[f64], volumes: &[f64], r_delta_t: &[f64]) -> Vec<
         .zip(r_delta_t)
         .map(|(((&x, &d), &v), &r)| {
             let source = r * x * v - v * d;
+            source / (r * v)
+        })
+        .collect()
+}
+
+/// [`advance`] with `V ∇·σ` taken from the right side as well:
+/// `solve(ddt(x) + div(flux) − div(σ))`.
+fn advance_with(
+    old: &[f64],
+    div: &[f64],
+    extra: &[f64],
+    volumes: &[f64],
+    r_delta_t: &[f64],
+) -> Vec<f64> {
+    old.iter()
+        .zip(div)
+        .zip(extra)
+        .zip(volumes)
+        .zip(r_delta_t)
+        .map(|((((&x, &d), &e), &v), &r)| {
+            let source = (r * x * v - v * d) + v * e;
             source / (r * v)
         })
         .collect()
@@ -304,11 +423,11 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                 .into(),
         ));
     }
-    if gas.mu() != 0.0 {
-        return Err(SolverError::Setup(
-            "rhoCentralFoam with a viscous gas is not supported yet; use mu 0".into(),
-        ));
-    }
+    let viscous = if gas.mu() > 0.0 {
+        Some(Viscous::read(case)?)
+    } else {
+        None
+    };
     let stepping = Stepping::read(case)?;
     if stepping == Stepping::Euler && switch(&case.control, "adjustTimeStep") == Some(true) {
         return Err(SolverError::Setup(
@@ -409,6 +528,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let mut phi_up = vec![Vec3::default(); n_faces];
         let mut phi_ep = vec![0.0; n_faces];
         let mut amax_sf = vec![0.0; n_faces];
+        let mut u_face = vec![Vec3::default(); n_faces];
         for f in 0..n_faces {
             if f >= n_internal && rho_b.get(f - n_internal).copied().flatten().is_none() {
                 continue;
@@ -440,6 +560,9 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             ) {
                 (*a, *b, *c, *d) = (out.phi, out.phi_up, out.phi_ep, out.amax_sf);
             }
+            if let Some(x) = u_face.get_mut(f) {
+                *x = out.u_face;
+            }
         }
 
         // centralCourantNo.H
@@ -470,6 +593,40 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         }
         log(&format!("\nTime = {name}\n\n"));
 
+        // tauMC and what the step started from, for the viscous terms.
+        let viscous_start = viscous.as_ref().map(|v| {
+            let (tau, tau_b) = dev2_stress(
+                v.velocity_grad,
+                &mesh,
+                &fv,
+                &u_bc,
+                &u,
+                &thermo.mu,
+                &thermo.mu_b,
+            );
+            let tau_dot = dot_interpolate_tensor(&mesh, &fv, &tau, &tau_b);
+            let component =
+                |pick: fn(&Vec3) -> f64| -> Vec<f64> { tau_dot.iter().map(pick).collect() };
+            let div_tau = [
+                ops::surface_integrate(&mesh, &fv, &component(|v| v.x)),
+                ops::surface_integrate(&mesh, &fv, &component(|v| v.y)),
+                ops::surface_integrate(&mesh, &fv, &component(|v| v.z)),
+            ];
+            let div_tau: Vec<Vec3> = (0..mesh.n_cells())
+                .map(|c| {
+                    let at = |d: &Vec<f64>| d.get(c).copied().unwrap_or(0.0);
+                    Vec3::new(at(&div_tau[0]), at(&div_tau[1]), at(&div_tau[2]))
+                })
+                .collect();
+            Start {
+                rho: rho.clone(),
+                u: u.clone(),
+                he: thermo.he.clone(),
+                tau_dot,
+                div_tau,
+            }
+        });
+
         // Density, momentum, then velocity.
         let rho_new = advance(
             &rho,
@@ -490,13 +647,59 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             .map(|(r, v)| r.zip(*v).map(|(r, v)| v * r))
             .collect();
 
+        if let (Some(v), Some(start)) = (&viscous, &viscous_start) {
+            let eqn =
+                momentum_equation(&mesh, &fv, &u_bc, v, &thermo, start, (&rho, &u), &r_delta_t)?;
+            let mut solved = u.clone();
+            let perfs = eqn.solve_segregated(&mesh, &mut solved, None, valid, |m, x, _| {
+                v.u_solver.0.solve(m, x, &v.u_solver.1)
+            })?;
+            for (cmpt, perf) in perfs {
+                let field = ["Ux", "Uy", "Uz"].get(cmpt).copied().unwrap_or("U");
+                log(&solve_line(field, &perf));
+            }
+            u = solved;
+            u_b = u_bc.face_values(&mesh, &u);
+            rho_u = rho.iter().zip(&u).map(|(&r, &x)| x * r).collect();
+            rho_u_b = rho_b
+                .iter()
+                .zip(&u_b)
+                .map(|(r, x)| r.zip(*x).map(|(r, x)| x * r))
+                .collect();
+        }
+
         // Energy, temperature and pressure.
-        let rho_e_new = advance(
-            &rho_e,
-            &ops::surface_integrate(&mesh, &fv, &phi_ep),
-            volumes,
-            &r_delta_t,
-        );
+        let rho_e_new = match (&viscous, &viscous_start) {
+            (Some(v), Some(start)) => {
+                // The work of the viscous stress: σ·U on every face.
+                let (g, _) = stress::grad(v.velocity_grad, &mesh, &fv, &u_bc, &u);
+                let sn = correction::face_sn_grad_vector(&mesh, &fv, &u_bc, &u, v.face_sn_grad, &g);
+                let mu_f = face_diffusivity(&mesh, &fv, &thermo.mu, &thermo.mu_b);
+                let sigma_dot_u: Vec<f64> = (0..n_faces)
+                    .map(|f| {
+                        let mu = mu_f.get(f).copied().unwrap_or(0.0);
+                        let mag = fv.mag_sf.get(f).copied().unwrap_or(0.0);
+                        let sn = sn.get(f).copied().unwrap_or_default();
+                        let tau = start.tau_dot.get(f).copied().unwrap_or_default();
+                        let u = u_face.get(f).copied().unwrap_or_default();
+                        (sn * (mu * mag) + tau).dot(u)
+                    })
+                    .collect();
+                advance_with(
+                    &rho_e,
+                    &ops::surface_integrate(&mesh, &fv, &phi_ep),
+                    &ops::surface_integrate(&mesh, &fv, &sigma_dot_u),
+                    volumes,
+                    &r_delta_t,
+                )
+            }
+            _ => advance(
+                &rho_e,
+                &ops::surface_integrate(&mesh, &fv, &phi_ep),
+                volumes,
+                &r_delta_t,
+            ),
+        };
         rho_e = rho_e_new;
         let e: Vec<f64> = rho_e
             .iter()
@@ -505,6 +708,28 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             .map(|((&re, &r), &v)| re / r - 0.5 * mag_sqr(v))
             .collect();
         thermo.set_energy(&mesh, e, &p_cells, &p_b)?;
+        if let (Some(v), Some(start)) = (&viscous, &viscous_start) {
+            diffuse_energy(
+                &mesh,
+                &fv,
+                v,
+                &mut thermo,
+                start,
+                (&rho, &p_cells, &p_b),
+                &Flow {
+                    u_b: &u_b,
+                    phi: &phi,
+                },
+                &r_delta_t,
+                &mut log,
+            )?;
+            rho_e = rho
+                .iter()
+                .zip(&thermo.he)
+                .zip(&u)
+                .map(|((&r, &e), &v)| r * (e + 0.5 * mag_sqr(v)))
+                .collect();
+        }
         p_cells = rho.iter().zip(&thermo.psi).map(|(&r, &s)| r / s).collect();
         p_b = p.bc.face_values(&mesh, &p_cells, &fv.delta_coeffs);
         rho_b = mul_b(&thermo.psi_b, &p_b);
@@ -553,6 +778,101 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     log("End\n");
     let _ = (&mut p.bc, PatchKind::Empty);
     Ok(steps)
+}
+
+/// `fvm::ddt(ρ, U) − fvc::ddt(ρ, U) − fvm::laplacian(μ, U) − fvc::div(tauMC)`
+/// with the velocity the inviscid update gave and the density it ended on.
+#[allow(clippy::too_many_arguments)]
+fn momentum_equation(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    u_bc: &VectorBoundary,
+    v: &Viscous,
+    thermo: &Thermo,
+    start: &Start,
+    (rho, u): (&[f64], &[Vec3]),
+    r_delta_t: &[f64],
+) -> Result<VectorMatrix> {
+    let (diag, source) = ddt_correction(rho, &start.rho, &start.u, u, fv.volumes(), r_delta_t);
+    let mut eqn = VectorMatrix::new(mesh);
+    eqn.ldu.diag = diag;
+    eqn.source = source;
+    let mu_f = face_diffusivity(mesh, fv, &thermo.mu, &thermo.mu_b);
+    let mut lap = VectorMatrix::laplacian(
+        mesh,
+        fv,
+        u_bc,
+        &mu_f,
+        u,
+        v.momentum_sn_grad.without_correction(),
+    )?;
+    if v.momentum_sn_grad == SnGrad::Corrected {
+        let (g, _) = stress::grad(v.velocity_grad, mesh, fv, u_bc, u);
+        let corr = correction::sn_grad_correction_vector(mesh, fv, &g);
+        let flux = correction::scale_by_gamma_mag_sf(fv, &mu_f, &corr);
+        correction::subtract_divergence(&mut lap.source, mesh, &flux);
+    }
+    eqn.sub(&lap);
+    for ((s, &d), &vol) in eqn.source.iter_mut().zip(&start.div_tau).zip(fv.volumes()) {
+        *s = *s + d * vol;
+    }
+    Ok(eqn)
+}
+
+/// `fvm::ddt(ρ, e) − fvc::ddt(ρ, e) − fvm::laplacian(αEff, e)`, solved, and
+/// the temperature that follows.
+#[allow(clippy::too_many_arguments)]
+fn diffuse_energy(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    v: &Viscous,
+    thermo: &mut Thermo,
+    start: &Start,
+    (rho, p, p_b): (&[f64], &[f64], &[Option<f64>]),
+    flow: &Flow<'_>,
+    r_delta_t: &[f64],
+    log: &mut impl FnMut(&str),
+) -> Result<()> {
+    let he_bc = thermo.energy_boundary(mesh, fv, p_b, flow);
+    let (diag, source) = ddt_correction(
+        rho,
+        &start.rho,
+        &start.he,
+        &thermo.he,
+        fv.volumes(),
+        r_delta_t,
+    );
+    let mut eqn = ScalarMatrix::new(mesh);
+    eqn.ldu.diag = diag;
+    eqn.ldu.source = source;
+    let cp_by_cpv = thermo.gas.cp_by_cpv();
+    let alpha_eff: Vec<f64> = thermo.alpha.iter().map(|&a| cp_by_cpv * a).collect();
+    let alpha_eff_b: Vec<Option<f64>> = thermo
+        .alpha_b
+        .iter()
+        .map(|a| a.map(|a| cp_by_cpv * a))
+        .collect();
+    let alpha_f = face_diffusivity(mesh, fv, &alpha_eff, &alpha_eff_b);
+    let mut lap = ScalarMatrix::laplacian(
+        mesh,
+        fv,
+        &he_bc,
+        &alpha_f,
+        v.energy_sn_grad.without_correction(),
+    )?;
+    if v.energy_sn_grad == SnGrad::Corrected {
+        let g = limited::grad(v.energy_grad, mesh, fv, &thermo.he, &thermo.he_b);
+        let corr = correction::sn_grad_correction(mesh, fv, &g);
+        let flux = correction::scale_by_gamma_mag_sf(fv, &alpha_f, &corr);
+        correction::subtract_divergence(&mut lap.ldu.source, mesh, &flux);
+    }
+    eqn.sub(&lap);
+    let perf = eqn.solve(mesh, &mut thermo.he, |m, x| {
+        v.e_solver.0.solve(m, x, &v.e_solver.1)
+    })?;
+    log(&solve_line("e", &perf));
+    thermo.he_b = he_bc.face_values(mesh, &thermo.he, &fv.delta_coeffs);
+    thermo.correct(mesh, p, p_b)
 }
 
 /// `fvc::surfaceSum`: every cell's sum of its faces' values, the boundary
