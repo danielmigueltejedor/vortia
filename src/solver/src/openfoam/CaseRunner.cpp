@@ -31,15 +31,16 @@ private:
 };
 
 /// The Rust engine, when the captured environment names it: the absolute path
-/// of the `vortia` command line tool in `VORTIA_NATIVE_ENGINE`. Only a plain
-/// absolute path of an existing file counts, as it ends up in a PATH.
+/// of its command line tool (`vortia`, or `vortia-rust-engine` where the app
+/// itself is `vortia`) in `VORTIA_NATIVE_ENGINE`. Only a plain absolute path of
+/// an existing file counts, as it ends up in a PATH.
 std::optional<std::filesystem::path> nativeEngine(
     const std::vector<std::pair<std::string, std::string>>& environment) {
     for (const auto& [key, value] : environment) {
         if (key != "VORTIA_NATIVE_ENGINE") continue;
         const std::filesystem::path path(value);
         std::error_code error;
-        if (!path.is_absolute() || path.filename() != "vortia"
+        if (!path.is_absolute() || (path.filename() != "vortia" && path.filename() != "vortia-rust-engine")
             || std::any_of(value.begin(), value.end(), [](unsigned char c) {
                    return std::isspace(c) || c == ':';
                })
@@ -166,16 +167,17 @@ Expected<StepOutcome> CaseRunner::runMeshing(const std::filesystem::path& caseDi
         // The nozzle cases mesh and initialise on the Rust engine, with no
         // OpenFOAM tool involved.
         auto native = withNativeEngine(*engine);
-        auto meshed = native.execute("blockMesh", "vortia", {"blockmesh"}, caseDir, callbacks, token);
+        const auto tool = engine->filename().string();
+        auto meshed = native.execute("blockMesh", tool, {"blockmesh"}, caseDir, callbacks, token);
         if (!meshed || !meshed->process.succeeded() || meshed->process.cancelled)
             return meshed;
-        auto checked = native.execute("checkMesh", "vortia", {"check-mesh"}, caseDir, callbacks, token);
+        auto checked = native.execute("checkMesh", tool, {"check-mesh"}, caseDir, callbacks, token);
         if (!checked || !checked->process.succeeded()) {
             if (checked) log(LogLevel::Warning, "check-mesh reported problems; see log.vortia");
             return checked;
         }
         if (hasSolution(caseDir)) return meshed;
-        return native.execute("initialize nozzle", "vortia", {"setfields"}, caseDir, callbacks, token);
+        return native.execute("initialize nozzle", tool, {"setfields"}, caseDir, callbacks, token);
     }
     if (!caps.hasBlockMesh)
         return Error::make(ErrorCode::BackendUnavailable,
@@ -251,7 +253,7 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
             if (processes > 1)
                 return Error::make(ErrorCode::InvalidArgument,
                     "the Rust engine runs on one process; select one process");
-            return withNativeEngine(*engine).execute("vortiaCentralFoam", "vortia", {"solve"},
+            return withNativeEngine(*engine).execute("vortiaCentralFoam", engine->filename().string(), {"solve"},
                                                      caseDir, callbacks, token);
         }
         if (kind == "vortia-nozzle-video-2026-v3" || generalFlow) {

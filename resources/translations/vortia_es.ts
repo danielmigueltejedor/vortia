@@ -1492,6 +1492,9 @@ Caso fallido conservado: %2
     <message><source>Default CPU processes</source><translation>Procesos de CPU predeterminados</translation></message>
     <message><source>Default checkpoint interval</source><translation>Intervalo de guardado predeterminado</translation></message>
     <message><source>Default safety iteration limit</source><translation>Límite de seguridad predeterminado</translation></message>
+    <message><source>Run nozzle calculations on Vortia's own engine (experimental)</source><translation>Calcular las toberas con el motor propio de Vortia (experimental)</translation></message>
+    <message><source>Vortia's own engine is not part of this installation, so OpenFOAM keeps running the calculations.</source><translation>El motor propio de Vortia no forma parte de esta instalación, así que OpenFOAM sigue haciendo los cálculos.</translation></message>
+    <message><source>Vortia's own engine meshes, initialises and solves the nozzle cases without OpenFOAM, on one process. Existing results are kept.</source><translation>El motor propio de Vortia malla, inicializa y resuelve los casos de tobera sin OpenFOAM, con un solo proceso. Los resultados existentes se conservan.</translation></message>
     <message><source>Find installed OpenFOAM</source><translation>Buscar OpenFOAM instalado</translation></message>
     <message><source>Interface size (%)</source><translation>Tamaño de la interfaz (%)</translation></message>
     <message><source>Language</source><translation>Idioma</translation></message>

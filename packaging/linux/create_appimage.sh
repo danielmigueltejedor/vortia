@@ -40,6 +40,12 @@ mkdir -p "$tools" "$appdir/usr/bin" "$appdir/usr/share/applications" \
 
 cp "$exe" "$appdir/usr/bin/vortia"
 chmod +x "$appdir/usr/bin/vortia"
+# Vortia's own engine, when the build provides it (a static executable, named apart from the app).
+if [[ -n "${VORTIA_RUST_ENGINE:-}" ]]; then
+  [[ -x "$VORTIA_RUST_ENGINE" ]] || { echo "Missing Rust engine: $VORTIA_RUST_ENGINE" >&2; exit 1; }
+  install -m 0755 "$VORTIA_RUST_ENGINE" "$appdir/usr/bin/vortia-rust-engine"
+  "$appdir/usr/bin/vortia-rust-engine" help > /dev/null
+fi
 
 for qm in \
   "$(dirname "$exe")/../vortia_es.qm" \
@@ -177,7 +183,7 @@ if [[ -n "$env_prefix" && -d "$env_prefix/lib" ]]; then
       echo "Bundled from build environment: $base"
       added=1
     done < <(
-      find "$appdir/usr" -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) -print0 |
+      find "$appdir/usr" -type f \( -name 'vortia' -o -name 'vortia-rust-engine' -o -name '*.so' -o -name '*.so.*' \) -print0 |
         LD_LIBRARY_PATH="$appdir/usr/lib:$env_prefix/lib" xargs -0 -n1 ldd 2>/dev/null |
         awk -v prefix="$env_prefix/" 'index($3, prefix) == 1 { print $3 }' | sort -u
     )
@@ -246,7 +252,7 @@ needed_glibc="$(
 echo "Newest glibc symbol version required by the AppImage: ${needed_glibc:-unknown} (limit $max_glibc)"
 if [[ -z "$needed_glibc" || "$(printf '%s\n%s\n' "$needed_glibc" "$max_glibc" | sort -V | tail -n 1)" != "$max_glibc" ]]; then
   echo "The AppImage would need glibc ${needed_glibc:-?}, newer than the supported $max_glibc. Offenders:" >&2
-  find "$appdir/usr" -path "$appdir/usr/lib/openfoam-engine" -prune -o -type f \( -name 'vortia' -o -name '*.so' -o -name '*.so.*' \) -print | while read -r elf; do
+  find "$appdir/usr" -path "$appdir/usr/lib/openfoam-engine" -prune -o -type f \( -name 'vortia' -o -name 'vortia-rust-engine' -o -name '*.so' -o -name '*.so.*' \) -print | while read -r elf; do
     objdump -T "$elf" 2>/dev/null | grep -q "GLIBC_$needed_glibc" && echo "  $elf" >&2
   done
   exit 1

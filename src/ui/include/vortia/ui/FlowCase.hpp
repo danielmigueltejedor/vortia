@@ -20,6 +20,12 @@ QString updateFlowRunControls(const QString& caseDir, const QJsonObject& solver,
 // executables, boundary dictionaries, mesh or saved fields. Empty = success.
 QString stageFlowBackend(const QString& caseDir);
 
+/// The `vortia` tool of the Rust engine shipped with this installation, or empty.
+std::string bundledNativeEngine();
+/// The Rust engine nozzle cases run on, or empty for OpenFOAM: `VORTIA_NATIVE_ENGINE` when set, else
+/// the bundled tool when the "calculation/rustEngine" preference is on.
+std::string nativeEnginePath();
+
 /// The variables vortiaCentralFoam's build cache is keyed on: the engine, its build options and
 /// its core libraries. Appended to the captured OpenFOAM environment for a compressible run.
 std::vector<std::pair<std::string, std::string>> flowSolverRuntime(

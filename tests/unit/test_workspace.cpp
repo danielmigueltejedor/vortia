@@ -4,6 +4,7 @@
 #include "vortia/physics/CaseSetupJson.hpp"
 #include "vortia/ui/ResultFiles.hpp"
 #include "vortia/ui/FlowSetup.hpp"
+#include "vortia/ui/FlowCase.hpp"
 #include "vortia/ui/EngineeringWorkbench.hpp"
 #include "vortia/ui/RunDiagnostics.hpp"
 #include "vortia/ui/ConsolePanel.hpp"
@@ -968,7 +969,9 @@ TEST(ApplicationPreferences, RoundTripAndInvalidValuesUseSafeDefaults) {
     auto p=ApplicationPreferences::load(settings);EXPECT_TRUE(p.snapToGrid);EXPECT_EQ(p.checkpointInterval,500);
     p.cfdZoomSensitivity=1.8;p.cfdPanSensitivity=.7;p.defaultProcesses=3;p.snapSpacing=.25;p.zoomSensitivity=1.7;p.automaticPreview=false;p.density="compact";
     p.showToolLabels=false;p.automaticMeshPreview=false;
+    EXPECT_FALSE(p.rustEngine);p.rustEngine=true;
     p.save(settings);auto loaded=ApplicationPreferences::load(settings);
+    EXPECT_TRUE(loaded.rustEngine);
     EXPECT_FALSE(loaded.showToolLabels);EXPECT_FALSE(loaded.automaticMeshPreview);
     EXPECT_DOUBLE_EQ(loaded.cfdZoomSensitivity,1.8);EXPECT_DOUBLE_EQ(loaded.cfdPanSensitivity,.7);EXPECT_EQ(loaded.defaultProcesses,3);EXPECT_DOUBLE_EQ(loaded.snapSpacing,.25);EXPECT_FALSE(loaded.automaticPreview);
     EXPECT_EQ(loaded.flowDefaults().value("solver").toObject().value("processes").toInt(),3);
@@ -984,6 +987,7 @@ TEST(ApplicationPreferences, DialogAppliesOnlyAcceptedValuesAndLocksEngineDuring
         navigation->button(2)->setChecked(true);
         EXPECT_EQ(d->findChild<QStackedWidget*>("preferences-pages")->currentIndex(),2);
         EXPECT_FALSE(d->findChild<QLineEdit*>("preference-backend")->isEnabled());
+        EXPECT_FALSE(d->findChild<QCheckBox*>("preference-rust-engine")->isEnabled());
         d->findChild<QSpinBox*>("preference-processes")->setValue(2);
         d->findChild<QCheckBox*>("preference-preview")->setChecked(false);d->accept();
     });
@@ -992,6 +996,17 @@ TEST(ApplicationPreferences, DialogAppliesOnlyAcceptedValuesAndLocksEngineDuring
     EXPECT_FALSE(result->automaticPreview);EXPECT_TRUE(original.automaticPreview);
     QTimer::singleShot(0,[](){qobject_cast<QDialog*>(QApplication::activeModalWidget())->reject();});
     EXPECT_FALSE(editApplicationPreferences(nullptr,*result,false));
+}
+TEST(WorkspaceFlow, TheRustEngineIsChosenByTheEnvironmentOrThePreferenceAndTheBundledTool) {
+    const auto previous=qEnvironmentVariable("VORTIA_NATIVE_ENGINE");
+    qputenv("VORTIA_NATIVE_ENGINE","/opt/vortia/vortia");
+    EXPECT_EQ(nativeEnginePath(),"/opt/vortia/vortia");
+    bool found=false;
+    for(const auto& [key,value]:flowSolverRuntime({},"x"))if(key=="VORTIA_NATIVE_ENGINE")found=value=="/opt/vortia/vortia";
+    EXPECT_TRUE(found);
+    // Nothing is bundled next to the test binary.
+    EXPECT_TRUE(bundledNativeEngine().empty());
+    if(previous.isEmpty())qunsetenv("VORTIA_NATIVE_ENGINE");else qputenv("VORTIA_NATIVE_ENGINE",previous.toUtf8());
 }
 TEST(WorkspaceFlow, InjectedDefaultsNeverReplaceExistingProjectControls) {
     const QJsonObject defaults{{"solver",QJsonObject{{"iterations",7000},{"writeInterval",500},{"processes",3}}}};
