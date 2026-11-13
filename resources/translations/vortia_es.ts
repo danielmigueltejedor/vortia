@@ -2139,4 +2139,12 @@ Detalles: %2</translation></message>
     <message><source>Restore</source><translation>Restaurar</translation></message>
     <message><source>Close</source><translation>Cerrar</translation></message>
 </context>
+<context>
+    <name>vortia::WelcomeScreen</name>
+    <message><source>Engineering the flow</source><translation>Ingeniería del flujo</translation></message>
+    <message><source>Create a project and draw the fluid domain, or open one you already have.</source><translation>Crea un proyecto y dibuja el dominio del fluido, o abre uno que ya tengas.</translation></message>
+    <message><source>New Project</source><translation>Nuevo proyecto</translation></message>
+    <message><source>Open Project…</source><translation>Abrir proyecto…</translation></message>
+    <message><source>Recent projects</source><translation>Proyectos recientes</translation></message>
+</context>
 </TS>

@@ -135,3 +135,15 @@ QLabel#ndl-about-tagline {color:{{color.textSecondary}};}
 QLabel#ndl-about-developer {color:{{color.textSecondary}};}
 QLabel#ndl-version-pill {background:{{color.accentSubtle}};color:{{color.accentText}};border-radius:{{component.controlRadius}}px;padding:{{space.xxs}}px {{space.md}}px;font-weight:700;}
 QLabel#ndl-about-notice {color:{{color.textTertiary}};font-size:{{font.small}}px;}
+
+/* The welcome, with no project open: the window surface, and the recent projects on a panel. */
+QWidget#vortia-welcome {background:{{color.surfaceWindow}};}
+QWidget#vortia-welcome-recent {background:{{color.surfacePanel}};border-top-left-radius:{{component.panelRadius}}px;}
+QLabel#vortia-welcome-title {font-family:"Sora";font-size:40px;font-weight:700;}
+QLabel#vortia-welcome-tagline {font-size:{{font.title}}px;color:{{color.textSecondary}};}
+QLabel#vortia-welcome-body {color:{{color.textSecondary}};}
+QLabel#vortia-welcome-recent-title {font-family:"Sora";font-weight:700;}
+QLabel#vortia-welcome-recent-name {font-weight:{{weight.medium}};}
+QLabel#vortia-welcome-recent-path {font-size:{{font.caption}}px;color:{{color.textSecondary}};}
+QWidget#vortia-welcome-recent-row {border-radius:{{radius.md}}px;}
+QWidget#vortia-welcome-recent-row:hover {background:{{color.controlBgHover}};}

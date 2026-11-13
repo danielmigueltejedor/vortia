@@ -1,4 +1,5 @@
 #include "vortia/ui/MainWindow.hpp"
+#include "vortia/ui/WelcomeScreen.hpp"
 #include "vortia/core/Project.hpp"
 #include "vortia/physics/CaseSetupJson.hpp"
 #include "vortia/ui/ResultFiles.hpp"
@@ -107,6 +108,8 @@ struct WorkspaceTestAccess {
     static void close(MainWindow& w, int index) { w.closeProjectTab(index); }
     static void lock(MainWindow& w, bool value) { w.setJobUiRunning(value); }
     static bool open(MainWindow& w, const QString& path) { return w.openProjectDirectory(path); }
+    static bool openFromWelcome(MainWindow& w, const QString& path) { return w.openFromWelcome(path); }
+    static bool welcome(const MainWindow& w) { return w.welcomeVisible(); }
     static bool save(MainWindow& w) { return w.saveProject(); }
     static SketchEditorDialog& editor(MainWindow& w) { return *w.sketchEditor_; }
     static void edit(MainWindow& w, const Sketch2D& s, NozzleDimensions dims) {
@@ -505,6 +508,43 @@ TEST(Workspace, RunLockRejectsNewOpenSwitchAndClose) {
     EXPECT_TRUE(WorkspaceTestAccess::newEnabled(window));
     WorkspaceTestAccess::select(window, 0);
     EXPECT_EQ(WorkspaceTestAccess::active(window), 0);
+}
+
+TEST(Workspace, WelcomeLeadsToTheUntitledProjectOrIsReplacedByTheOpenedOne) {
+    MainWindow window;
+    auto* tabs = window.findChild<QTabBar*>("vortia-project-tabs");
+    ASSERT_NE(tabs, nullptr);
+    EXPECT_TRUE(WorkspaceTestAccess::welcome(window));
+    EXPECT_TRUE(tabs->isHidden());
+    ASSERT_TRUE(QMetaObject::invokeMethod(&window, "onNewProject", Qt::DirectConnection));
+    EXPECT_FALSE(WorkspaceTestAccess::welcome(window));
+    EXPECT_FALSE(tabs->isHidden());
+    EXPECT_EQ(WorkspaceTestAccess::count(window), 1U);
+    ASSERT_FALSE(WorkspaceTestAccess::dirty(window));
+    WorkspaceTestAccess::close(window, 0);
+    EXPECT_TRUE(WorkspaceTestAccess::welcome(window));
+    EXPECT_EQ(WorkspaceTestAccess::count(window), 1U);
+
+    QTemporaryDir directory;
+    const auto root = std::filesystem::path(directory.path().toStdString()) / "project";
+    auto project = Project::create(root, "project");
+    ASSERT_TRUE(project);
+    project->setSetupJson(WorkspaceTestAccess::setupJson(window));
+    ASSERT_TRUE(project->save());
+    ASSERT_TRUE(WorkspaceTestAccess::openFromWelcome(window, QString::fromStdString(root.string())));
+    EXPECT_FALSE(WorkspaceTestAccess::welcome(window));
+    EXPECT_EQ(WorkspaceTestAccess::count(window), 1U);
+    EXPECT_EQ(WorkspaceTestAccess::title(window, 0), QStringLiteral("project"));
+}
+
+TEST(Welcome, RecentProjectsKeepTheLatestFirstWithoutRepeats) {
+    QStringList recent;
+    for (const auto* folder : {"/a", "/b", "/c/", "/a"})
+        recent = rememberRecentProject(recent, QString::fromLatin1(folder), 3);
+    EXPECT_EQ(recent, (QStringList{"/a", "/c", "/b"}));
+    recent = rememberRecentProject(recent, QStringLiteral("/d"), 3);
+    EXPECT_EQ(recent, (QStringList{"/d", "/a", "/c"}));
+    EXPECT_EQ(rememberRecentProject(recent, QString(), 3), recent);
 }
 
 TEST(Workspace, CancelClosingDirtyTabKeepsDrawing) {

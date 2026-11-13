@@ -40,7 +40,9 @@ add_library(vortia_ui STATIC
     src/WindowChrome.cpp
     include/vortia/ui/GlobalMenu.hpp
     src/GlobalMenu.cpp
-    src/SketchEditorDialog.cpp)
+    src/SketchEditorDialog.cpp
+    include/vortia/ui/WelcomeScreen.hpp
+    src/WelcomeScreen.cpp)
 
 add_library(vortia::ui ALIAS vortia_ui)
 
