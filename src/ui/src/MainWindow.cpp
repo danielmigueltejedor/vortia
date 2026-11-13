@@ -104,6 +104,9 @@ namespace vortia {
 
 namespace {
 
+// The in-window menu row (Linux without a desktop top bar for the menus), above the tabs.
+constexpr int kMenuRowHeight=32;
+
 CaseSetup makeCavity() {
     CaseSetup s;
     s.domain = BoxDomain::fromExtents({0, 0, 0}, {0.1, 0.1, 0.01}).value();
@@ -685,7 +688,8 @@ void MainWindow::setContextToolsVisible(bool visible) {
     if(!toolbar||!ribbon)return;
     constexpr int ribbonHeight=48;
     ribbon->setFixedHeight(ribbonHeight);ribbon->setVisible(visible);
-    const int header=findChild<QWidget*>("vortia-document-header")?44:0;
+    int header=findChild<QWidget*>("vortia-document-header")?44:0;
+    if(auto* menus=findChild<QWidget*>("vortia-menu-row");menus&&!menus->isHidden())header+=kMenuRowHeight;
     const int height=header+(visible?ribbonHeight:0);
     if(auto* topBar=findChild<QWidget*>("vortia-top-bar"))topBar->setFixedHeight(height);
     toolbar->setFixedHeight(height);toolbar->setVisible(height>0);
@@ -911,19 +915,30 @@ void MainWindow::buildDocks() {
             };
             keepShortcuts(menuBar()->actions());
             // Where no desktop top bar takes the menus (GNOME, KDE, X11…), they stay in the window:
-            // a menu bar at the head of the document header, before the tabs, as Forja does. It
+            // a menu row of its own above the document tabs, so the tabs keep their full row. It
             // goes once a top bar accepts them (Nodalix on Wayland) and comes back if that bar
             // goes away. The same menus and actions as the hidden main menu bar.
-            auto* inlineMenus=new QMenuBar(header);
+            auto* menuRow=new QWidget(topBar);
+            menuRow->setObjectName(QStringLiteral("vortia-menu-row"));
+            menuRow->setFixedHeight(kMenuRowHeight);
+            auto* menuLayout=new QHBoxLayout(menuRow);
+            menuLayout->setContentsMargins(8,0,0,0);menuLayout->setSpacing(0);
+            auto* inlineMenus=new QMenuBar(menuRow);
             inlineMenus->setObjectName(QStringLiteral("vortia-inline-menu"));
             inlineMenus->setNativeMenuBar(false);
             inlineMenus->addActions(menuBar()->actions());
             inlineMenus->setSizePolicy(QSizePolicy::Maximum,QSizePolicy::Preferred);
-            row->insertWidget(1,inlineMenus,0,Qt::AlignVCenter);
-            inlineMenus->setVisible(!ndl::globalMenuAvailable());
+            menuLayout->addWidget(inlineMenus,0,Qt::AlignVCenter);
+            menuLayout->addStretch(1);
+            qobject_cast<QVBoxLayout*>(topBar->layout())->insertWidget(0,menuRow);
+            chrome->addDragArea(menuRow);
+            menuRow->setVisible(!ndl::globalMenuAvailable());
             // Guarded: the registrar can answer, or vanish, after the window has gone.
-            ndl::exportGlobalMenu(menuBar(),[bar=QPointer<QMenuBar>(inlineMenus)](bool accepted){
-                if(bar)bar->setVisible(!accepted||!ndl::globalMenuAvailable());
+            ndl::exportGlobalMenu(menuBar(),[window=QPointer<MainWindow>(this),row=QPointer<QWidget>(menuRow)](bool accepted){
+                if(!window||!row)return;
+                row->setVisible(!accepted||!ndl::globalMenuAvailable());
+                if(auto* ribbon=window->findChild<QTabWidget*>("vortia-ribbon"))
+                    window->setContextToolsVisible(!ribbon->isHidden());
             });
             menuBar()->hide();
         }
