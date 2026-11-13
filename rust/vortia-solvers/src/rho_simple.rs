@@ -105,7 +105,7 @@ impl Schemes {
 
 /// A cell field and its value on every boundary face (`None` on empty
 /// faces).
-type WithBoundary = (Vec<f64>, Vec<Option<f64>>);
+pub(crate) type WithBoundary = (Vec<f64>, Vec<Option<f64>>);
 
 /// The pressure, its conditions, and its value on the boundary faces.
 struct Pressure {
@@ -738,11 +738,11 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
 const MASS_FLUX: [i32; 7] = [1, 0, -1, 0, 0, 0, 0];
 
-fn mul(a: &[f64], b: &[f64]) -> Vec<f64> {
+pub(crate) fn mul(a: &[f64], b: &[f64]) -> Vec<f64> {
     a.iter().zip(b).map(|(&a, &b)| a * b).collect()
 }
 
-fn mul_b(a: &[Option<f64>], b: &[Option<f64>]) -> Vec<Option<f64>> {
+pub(crate) fn mul_b(a: &[Option<f64>], b: &[Option<f64>]) -> Vec<Option<f64>> {
     a.iter()
         .zip(b)
         .map(|(a, b)| a.zip(*b).map(|(a, b)| a * b))
@@ -895,7 +895,7 @@ fn converged(control: &[(String, f64)], solves: &[(String, Performance)]) -> boo
 
 /// A field's internal values and boundary values, faces in patch order;
 /// only what the solver writes back on a restart.
-fn read_calculated(
+pub(crate) fn read_calculated(
     mesh: &PolyMesh,
     path: &std::path::Path,
     dims: [i32; 7],
@@ -947,7 +947,7 @@ fn split_faces(mesh: &PolyMesh, phi: &[f64]) -> WithBoundary {
 }
 
 /// A field with `calculated` conditions, as OpenFOAM writes `rho` and `phi`.
-fn calculated_field(
+pub(crate) fn calculated_field(
     mesh: &PolyMesh,
     name: &str,
     location: Location,

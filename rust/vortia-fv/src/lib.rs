@@ -6,6 +6,7 @@
 //! - [`FvGeometry`]: interpolation weights and face-gradient coefficients.
 //! - [`bc`]: scalar boundary conditions, evaluated.
 //! - [`ops`]: gradient, diffusion, convection and time-derivative operators.
+//! - [`reconstruct`]: directed face values of limited schemes (central-upwind fluxes).
 //! - [`vector`]: vector conditions and equations (momentum).
 
 #![forbid(unsafe_code)]
@@ -27,6 +28,7 @@ pub mod fvgeom;
 pub mod ldu;
 pub mod limited;
 pub mod ops;
+pub mod reconstruct;
 pub mod scalar;
 pub mod solve;
 pub mod stress;
