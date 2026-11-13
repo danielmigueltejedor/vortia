@@ -143,7 +143,7 @@ enum ContourDrawing {
         var best: (Int, Double)?
         for (index, point) in shape.points.enumerated() {
             let p = viewport.screen(point)
-            let d = hypot(p.x - location.x, p.y - location.y)
+            let d = Double(hypot(p.x - location.x, p.y - location.y))
             if d < reach, d < (best?.1 ?? .infinity) { best = (index, d) }
         }
         return best?.0
