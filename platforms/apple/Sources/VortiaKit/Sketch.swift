@@ -78,4 +78,18 @@ public struct Convergence: Codable, Equatable, Sendable {
     public var equationError: Double?
     public var stableSamples: Int
     public var requiredSamples: Int
+
+    public init(
+        status: String, iteration: Double?, globalMass: Double?, localMass: Double?,
+        fieldChange: Double?, equationError: Double?, stableSamples: Int, requiredSamples: Int
+    ) {
+        self.status = status
+        self.iteration = iteration
+        self.globalMass = globalMass
+        self.localMass = localMass
+        self.fieldChange = fieldChange
+        self.equationError = equationError
+        self.stableSamples = stableSamples
+        self.requiredSamples = requiredSamples
+    }
 }

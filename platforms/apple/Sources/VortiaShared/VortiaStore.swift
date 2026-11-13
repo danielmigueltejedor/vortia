@@ -73,6 +73,12 @@ public final class VortiaStore {
 
     /// A project with a contour runs the compressible workflow.
     public var isFlowProject: Bool { sketch != nil }
+    /// The stages the sidebar lists for this project, in order.
+    public var visibleStages: [Stage] {
+        isFlowProject
+            ? [.contour, .flowSetup, .run, .results, .engineering]
+            : [.geometry, .mesh, .physics, .time, .run, .results, .engineering]
+    }
     /// The section to analyse, and the report of the last one.
     public var section = SectionOptions()
     public var sectionLabel = ""

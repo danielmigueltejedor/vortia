@@ -14,7 +14,16 @@ struct VortiaApp: App {
             RootView(newProject: newProject, openProject: openProject)
                 .environment(store)
                 .frame(minWidth: 980, minHeight: 640)
-                .task { await supervisor.run(store: store) }
+                .task {
+                    if let appearance = Launch.appearance { NSApp.appearance = appearance }
+                    if Launch.snapshotFolder != nil { NSApp.setActivationPolicy(.regular) }
+                    if Launch.demo {
+                        await DemoSession.start(store)
+                        if let folder = Launch.snapshotFolder { await Snapshots.take(store, into: folder) }
+                    } else {
+                        await supervisor.run(store: store)
+                    }
+                }
         }
         .defaultSize(width: 1280, height: 820)
         .commands {
