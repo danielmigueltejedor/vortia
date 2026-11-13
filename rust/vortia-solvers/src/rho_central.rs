@@ -914,7 +914,10 @@ fn run_as(case: &Case, mut log: impl FnMut(&str), vortia: bool) -> Result<Vec<St
             )
         });
         let mut rejections = 0usize;
-        'attempt: loop {
+        // Each `reject!` restores the snapshot and retries through
+        // `continue 'attempt`; an attempt that gets through is accepted.
+        let mut accepted = false;
+        'attempt: while !accepted {
             macro_rules! reject {
                 ($what:expr) => {{
                     log(&format!(
@@ -1106,7 +1109,7 @@ fn run_as(case: &Case, mut log: impl FnMut(&str), vortia: bool) -> Result<Vec<St
             programmed.update_pressure(&mesh, &fv, &mut p.bc, &u_b, &thermo.t_b);
             p_b = p.bc.face_values(&mesh, &p_cells, &fv.delta_coeffs);
             rho_b = mul_b(&thermo.psi_b, &p_b);
-            break;
+            accepted = true;
         }
         let _ = Location::Cells;
         if let (Some(t), Some(start)) = (turbulence.as_mut(), &viscous_start) {
