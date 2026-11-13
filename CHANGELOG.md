@@ -6,14 +6,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [0.9.0] — 2026-11-13
 
-Vortia empieza como Vortia Native: con una bienvenida para crear o abrir un
-proyecto.
+Vortia empieza como Vortia Native, con una bienvenida para crear o abrir un
+proyecto, y Vortia Native se actualiza sola como Vortia.
 
 ### Añadido
 - **Bienvenida:** sin proyecto abierto, Vortia muestra Nuevo proyecto, Abrir
   proyecto y los proyectos recientes, como Vortia Native. Vuelve al cerrar el
   último proyecto. Un proyecto abierto desde ella ocupa el lugar del proyecto
   sin título, en lugar de abrirse en otra pestaña.
+- **Vortia Native se actualiza sola:** busca versiones nuevas una vez al día y
+  desde Vortia Native ▸ Buscar actualizaciones…, descarga su propia imagen de
+  disco, comprueba la suma SHA-256 publicada y la firma, y se reinicia con la
+  versión nueva. Si la nueva no arranca, vuelve la anterior. Para llegar a esta
+  versión hay que descargarla una última vez a mano.
 
 ## [0.8.0] — 2026-11-13
 
