@@ -18,6 +18,8 @@ use crate::globalmenu::{Entry, GlobalMenu, Menu};
 use crate::prefs::{self, Prefs, Theme};
 use crate::session::{Event, Outcome, Session};
 use crate::summary::{self, Summary};
+use crate::surface;
+use crate::viewer::Viewer;
 
 /// The accent of the app.
 const ACCENT: Accent = Accent::Vortia;
@@ -72,6 +74,17 @@ struct CaseView {
     summary_rx: Option<std::sync::mpsc::Receiver<Summary>>,
     /// The folder changed (a run ended): read it again.
     summary_stale: bool,
+    tab: Tab,
+    /// The mesh is read the first time it is looked at.
+    viewer: Option<Result<Viewer, String>>,
+    viewer_rx: Option<std::sync::mpsc::Receiver<Result<surface::Surface, String>>>,
+}
+
+/// What the main part of the case screen shows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Run,
+    Mesh,
 }
 
 impl CaseView {
@@ -87,6 +100,25 @@ impl CaseView {
             summary: None,
             summary_rx: None,
             summary_stale: true,
+            tab: Tab::Run,
+            viewer: None,
+            viewer_rx: None,
+        }
+    }
+
+    /// Reads the mesh on a thread the first time the viewer is wanted, and takes what it read.
+    fn ensure_viewer(&mut self, ctx: &Context) {
+        if let Some(rx) = &self.viewer_rx
+            && let Ok(read) = rx.try_recv()
+        {
+            self.viewer = Some(read.map(Viewer::new));
+            self.viewer_rx = None;
+        }
+        if self.tab == Tab::Mesh && self.viewer.is_none() && self.viewer_rx.is_none() {
+            let repaint = ctx.clone();
+            self.viewer_rx = Some(surface::spawn(self.dir.clone(), move || {
+                repaint.request_repaint()
+            }));
         }
     }
 
@@ -252,6 +284,13 @@ impl VortiaApp {
         self.screen = Screen::Case(Box::new(CaseView::new(dir.to_path_buf(), application)));
 
         Ok(())
+    }
+
+    /// Switches the open case to its mesh.
+    pub fn show_mesh(&mut self) {
+        if let Screen::Case(case) = &mut self.screen {
+            case.tab = Tab::Mesh;
+        }
     }
 
     fn save_prefs(&self) {
@@ -640,6 +679,16 @@ impl VortiaApp {
                 Vec2::new(width, room.y),
                 Layout::top_down(Align::Min),
                 |ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut case.tab, Tab::Run, "Run");
+                        ui.selectable_value(&mut case.tab, Tab::Mesh, "Mesh");
+                    });
+                    ui.add_space(space::SM);
+                    case.ensure_viewer(ctx);
+                    if case.tab == Tab::Mesh {
+                        mesh_tab(ui, p, case.viewer.as_mut());
+                        return;
+                    }
                     convergence_card(ui, p, case.report.as_ref());
                     ui.add_space(space::MD);
 
@@ -943,6 +992,27 @@ fn convergence_card(ui: &mut egui::Ui, p: &Palette, report: Option<&Convergence>
         });
 }
 
+/// The mesh of the case, or why there is none to show.
+fn mesh_tab(ui: &mut egui::Ui, p: &Palette, viewer: Option<&mut Result<Viewer, String>>) {
+    match viewer {
+        None => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Reading the mesh…");
+            });
+        }
+        Some(Err(message)) => {
+            ui.colored_label(for_egui::color(p.status_danger_fg), message.as_str());
+        }
+        Some(Ok(viewer)) => viewer.show(
+            ui,
+            for_egui::color(p.surface_sunken),
+            muted(p),
+            component::CONTROL_RADIUS.round().clamp(0.0, 255.0) as u8,
+        ),
+    }
+}
+
 fn tone_colors(p: &Palette, tone: Tone) -> (Color32, Color32) {
     let (fg, bg) = match tone {
         Tone::Info => (p.status_info_fg, p.status_info_bg),
@@ -1101,6 +1171,59 @@ mod tests {
         };
         assert_eq!(view.application.as_deref(), Some("vortiaCentralFoam"));
         assert_eq!(app.prefs.recent, [case.path().to_path_buf()]);
+    }
+
+    #[test]
+    fn the_mesh_of_a_case_is_read_and_drawn() {
+        let case = case_dir();
+        let from = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../vortia-foamfile/tests/data/cavity-ascii/constant/polyMesh");
+        let to = case.path().join("constant/polyMesh");
+        std::fs::create_dir_all(&to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+        }
+        let ctx = Context::default();
+        let mut app = VortiaApp::with_prefs(Prefs::default(), None);
+        app.open_case(case.path()).unwrap();
+        app.show_mesh();
+        let mut ready = false;
+        for _ in 0..200 {
+            frame(&mut app, &ctx);
+            if let Screen::Case(view) = &app.screen
+                && let Some(viewer) = &view.viewer
+            {
+                let viewer = viewer.as_ref().unwrap();
+                assert!(viewer.surface().triangle_count() > 0);
+                ready = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(ready, "the mesh was not read");
+        // And it draws once it is there.
+        frame(&mut app, &ctx);
+    }
+
+    #[test]
+    fn a_case_without_a_mesh_says_so_in_its_mesh_tab() {
+        let case = case_dir();
+        let ctx = Context::default();
+        let mut app = VortiaApp::with_prefs(Prefs::default(), None);
+        app.open_case(case.path()).unwrap();
+        app.show_mesh();
+        for _ in 0..200 {
+            frame(&mut app, &ctx);
+            if let Screen::Case(view) = &app.screen
+                && let Some(viewer) = &view.viewer
+            {
+                assert!(viewer.is_err());
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("no answer about the mesh");
     }
 
     #[test]

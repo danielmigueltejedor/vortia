@@ -22,3 +22,5 @@ pub mod globalmenu;
 pub mod prefs;
 pub mod session;
 pub mod summary;
+pub mod surface;
+pub mod viewer;
