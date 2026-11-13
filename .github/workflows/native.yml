@@ -34,14 +34,14 @@ jobs:
       - name: Build
         run: |
           swift --version
-          swift build --package-path platforms/apple --product VortiaMac
+          swift build --package-path platforms/apple --only-use-versions-from-resolved-file --product VortiaMac
 
       - name: Test
-        run: swift test --package-path platforms/apple
+        run: swift test --package-path platforms/apple --only-use-versions-from-resolved-file
 
       - name: Screenshots with the demonstration engine
         run: |
-          bin="$(swift build --package-path platforms/apple --show-bin-path)/VortiaMac"
+          bin="$(swift build --package-path platforms/apple --only-use-versions-from-resolved-file --show-bin-path)/VortiaMac"
           for appearance in light dark; do
             "$bin" --snapshot "screenshots/$appearance" --appearance "$appearance" \
               -AppleLanguages '(es)' -AppleLocale es_ES &
