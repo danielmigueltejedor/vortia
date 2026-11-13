@@ -54,6 +54,7 @@ public:
                                                   unsigned processes = 1);
 
 private:
+    [[nodiscard]] CaseRunner withNativeEngine(const std::filesystem::path& engine);
     [[nodiscard]] Expected<StepOutcome> runParallelFlow(const std::filesystem::path& caseDir,
         unsigned processes, const RunCallbacks&, CancellationToken*);
     [[nodiscard]] Expected<StepOutcome> execute(const std::string& label,

@@ -11,6 +11,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <thread>
 #include <chrono>
 
@@ -229,6 +230,63 @@ printf '#!/bin/sh\necho "Time = 50000"\necho "ExecutionTime = 2.6 s ClockTime = 
         auto ordinary=runner.runSolver(caseDir,minimalSetup(),caps_,{},nullptr,"vortiaCentralFoam");
         ASSERT_FALSE(ordinary.hasValue());
         EXPECT_EQ(ordinary.error().code,ErrorCode::InvalidData);
+    }
+}
+
+// The Rust engine, opt-in through VORTIA_NATIVE_ENGINE: a fake `vortia`
+// records the subcommands it is asked for, and no OpenFOAM tool is present.
+TEST_F(FakeBackendTest, NozzleCasesRunOnTheRustEngineWhenTheEnvironmentNamesIt) {
+    makeFakeTool("vortia", "echo \"$1\" >> \"$PWD/engine-calls\"\n"
+                           "[ \"$1\" = solve ] && echo 'Time = 7'\nexit 0\n");
+    const auto caseDir = dir_ / "case";
+    ASSERT_TRUE(CaseWriter::write(caseDir, minimalSetup(), caps_).hasValue());
+    { std::ofstream marker(caseDir / ".vortia-nozzle-case"); marker << "vortia-nozzle-video-2026-v3\n"; }
+    Capabilities none = caps_;
+    none.hasBlockMesh = false;
+    none.hasCheckMesh = false;
+    environment_.emplace_back("VORTIA_NATIVE_ENGINE", (bin_ / "vortia").string());
+    PosixProcessRunner processes;
+    CaseRunner runner(processes, environment_);
+    auto meshed = runner.runMeshing(caseDir, none, {}, nullptr);
+    ASSERT_TRUE(meshed.hasValue());
+    EXPECT_EQ(meshed->name, "initialize nozzle");
+    auto solved = runner.runSolver(caseDir, minimalSetup(), none, {}, nullptr, "vortiaCentralFoam");
+    ASSERT_TRUE(solved.hasValue());
+    EXPECT_TRUE(solved->process.succeeded());
+    EXPECT_EQ(solved->name, "vortiaCentralFoam");
+    EXPECT_DOUBLE_EQ(solved->finalTime, 7);
+    std::ifstream calls(caseDir / "engine-calls");
+    std::ostringstream all;
+    all << calls.rdbuf();
+    EXPECT_EQ(all.str(), "blockmesh\ncheck-mesh\nsetfields\nsolve\n");
+    // One process only, and a saved solution is never initialised again.
+    auto parallel = runner.runSolver(caseDir, minimalSetup(), none, {}, nullptr, "vortiaCentralFoam", 2);
+    ASSERT_FALSE(parallel.hasValue());
+    EXPECT_EQ(parallel.error().code, ErrorCode::InvalidArgument);
+    std::filesystem::create_directory(caseDir / "1e-06");
+    auto resumed = runner.runMeshing(caseDir, none, {}, nullptr);
+    ASSERT_TRUE(resumed.hasValue());
+    EXPECT_EQ(resumed->name, "blockMesh");
+}
+
+TEST_F(FakeBackendTest, ARustEnginePathThatIsNotPlainIsIgnored) {
+    makeFakeTool("vortia", "exit 0\n");
+    makeFakeTool("blockMesh", "exit 0\n");
+    makeFakeTool("checkMesh", "exit 0\n");
+    makeFakeTool("setFields", "exit 0\n");
+    const auto caseDir = dir_ / "case";
+    ASSERT_TRUE(CaseWriter::write(caseDir, minimalSetup(), caps_).hasValue());
+    { std::ofstream marker(caseDir / ".vortia-nozzle-case"); marker << "vortia-nozzle-video-2026-v3\n"; }
+    PosixProcessRunner processes;
+    for (const std::string& value : {std::string("vortia"), (bin_ / "other").string(),
+                                    (bin_ / "vortia").string() + ":/tmp"}) {
+        auto environment = environment_;
+        environment.emplace_back("VORTIA_NATIVE_ENGINE", value);
+        CaseRunner runner(processes, environment);
+        auto meshed = runner.runMeshing(caseDir, caps_, {}, nullptr);
+        ASSERT_TRUE(meshed.hasValue()) << value;
+        EXPECT_EQ(meshed->name, "initialize nozzle") << value;
+        EXPECT_FALSE(std::filesystem::exists(caseDir / "engine-calls")) << value;
     }
 }
 

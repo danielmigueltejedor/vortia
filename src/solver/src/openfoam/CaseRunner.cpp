@@ -8,6 +8,7 @@
 #include <chrono>
 #include <algorithm>
 #include <cctype>
+#include <optional>
 
 namespace vortia::openfoam {
 
@@ -29,7 +30,62 @@ private:
     std::ofstream out_;
 };
 
+/// The Rust engine, when the captured environment names it: the absolute path
+/// of the `vortia` command line tool in `VORTIA_NATIVE_ENGINE`. Only a plain
+/// absolute path of an existing file counts, as it ends up in a PATH.
+std::optional<std::filesystem::path> nativeEngine(
+    const std::vector<std::pair<std::string, std::string>>& environment) {
+    for (const auto& [key, value] : environment) {
+        if (key != "VORTIA_NATIVE_ENGINE") continue;
+        const std::filesystem::path path(value);
+        std::error_code error;
+        if (!path.is_absolute() || path.filename() != "vortia"
+            || std::any_of(value.begin(), value.end(), [](unsigned char c) {
+                   return std::isspace(c) || c == ':';
+               })
+            || !std::filesystem::is_regular_file(path, error))
+            return std::nullopt;
+        return path;
+    }
+    return std::nullopt;
+}
+
+/// Whether the case already holds a saved time after the start.
+bool hasSolution(const std::filesystem::path& caseDir) {
+    for (const auto& entry : std::filesystem::directory_iterator(caseDir)) {
+        if (!entry.is_directory()) continue;
+        const auto name = entry.path().filename().string();
+        try {
+            std::size_t used = 0;
+            const double time = std::stod(name, &used);
+            if (used == name.size() && std::isfinite(time) && time > 0) return true;
+        } catch (...) {} // ordinary folders such as constant/system
+    }
+    return false;
+}
+
+bool nozzleCase(const std::filesystem::path& caseDir) {
+    std::ifstream marker(caseDir / ".vortia-nozzle-case");
+    std::string kind;
+    std::getline(marker, kind);
+    return kind == "vortia-nozzle-video-2026-v1" || kind == "vortia-nozzle-video-2026-v2"
+        || kind == "vortia-nozzle-video-2026-v3";
+}
+
 } // namespace
+
+/// A runner that finds the Rust engine's `vortia` first.
+CaseRunner CaseRunner::withNativeEngine(const std::filesystem::path& engine) {
+    auto environment = environment_;
+    bool pathSet = false;
+    for (auto& [key, value] : environment)
+        if (key == "PATH") {
+            value = engine.parent_path().string() + ":" + value;
+            pathSet = true;
+        }
+    if (!pathSet) environment.emplace_back("PATH", engine.parent_path().string());
+    return CaseRunner(processes_, std::move(environment));
+}
 
 Expected<StepOutcome> CaseRunner::execute(const std::string& label,
                                           const std::string& executable,
@@ -106,6 +162,21 @@ Expected<StepOutcome> CaseRunner::runMeshing(const std::filesystem::path& caseDi
             return Error::make(ErrorCode::InvalidData,"The CAD mesh is missing; generate a new mesh revision");
         return execute("check CAD mesh","checkMesh",{},caseDir,callbacks,token);
     }
+    if (const auto engine = nativeEngine(environment_); engine && nozzleCase(caseDir)) {
+        // The nozzle cases mesh and initialise on the Rust engine, with no
+        // OpenFOAM tool involved.
+        auto native = withNativeEngine(*engine);
+        auto meshed = native.execute("blockMesh", "vortia", {"blockmesh"}, caseDir, callbacks, token);
+        if (!meshed || !meshed->process.succeeded() || meshed->process.cancelled)
+            return meshed;
+        auto checked = native.execute("checkMesh", "vortia", {"check-mesh"}, caseDir, callbacks, token);
+        if (!checked || !checked->process.succeeded()) {
+            if (checked) log(LogLevel::Warning, "check-mesh reported problems; see log.vortia");
+            return checked;
+        }
+        if (hasSolution(caseDir)) return meshed;
+        return native.execute("initialize nozzle", "vortia", {"setfields"}, caseDir, callbacks, token);
+    }
     if (!caps.hasBlockMesh)
         return Error::make(ErrorCode::BackendUnavailable,
                            "blockMesh is not available in this OpenFOAM installation");
@@ -132,17 +203,7 @@ Expected<StepOutcome> CaseRunner::runMeshing(const std::filesystem::path& caseDi
     std::getline(marker, kind);
     if (kind == "vortia-nozzle-video-2026-v1" || kind == "vortia-nozzle-video-2026-v2"
         || kind == "vortia-nozzle-video-2026-v3") {
-        bool hasSolution = false;
-        for (const auto& entry : std::filesystem::directory_iterator(caseDir)) {
-            if (!entry.is_directory()) continue;
-            const auto name = entry.path().filename().string();
-            try {
-                std::size_t used = 0;
-                const double time = std::stod(name, &used);
-                if (used == name.size() && std::isfinite(time) && time > 0) hasSolution = true;
-            } catch (...) {} // ordinary folders such as constant/system
-        }
-        if (!hasSolution)
+        if (!hasSolution(caseDir))
             return execute("initialize nozzle", "setFields", {}, caseDir, callbacks, token);
     }
     return mesh;
@@ -186,6 +247,13 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
         if (kind != "vortia-nozzle-video-2026-v3" && !generalFlow)
             return Error::make(ErrorCode::InvalidData,
                 "prepare a fresh v3 no-swirl nozzle case; earlier or unmarked cases cannot use this backend");
+        if (const auto engine = nativeEngine(environment_); engine && !generalFlow) {
+            if (processes > 1)
+                return Error::make(ErrorCode::InvalidArgument,
+                    "the Rust engine runs on one process; select one process");
+            return withNativeEngine(*engine).execute("vortiaCentralFoam", "vortia", {"solve"},
+                                                     caseDir, callbacks, token);
+        }
         if (kind == "vortia-nozzle-video-2026-v3" || generalFlow) {
             std::string version;
             for (const auto& [key,value] : environment_)

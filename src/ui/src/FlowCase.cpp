@@ -17,6 +17,7 @@
 #include <vector>
 #include <tuple>
 #include <cmath>
+#include <cstdlib>
 #include "vortia/solver/openfoam/Detector.hpp"
 #include <QCryptographicHash>
 #include <QTemporaryFile>
@@ -169,7 +170,13 @@ std::vector<std::pair<std::string, std::string>> flowSolverRuntime(
     const auto key = QCryptographicHash::hash(QJsonDocument(runtime).toJson(QJsonDocument::Compact),
                                               QCryptographicHash::Sha256).toHex();
     const auto cache = QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("flow-engines");
-    return {{"VORTIA_SOLVER_RUNTIME_KEY", key.toStdString()}, {"VORTIA_SOLVER_CACHE_DIR", cache.toStdString()}};
+    std::vector<std::pair<std::string, std::string>> result{
+        {"VORTIA_SOLVER_RUNTIME_KEY", key.toStdString()}, {"VORTIA_SOLVER_CACHE_DIR", cache.toStdString()}};
+    // Opt in to the Rust engine for the nozzle cases: the absolute path of
+    // its `vortia` command line tool. CaseRunner ignores anything else.
+    if (const char* engine = std::getenv("VORTIA_NATIVE_ENGINE"); engine && *engine)
+        result.emplace_back("VORTIA_NATIVE_ENGINE", engine);
+    return result;
 }
 
 FlowCaseResult prepareFlowCase(const QString& sketchPath, const QJsonObject& cfg, const QString& projectRoot,
