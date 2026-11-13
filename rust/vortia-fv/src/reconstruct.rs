@@ -16,8 +16,8 @@ use vortia_mesh::PolyMesh;
 
 use crate::error::{FvError, Result};
 use crate::fvgeom::FvGeometry;
-use crate::limited::gauss_grad;
-use crate::stress::{Tensor, dot};
+use crate::limited::{self, GradScheme};
+use crate::stress::{Tensor, dot, limit_cells};
 
 /// The limiter function of a scheme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +82,8 @@ impl Reconstruction {
 
     /// `limiter·λ + (1 − limiter)·pos0(dir)` on every internal face for the
     /// scalar `cells` (or the squared magnitude of a vector), given the
-    /// boundary values of the field for its gradient.
+    /// boundary values of the field for its gradient, which `grad` names the
+    /// scheme of.
     pub fn weights(
         self,
         mesh: &PolyMesh,
@@ -90,11 +91,12 @@ impl Reconstruction {
         direction: f64,
         cells: &[f64],
         boundary: &[Option<f64>],
+        grad: GradScheme,
     ) -> Vec<f64> {
         match self {
             Self::Upwind | Self::Linear => self.fixed(mesh, fv, direction),
             Self::Limited { limiter, .. } => {
-                let g = gauss_grad(mesh, fv, cells, boundary);
+                let g = limited::grad(grad, mesh, fv, cells, boundary);
                 self.combine(mesh, fv, direction, limiter, |o, n, d| {
                     let (Some(&po), Some(&pn)) = (cells.get(o), cells.get(n)) else {
                         return 1.0;
@@ -116,13 +118,17 @@ impl Reconstruction {
         direction: f64,
         cells: &[Vec3],
         boundary: &[Option<Vec3>],
+        grad: GradScheme,
     ) -> Vec<f64> {
         match self {
             Self::Limited {
                 limiter,
                 vector: true,
             } => {
-                let g = gauss_grad_vector(mesh, fv, cells, boundary);
+                let mut g = gauss_grad_vector(mesh, fv, cells, boundary);
+                if let GradScheme::CellLimited(k) = grad {
+                    limit_cells(mesh, fv, cells, boundary, &mut g, k);
+                }
                 self.combine(mesh, fv, direction, limiter, |o, n, d| {
                     let (Some(&po), Some(&pn)) = (cells.get(o), cells.get(n)) else {
                         return 1.0;
@@ -138,7 +144,7 @@ impl Reconstruction {
                 let mag_sqr: Vec<f64> = cells.iter().map(|v| v.dot(*v)).collect();
                 let boundary: Vec<Option<f64>> =
                     boundary.iter().map(|v| v.map(|v| v.dot(v))).collect();
-                self.weights(mesh, fv, direction, &mag_sqr, &boundary)
+                self.weights(mesh, fv, direction, &mag_sqr, &boundary, grad)
             }
             Self::Upwind | Self::Linear => self.fixed(mesh, fv, direction),
         }
@@ -325,15 +331,15 @@ mod tests {
             limiter: Limiter::VanLeer,
             vector: false,
         };
-        let w = scheme.weights(&mesh, &fv, 1.0, &ramp, &bc);
+        let w = scheme.weights(&mesh, &fv, 1.0, &ramp, &bc, GradScheme::GaussLinear);
         // On a ramp r = 1, so the limiter is 1 and the weights are linear.
         for (f, x) in w.iter().enumerate().skip(1).take(w.len().saturating_sub(2)) {
             assert!((x - fv.weights[f]).abs() < 1e-12, "face {f}: {x}");
         }
         // A step is upwind: the limiter is 0 beside the jump.
         let step = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
-        let w = scheme.weights(&mesh, &fv, 1.0, &step, &bc);
-        let right = scheme.weights(&mesh, &fv, -1.0, &step, &bc);
+        let w = scheme.weights(&mesh, &fv, 1.0, &step, &bc, GradScheme::GaussLinear);
+        let right = scheme.weights(&mesh, &fv, -1.0, &step, &bc, GradScheme::GaussLinear);
         assert!(w[3] <= 1.0 && w[3] >= 0.0);
         assert!(
             (w[3] - 1.0).abs() < 1e-12,
@@ -350,8 +356,10 @@ mod tests {
     #[test]
     fn upwind_takes_the_side_the_direction_names() {
         let (mesh, fv) = line(4);
-        let owner = Reconstruction::Upwind.weights(&mesh, &fv, 1.0, &[], &[]);
-        let neighbour = Reconstruction::Upwind.weights(&mesh, &fv, -1.0, &[], &[]);
+        let owner =
+            Reconstruction::Upwind.weights(&mesh, &fv, 1.0, &[], &[], GradScheme::GaussLinear);
+        let neighbour =
+            Reconstruction::Upwind.weights(&mesh, &fv, -1.0, &[], &[], GradScheme::GaussLinear);
         assert!(owner.iter().all(|&w| w == 1.0));
         assert!(neighbour.iter().all(|&w| w == 0.0));
         let values = [1.0, 2.0, 3.0, 4.0];
@@ -369,12 +377,26 @@ mod tests {
             limiter: Limiter::VanLeer,
             vector: true,
         }
-        .weights_vector(&mesh, &fv, 1.0, &vs, &vec![None; nb]);
+        .weights_vector(
+            &mesh,
+            &fv,
+            1.0,
+            &vs,
+            &vec![None; nb],
+            GradScheme::GaussLinear,
+        );
         let s = Reconstruction::Limited {
             limiter: Limiter::VanLeer,
             vector: false,
         }
-        .weights(&mesh, &fv, 1.0, &xs, &vec![None; nb]);
+        .weights(
+            &mesh,
+            &fv,
+            1.0,
+            &xs,
+            &vec![None; nb],
+            GradScheme::GaussLinear,
+        );
         for (a, b) in v.iter().zip(&s) {
             assert!((a - b).abs() < 1e-12, "{a} vs {b}");
         }
@@ -394,8 +416,15 @@ mod tests {
             vec![1.0; 2],
             vec![],
         ] {
-            let _ = scheme.weights(&mesh, &fv, 1.0, &cells, &vec![None; nb]);
-            let _ = scheme.weights(&mesh, &fv, -1.0, &cells, &[]);
+            let _ = scheme.weights(
+                &mesh,
+                &fv,
+                1.0,
+                &cells,
+                &vec![None; nb],
+                GradScheme::GaussLinear,
+            );
+            let _ = scheme.weights(&mesh, &fv, -1.0, &cells, &[], GradScheme::GaussLinear);
         }
         assert!(Reconstruction::from_scheme(&["vanLeerV"], false).is_err());
         assert!(Reconstruction::from_scheme(&["QUICK"], true).is_err());

@@ -197,6 +197,28 @@ impl Case {
         Ok(SnGrad::from_scheme(&words(&w))?)
     }
 
+    /// As [`laplacian_sn_grad`](Self::laplacian_sn_grad), also taking
+    /// `Gauss linear limited k` (or `limited corrected k`): the corrected
+    /// gradient with its correction limited to `k` times the orthogonal
+    /// part, returned as the coefficient beside `Corrected`.
+    pub fn limited_laplacian_sn_grad(&self, key: &str) -> Result<(SnGrad, Option<f64>)> {
+        let w = self.scheme("laplacianSchemes", key)?;
+        match words(&w).as_slice() {
+            ["Gauss", "linear", "limited", rest @ ..] => Ok((SnGrad::Corrected, limit(rest, key)?)),
+            other => Ok((SnGrad::from_scheme(other)?, None)),
+        }
+    }
+
+    /// As [`face_sn_grad`](Self::face_sn_grad), also taking `limited k` and
+    /// `limited corrected k`.
+    pub fn limited_face_sn_grad(&self, key: &str) -> Result<(SnGrad, Option<f64>)> {
+        let w = self.scheme("snGradSchemes", key)?;
+        match words(&w).as_slice() {
+            ["limited", rest @ ..] => Ok((SnGrad::Corrected, limit(rest, key)?)),
+            _ => Ok((self.face_sn_grad(key)?, None)),
+        }
+    }
+
     /// The surface-normal gradient of `laplacianSchemes` for `key`, refusing
     /// a non-orthogonal correction, which the solvers do not have yet.
     pub fn uncorrected_sn_grad(&self, key: &str) -> Result<SnGrad> {
@@ -484,6 +506,25 @@ fn trim(s: &str) -> String {
 
 fn words(w: &[String]) -> Vec<&str> {
     w.iter().map(String::as_str).collect()
+}
+
+/// The coefficient of `limited [corrected] k`, from the words after
+/// `limited`: a number from 0 to 1.
+fn limit(rest: &[&str], key: &str) -> Result<Option<f64>> {
+    let k = match rest {
+        [k] | ["corrected", k] => k,
+        _ => {
+            return Err(SolverError::Setup(format!(
+                "the limited scheme of {key} needs a coefficient: limited 0.5"
+            )));
+        }
+    };
+    match k.parse::<f64>() {
+        Ok(k) if (0.0..=1.0).contains(&k) => Ok(Some(k)),
+        _ => Err(SolverError::Setup(format!(
+            "the limited scheme of {key} needs a coefficient from 0 to 1, not '{k}'"
+        ))),
+    }
 }
 
 #[cfg(test)]

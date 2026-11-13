@@ -817,6 +817,22 @@ fn a_viscous_gas_needs_the_schemes_of_its_stress() {
     );
     // A gradient scheme the engine does not have is refused, not replaced.
     assert!(run("default Gauss linear;", "default Gauss pointLinear;").is_err());
+    // A limited scheme needs a coefficient from 0 to 1.
+    for bad in ["limited", "limited 1.5", "limited x"] {
+        let e = run(
+            "laplacianSchemes { default Gauss linear corrected; }",
+            &format!("laplacianSchemes {{ default Gauss linear {bad}; }}"),
+        )
+        .unwrap_err();
+        assert!(e.contains("limited"), "{bad}: {e}");
+    }
+    assert!(
+        run(
+            "snGradSchemes { default corrected; }",
+            "snGradSchemes { default limited 2; }",
+        )
+        .is_err()
+    );
 }
 
 /// The nozzle's wedge mesh (7500 cells, as the example case has it): air at
@@ -825,7 +841,7 @@ fn a_viscous_gas_needs_the_schemes_of_its_stress() {
 /// twenty iterations), with local time stepping and the nozzle case's
 /// `Minmod` for the velocity. OpenFOAM v1912 ran the same files for the
 /// reference.
-fn wedge(dir: &Path) {
+fn wedge(dir: &Path, nozzle_schemes: bool) {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/nozzle-practice-2026");
     let mesh = dir.join("constant/polyMesh");
     std::fs::create_dir_all(&mesh).unwrap();
@@ -876,16 +892,27 @@ fn wedge(dir: &Path) {
              writePrecision 17; maxCo 0.5; maxDeltaT 1; rDeltaTSmoothingCoeff 0.1;"
         ),
     );
+    // The nozzle case's own gradient, Laplacian and snGrad schemes, or the
+    // plain ones.
+    let (grad, laplacian, sn_grad) = if nozzle_schemes {
+        (
+            "cellLimited Gauss linear 1",
+            "Gauss linear limited 0.5",
+            "limited 0.5",
+        )
+    } else {
+        ("Gauss linear", "Gauss linear corrected", "corrected")
+    };
     write(
         &dir.join("system/fvSchemes"),
         &format!(
             "{HEADER}fluxScheme Kurganov; ddtSchemes {{ default localEuler; }} \
-             gradSchemes {{ default Gauss linear; }} \
+             gradSchemes {{ default {grad}; }} \
              divSchemes {{ default none; div(tauMC) Gauss linear; }} \
-             laplacianSchemes {{ default Gauss linear corrected; }} \
+             laplacianSchemes {{ default {laplacian}; }} \
              interpolationSchemes {{ default linear; reconstruct(rho) vanLeer; \
              reconstruct(U) Minmod; reconstruct(T) vanLeer; }} \
-             snGradSchemes {{ default corrected; }}"
+             snGradSchemes {{ default {sn_grad}; }}"
         ),
     );
     write(
@@ -946,15 +973,45 @@ const WEDGE_REFERENCE: [(usize, f64, f64, f64, f64, f64); 4] = [
     ),
 ];
 
-/// A wedge side turns the velocity onto itself and, being a constraint,
-/// takes the cell's density the moment the continuity equation has set it:
-/// the faces of the other patches keep the density the step began with. A
-/// stale density on the wedge made the limited schemes differ from OpenFOAM
-/// by 1e-8 once a pressure wave had reached a cell with a wedge face.
-#[test]
-fn a_viscous_gas_on_a_wedge_matches_openfoam() {
+const WEDGE_NOZZLE_SCHEMES: [(usize, f64, f64, f64, f64, f64); 4] = [
+    (
+        0,
+        314.4675244650157,
+        158881.3448077856,
+        1.7597909854443516,
+        17.66151475903225,
+        -0.07040593995598096,
+    ),
+    (
+        2175,
+        309.8202589482329,
+        158111.95811834003,
+        1.7775379762236037,
+        10.409595299307394,
+        -0.882894812299362,
+    ),
+    (
+        3749,
+        292.6910667221694,
+        145643.42930934296,
+        1.7331869573384402,
+        73.7200582953694,
+        -0.2719980325010037,
+    ),
+    (
+        74,
+        299.5735903403249,
+        149725.83998142133,
+        1.7408334266835384,
+        16.794733338617824,
+        -0.056618064958585734,
+    ),
+];
+
+/// Runs the wedge case twenty iterations and checks the four cells.
+fn check_wedge(nozzle_schemes: bool, reference: &[(usize, f64, f64, f64, f64, f64)], rel: f64) {
     let dir = tempfile::tempdir().unwrap();
-    wedge(dir.path());
+    wedge(dir.path(), nozzle_schemes);
     let case = Case::open(dir.path()).unwrap();
     let steps = rho_central::run(&case, |_| {}).unwrap();
     assert_eq!(steps.len(), 20);
@@ -974,11 +1031,11 @@ fn a_viscous_gas_on_a_wedge_matches_openfoam() {
         .unwrap();
     let close = |got: f64, want: f64, what: &str| {
         assert!(
-            (got - want).abs() <= 1e-10 * want.abs().max(1e-3),
+            (got - want).abs() <= rel * want.abs().max(1e-3),
             "{what}: {got} vs {want}"
         );
     };
-    for (c, tc, pc, rc, ux, uy) in WEDGE_REFERENCE {
+    for &(c, tc, pc, rc, ux, uy) in reference {
         close(t[c], tc, &format!("T, cell {c}"));
         close(p[c], pc, &format!("p, cell {c}"));
         close(rho[c], rc, &format!("rho, cell {c}"));
@@ -986,4 +1043,22 @@ fn a_viscous_gas_on_a_wedge_matches_openfoam() {
         close(u[c].y, uy, &format!("Uy, cell {c}"));
         assert!(u[c].z.abs() < 1e-9, "Uz in cell {c}: {}", u[c].z);
     }
+}
+
+/// A wedge side turns the velocity onto itself and, being a constraint,
+/// takes the cell's density the moment the continuity equation has set it:
+/// the faces of the other patches keep the density the step began with. A
+/// stale density on the wedge made the limited schemes differ from OpenFOAM
+/// by 1e-8 once a pressure wave had reached a cell with a wedge face.
+#[test]
+fn a_viscous_gas_on_a_wedge_matches_openfoam() {
+    check_wedge(false, &WEDGE_REFERENCE, 1e-10);
+}
+
+/// The same with what the nozzle case sets: `cellLimited Gauss linear 1` for
+/// every gradient, the limiters' included, and `limited 0.5` for the
+/// Laplacians and `snGrad(U)`.
+#[test]
+fn the_nozzle_cases_gradient_and_limited_schemes_match_openfoam() {
+    check_wedge(true, &WEDGE_NOZZLE_SCHEMES, 1e-9);
 }

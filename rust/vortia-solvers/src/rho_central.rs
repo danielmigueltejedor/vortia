@@ -63,6 +63,10 @@ struct Schemes {
     rho: Reconstruction,
     u: Reconstruction,
     t: Reconstruction,
+    /// The gradients the limiters read, per reconstructed field: `rho`,
+    /// `rPsi`, `c`, `e` and the momentum (`rhoU` itself for a `V` scheme,
+    /// else its squared magnitude).
+    grads: [GradScheme; 5],
 }
 
 impl Schemes {
@@ -81,11 +85,24 @@ impl Schemes {
             let words: Vec<&str> = words.iter().map(String::as_str).collect();
             Ok(Reconstruction::from_scheme(&words, vector)?)
         };
+        let u = read("reconstruct(U)", true)?;
+        let momentum = match u {
+            Reconstruction::Limited { vector: true, .. } => "grad(rhoU)",
+            _ => "grad(magSqr(rhoU))",
+        };
+        let grad = |key: &str| case.grad_scheme(key);
         Ok(Self {
             flux,
             rho: read("reconstruct(rho)", false)?,
-            u: read("reconstruct(U)", true)?,
+            u,
             t: read("reconstruct(T)", false)?,
+            grads: [
+                grad("grad(rho)")?,
+                grad("grad(rPsi)")?,
+                grad("grad(c)")?,
+                grad("grad(e)")?,
+                grad(momentum)?,
+            ],
         })
     }
 }
@@ -170,10 +187,12 @@ fn local_r_delta_t(
 struct Viscous {
     velocity_grad: GradScheme,
     energy_grad: GradScheme,
-    momentum_sn_grad: SnGrad,
-    energy_sn_grad: SnGrad,
+    /// The Laplacians' gradients, each with the coefficient of a `limited`
+    /// scheme.
+    momentum_sn_grad: (SnGrad, Option<f64>),
+    energy_sn_grad: (SnGrad, Option<f64>),
     /// `snGrad(U)`, of the work of the viscous stress.
-    face_sn_grad: SnGrad,
+    face_sn_grad: (SnGrad, Option<f64>),
     u_solver: (LinearSolver, Controls),
     e_solver: (LinearSolver, Controls),
 }
@@ -197,9 +216,9 @@ impl Viscous {
         Ok(Self {
             velocity_grad: case.grad_scheme("grad(U)")?,
             energy_grad: case.grad_scheme("grad(e)")?,
-            momentum_sn_grad: case.laplacian_sn_grad("laplacian(muEff,U)")?,
-            energy_sn_grad: case.laplacian_sn_grad("laplacian(alphaEff,e)")?,
-            face_sn_grad: case.face_sn_grad("snGrad(U)")?,
+            momentum_sn_grad: case.limited_laplacian_sn_grad("laplacian(muEff,U)")?,
+            energy_sn_grad: case.limited_laplacian_sn_grad("laplacian(alphaEff,e)")?,
+            face_sn_grad: case.limited_face_sn_grad("snGrad(U)")?,
             u_solver: LinearSolver::read(case, "U")?,
             e_solver: LinearSolver::read(case, "e")?,
         })
@@ -513,19 +532,22 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             .iter()
             .map(|r| r.map(|r| (gamma * r).sqrt()))
             .collect();
-        let scalar = |scheme: Reconstruction, cells: &[f64], boundary: &[Option<f64>]| {
-            let side = |dir: f64| {
-                let w = scheme.weights(&mesh, &fv, dir, cells, boundary);
-                interpolate(&mesh, &w, cells, boundary)
+        let scalar =
+            |scheme: Reconstruction, cells: &[f64], boundary: &[Option<f64>], grad: GradScheme| {
+                let side = |dir: f64| {
+                    let w = scheme.weights(&mesh, &fv, dir, cells, boundary, grad);
+                    interpolate(&mesh, &w, cells, boundary)
+                };
+                (side(1.0), side(-1.0))
             };
-            (side(1.0), side(-1.0))
-        };
-        let (rho_pos, rho_neg) = scalar(schemes.rho, &rho, &rho_b);
-        let (r_psi_pos, r_psi_neg) = scalar(schemes.t, &r_psi, &r_psi_b);
-        let (c_pos, c_neg) = scalar(schemes.t, &c, &c_b);
-        let (e_pos, e_neg) = scalar(schemes.t, &thermo.he, &thermo.he_b);
+        let (rho_pos, rho_neg) = scalar(schemes.rho, &rho, &rho_b, schemes.grads[0]);
+        let (r_psi_pos, r_psi_neg) = scalar(schemes.t, &r_psi, &r_psi_b, schemes.grads[1]);
+        let (c_pos, c_neg) = scalar(schemes.t, &c, &c_b, schemes.grads[2]);
+        let (e_pos, e_neg) = scalar(schemes.t, &thermo.he, &thermo.he_b, schemes.grads[3]);
         let vector = |dir: f64| {
-            let w = schemes.u.weights_vector(&mesh, &fv, dir, &rho_u, &rho_u_b);
+            let w = schemes
+                .u
+                .weights_vector(&mesh, &fv, dir, &rho_u, &rho_u_b, schemes.grads[4]);
             interpolate(&mesh, &w, &rho_u, &rho_u_b)
         };
         let (rho_u_pos, rho_u_neg) = (vector(1.0), vector(-1.0));
@@ -824,11 +846,14 @@ fn momentum_equation(
         u_bc,
         &mu_f,
         u,
-        v.momentum_sn_grad.without_correction(),
+        v.momentum_sn_grad.0.without_correction(),
     )?;
-    if v.momentum_sn_grad == SnGrad::Corrected {
+    if v.momentum_sn_grad.0 == SnGrad::Corrected {
         let (g, _) = stress::grad(v.velocity_grad, mesh, fv, u_bc, u);
-        let corr = correction::sn_grad_correction_vector(mesh, fv, &g);
+        let mut corr = correction::sn_grad_correction_vector(mesh, fv, &g);
+        if let Some(k) = v.momentum_sn_grad.1 {
+            corr = correction::limit_correction(mesh, fv, u, &corr, k, Vec3::norm);
+        }
         let flux = correction::scale_by_gamma_mag_sf(fv, &mu_f, &corr);
         correction::subtract_divergence(&mut lap.source, mesh, &flux);
     }
@@ -878,11 +903,14 @@ fn diffuse_energy(
         fv,
         &he_bc,
         &alpha_f,
-        v.energy_sn_grad.without_correction(),
+        v.energy_sn_grad.0.without_correction(),
     )?;
-    if v.energy_sn_grad == SnGrad::Corrected {
+    if v.energy_sn_grad.0 == SnGrad::Corrected {
         let g = limited::grad(v.energy_grad, mesh, fv, &thermo.he, &thermo.he_b);
-        let corr = correction::sn_grad_correction(mesh, fv, &g);
+        let mut corr = correction::sn_grad_correction(mesh, fv, &g);
+        if let Some(k) = v.energy_sn_grad.1 {
+            corr = correction::limit_correction(mesh, fv, &thermo.he, &corr, k, f64::abs);
+        }
         let flux = correction::scale_by_gamma_mag_sf(fv, &alpha_f, &corr);
         correction::subtract_divergence(&mut lap.ldu.source, mesh, &flux);
     }
