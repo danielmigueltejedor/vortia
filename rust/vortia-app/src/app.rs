@@ -10,7 +10,9 @@ use eframe::egui::{
     self, Align, Color32, Context, CornerRadius, Frame, Id, Key, KeyboardShortcut, Layout, Margin,
     Modifiers, RichText, Sense, Stroke, Vec2, ViewportBuilder, ViewportCommand,
 };
-use nodalia_theme::{Accent, Mode, Palette, component, font_size, for_egui, icons, radius, space};
+use nodalia_theme::{
+    Accent, Mode, Palette, component, engineering, font_size, for_egui, icons, radius, space,
+};
 
 use crate::conditions::{self, Loaded};
 use crate::controldict::{self, SettingsForm};
@@ -326,6 +328,8 @@ impl VortiaApp {
             let wake = ctx.clone();
             app.global_menu = GlobalMenu::start(&global_menus(), move || wake.request_repaint());
         }
+        // The suite's engineering type (IBM Plex), shared with Forja and Torno.
+        engineering::install_fonts(ctx);
         app.apply_theme(ctx);
         if let Some(case) = case {
             let case = PathBuf::from(case);
@@ -507,6 +511,8 @@ impl VortiaApp {
                 },
             ),
         }
+        // Applying the NDL style resets the sizes, so the suite's scale goes on after it.
+        engineering::apply_text_styles(ctx);
         self.applied = Some(self.prefs.theme);
     }
 

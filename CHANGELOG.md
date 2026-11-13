@@ -12,6 +12,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   la conserva.
 
 ### Añadido
+- **App en Rust:** usa la tipografía de ingeniería compartida con Forja y
+  Torno (IBM Plex Sans y Mono), que llega desde el tema de Nodalia.
 - **Motor propio, paredes:** `vortia wall` da el esfuerzo cortante, la y+, las
   fuerzas de presión y viscosas y el calor que pasa por un contorno de pared,
   y la pestaña Results los muestra en una tarjeta Walls (el esfuerzo es el del
