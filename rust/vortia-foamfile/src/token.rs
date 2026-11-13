@@ -1,4 +1,4 @@
-//! The tokenizer for the ASCII case format.
+//! The tokenizer for the case format.
 //!
 //! The rules follow OpenFOAM's stream reader, which this format comes from:
 //! `//` and `/* */` comments, the punctuation `{ } ( ) [ ] ;`, quoted strings,
@@ -6,6 +6,7 @@
 //! `div(phi,U)` in `fvSchemes` stays one token while `3(1 2 3)` is a count, an
 //! opening parenthesis and three labels.
 
+use crate::binary::Arch;
 use crate::error::{FoamError, Result};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -66,6 +67,8 @@ pub struct Tokenizer<'a> {
     /// Values uniform lists (`N{v}`) have expanded to so far, across the
     /// whole input: each list is bounded on its own, and so is their sum.
     expanded: usize,
+    /// Set for a `format binary;` file: its lists of numbers are raw bytes.
+    binary: Option<Arch>,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -76,7 +79,41 @@ impl<'a> Tokenizer<'a> {
             line: 1,
             peeked: None,
             expanded: 0,
+            binary: None,
         }
+    }
+
+    /// Reads the rest of the input as a binary file laid out as `arch` says.
+    pub fn set_binary(&mut self, arch: Arch) {
+        self.binary = Some(arch);
+    }
+
+    /// The layout of a binary file's lists; `None` for text.
+    pub fn binary(&self) -> Option<Arch> {
+        self.binary
+    }
+
+    /// The `bytes` raw bytes of a binary list, read just after its `(`, and
+    /// the `)` that closes them.
+    pub fn raw_list(&mut self, bytes: usize) -> Result<&'a [u8]> {
+        let line = self.line();
+        if self.peeked.is_some() {
+            return Err(FoamError::parse(line, "a binary list after a look-ahead"));
+        }
+        let end = self
+            .pos
+            .checked_add(bytes)
+            .filter(|&end| end < self.src.len())
+            .ok_or_else(|| FoamError::parse(line, "a binary list runs past the end of the file"))?;
+        let raw = self.src.get(self.pos..end).unwrap_or_default();
+        if self.byte(end) != Some(b')') {
+            return Err(FoamError::parse(
+                line,
+                "a binary list is not closed by ')' where its length says",
+            ));
+        }
+        self.pos = end + 1;
+        Ok(raw)
     }
 
     /// Counts `n` more expanded values against the input's budget; `false`

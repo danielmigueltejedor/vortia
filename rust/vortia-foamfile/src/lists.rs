@@ -1,5 +1,8 @@
 //! Fast readers for the large lists in a mesh: labels, faces and points.
 //!
+//! In a binary file the same lists are raw bytes between the parentheses
+//! (see [`crate::binary`]); each reader takes either form.
+//!
 //! These read straight from the tokenizer instead of building a [`Value`]
 //! tree, which for a mesh of a few million cells is the difference between
 //! a few hundred megabytes and a few gigabytes.
@@ -8,6 +11,7 @@
 
 use vortia_core::Vec3;
 
+use crate::binary::Arch;
 use crate::error::{FoamError, Result};
 use crate::token::{Token, TokenKind, Tokenizer};
 
@@ -49,6 +53,25 @@ fn capacity(n: usize, tok: &Tokenizer<'_>, min_bytes_per_item: usize) -> usize {
     n.min(tok.remaining() / min_bytes_per_item.max(1) + 1)
 }
 
+/// The raw bytes of a binary list of `n` items of `item_bytes` each, read
+/// after its `(`.
+fn raw<'a>(tok: &mut Tokenizer<'a>, n: usize, item_bytes: usize) -> Result<&'a [u8]> {
+    let line = tok.line();
+    let bytes = n
+        .checked_mul(item_bytes)
+        .ok_or_else(|| FoamError::parse(line, format!("binary list of {n} items")))?;
+    tok.raw_list(bytes)
+}
+
+fn to_usize(arch: &Arch, raw: &[u8], line: u32) -> Result<Vec<usize>> {
+    arch.labels(raw)
+        .into_iter()
+        .map(|v| {
+            usize::try_from(v).map_err(|_| FoamError::parse(line, format!("negative label {v}")))
+        })
+        .collect()
+}
+
 /// A uniform list is a few bytes on disk however long it claims to be, so its
 /// expanded size is bounded rather than trusted.
 fn uniform_len<T>(n: usize, line: u32) -> Result<usize> {
@@ -67,6 +90,10 @@ pub fn read_labels(tok: &mut Tokenizer<'_>) -> Result<Vec<usize>> {
         let v = label(&tok.expect_any("a label")?)?;
         tok.expect_punct(b'}')?;
         return Ok(vec![v; uniform_len::<usize>(n, line)?]);
+    }
+    if let Some(arch) = tok.binary() {
+        let bytes = raw(tok, n, arch.label_bytes)?;
+        return to_usize(&arch, bytes, line);
     }
     let mut out = Vec::with_capacity(capacity(n, tok, 2));
     for _ in 0..n {
@@ -99,6 +126,31 @@ impl FaceList {
             _ => &[],
         }
     }
+}
+
+/// `faceCompactList`: the offsets of the faces (one more than there are
+/// faces, starting at 0), then all their points in one list. OpenFOAM writes
+/// faces this way in binary, and may in ASCII.
+pub fn read_compact_faces(tok: &mut Tokenizer<'_>) -> Result<FaceList> {
+    let line = tok.line();
+    let offsets = read_labels(tok)?;
+    let points = read_labels(tok)?;
+    let well_formed = offsets.first().is_none_or(|&o| o == 0)
+        && offsets.windows(2).all(|w| matches!(w, [a, b] if a <= b))
+        && offsets.last().copied().unwrap_or(0) == points.len();
+    if !well_formed {
+        return Err(FoamError::parse(
+            line,
+            "the face offsets do not start at 0, rise, and end at the number of points",
+        ));
+    }
+    if offsets.is_empty() {
+        return Ok(FaceList {
+            offsets: vec![0],
+            points,
+        });
+    }
+    Ok(FaceList { offsets, points })
 }
 
 /// `faceList`: each face is `k(p0 p1 ... pk-1)`.
@@ -143,6 +195,16 @@ pub fn read_vectors(tok: &mut Tokenizer<'_>) -> Result<Vec<Vec3>> {
         tok.expect_punct(b'}')?;
         return Ok(vec![v; uniform_len::<Vec3>(n, line)?]);
     }
+    if let Some(arch) = tok.binary() {
+        let bytes = raw(tok, n, 3 * arch.scalar_bytes)?;
+        return Ok(arch
+            .scalars(bytes)
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|&[x, y, z]| Vec3::new(x, y, z))
+            .collect());
+    }
     let mut out = Vec::with_capacity(capacity(n, tok, 8));
     for _ in 0..n {
         out.push(read_one(tok)?);
@@ -159,6 +221,10 @@ pub fn read_scalars(tok: &mut Tokenizer<'_>) -> Result<Vec<f64>> {
         let v = scalar(&tok.expect_any("a number")?)?;
         tok.expect_punct(b'}')?;
         return Ok(vec![v; uniform_len::<f64>(n, line)?]);
+    }
+    if let Some(arch) = tok.binary() {
+        let bytes = raw(tok, n, arch.scalar_bytes)?;
+        return Ok(arch.scalars(bytes));
     }
     let mut out = Vec::with_capacity(capacity(n, tok, 2));
     for _ in 0..n {
