@@ -22,6 +22,7 @@ pub mod convergence;
 pub mod fieldview;
 #[cfg(target_os = "linux")]
 pub mod globalmenu;
+pub mod numerics;
 pub mod prefs;
 pub mod session;
 pub mod summary;
