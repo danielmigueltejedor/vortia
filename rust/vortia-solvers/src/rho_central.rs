@@ -18,7 +18,7 @@ use vortia_fv::limited::{self, GradScheme};
 use vortia_fv::ops::{self, SnGrad};
 use vortia_fv::reconstruct::{Reconstruction, interpolate};
 use vortia_fv::smooth::smooth;
-use vortia_fv::stress::{self, dev2_stress, dot_interpolate_tensor};
+use vortia_fv::stress::{self, dev2_stress_with, dot_interpolate_tensor};
 use vortia_fv::vector::solution_directions;
 use vortia_fv::{
     Boundary, Controls, FvGeometry, ScalarBc, ScalarMatrix, VectorBc, VectorBoundary, VectorMatrix,
@@ -28,6 +28,7 @@ use vortia_mesh::{PatchKind, PolyMesh};
 
 use crate::case::{Case, VELOCITY, check_dimensions};
 use crate::control::{LinearSolver, RunControl, solve_line};
+use crate::driven::{PRESSURE_KINDS, PressureVelocity, TotalPressure, VELOCITY_KINDS};
 use crate::error::{Result, SolverError};
 use crate::ico::{Step, switch};
 use crate::rans::{Model, face_diffusivity};
@@ -279,13 +280,16 @@ struct Start {
 struct Pressure {
     file: ScalarField,
     bc: Boundary,
+    /// The `totalPressure` patches, whose values follow the flow.
+    total: TotalPressure,
 }
 
 impl Pressure {
     fn read(start: &std::path::Path, mesh: &PolyMesh) -> Result<(Self, Vec<f64>)> {
         let file = ScalarField::read(start.join("p"))?;
         check_dimensions("p", &file.dimensions, PRESSURE)?;
-        let bc = Boundary::from_field(&file, mesh)?;
+        let bc = Boundary::from_field_with(&file, mesh, PRESSURE_KINDS)?;
+        let total = TotalPressure::read(&file, mesh)?;
         if let Some(c) = bc.conditions.iter().find(|c| {
             !matches!(
                 c,
@@ -303,7 +307,7 @@ impl Pressure {
             .internal
             .expand(mesh.n_cells())
             .ok_or_else(|| SolverError::Setup("p does not fit the mesh".into()))?;
-        Ok((Self { file, bc }, cells))
+        Ok((Self { file, bc, total }, cells))
     }
 }
 
@@ -483,20 +487,17 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let (mut p, mut p_cells) = Pressure::read(&start, &mesh)?;
     let mut p_b = p.bc.face_values(&mesh, &p_cells, &fv.delta_coeffs);
     let mut thermo = Thermo::read(gas, &mesh, &start, (&p_cells, &p_b))?;
-    if !thermo.has_plain_conditions() {
-        return Err(SolverError::Setup(
-            "T: rhoCentralFoam supports fixedValue and zeroGradient only".into(),
-        ));
-    }
 
     let mut u_field = VectorField::read(start.join("U"))?;
     check_dimensions("U", &u_field.dimensions, VELOCITY)?;
-    let u_bc = VectorBoundary::from_field(&u_field, &mesh)?;
+    let mut u_bc = VectorBoundary::from_field_with(&u_field, &mesh, VELOCITY_KINDS)?;
+    let u_driven = PressureVelocity::read(&u_field, &mesh, &fv)?;
     if let Some(c) = u_bc.conditions.iter().find(|c| {
         !matches!(
             c,
             VectorBc::FixedValue(_)
                 | VectorBc::ZeroGradient
+                | VectorBc::Mixed { .. }
                 | VectorBc::Wedge { .. }
                 | VectorBc::Empty
         )
@@ -510,6 +511,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         .expand(mesh.n_cells())
         .ok_or_else(|| SolverError::Setup("U does not fit the mesh".into()))?;
     let mut u_b = u_bc.face_values(&mesh, &u);
+    u_driven.initial_values(&mesh, &mut u_b);
 
     let (mut rho, mut rho_b): WithBoundary =
         if start.join("rho").is_file() || start.join("rho.gz").is_file() {
@@ -673,8 +675,23 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                 }),
                 None => (thermo.mu.clone(), thermo.mu_b.clone()),
             };
-            let (tau, tau_b) =
-                dev2_stress(v.velocity_grad, &mesh, &fv, &u_bc, &u, &mu_eff, &mu_eff_b);
+            // Before the first update, a pressure-driven outlet still holds
+            // the value of its file, with no gradient.
+            let (first_bc, unevaluated) = if step == 1 {
+                u_driven.initial_boundary(&u_bc)
+            } else {
+                (u_bc.clone(), Vec::new())
+            };
+            let (tau, tau_b) = dev2_stress_with(
+                v.velocity_grad,
+                &mesh,
+                &fv,
+                &first_bc,
+                &u,
+                &mu_eff,
+                &mu_eff_b,
+                &unevaluated,
+            );
             let tau_dot = dot_interpolate_tensor(&mesh, &fv, &tau, &tau_b);
             let component =
                 |pick: fn(&Vec3) -> f64| -> Vec<f64> { tau_dot.iter().map(pick).collect() };
@@ -725,6 +742,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             }
         }
         u = rho_u.iter().zip(&rho).map(|(&m, &r)| m / r).collect();
+        u_driven.update(&mesh, &fv, &mut u_bc, &rho_b, &phi);
         u_b = u_bc.face_values(&mesh, &u);
         // The momentum on the boundary takes the density the step began
         // with, which is not updated until the pressure is.
@@ -793,7 +811,16 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             .zip(&u)
             .map(|((&re, &r), &v)| re / r - 0.5 * mag_sqr(v))
             .collect();
-        thermo.set_energy(&mesh, e, &p_cells, &p_b)?;
+        thermo.set_energy(
+            &mesh,
+            e,
+            &p_cells,
+            &p_b,
+            &Flow {
+                u_b: &u_b,
+                phi: &phi,
+            },
+        )?;
         if let (Some(v), Some(start)) = (&viscous, &viscous_start) {
             diffuse_energy(
                 &mesh,
@@ -818,6 +845,8 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                 .collect();
         }
         p_cells = rho.iter().zip(&thermo.psi).map(|(&r, &s)| r / s).collect();
+        p.total
+            .update(&mesh, &mut p.bc, (&rho_b, &thermo.psi_b), &u_b, &phi);
         p_b = p.bc.face_values(&mesh, &p_cells, &fv.delta_coeffs);
         rho_b = mul_b(&thermo.psi_b, &p_b);
         let _ = Location::Cells;

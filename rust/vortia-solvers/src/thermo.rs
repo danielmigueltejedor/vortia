@@ -261,9 +261,46 @@ enum TKind {
     InletOutlet {
         inlet: Vec<f64>,
     },
+    /// `inletOutletTotalTemperature`: the total temperature `T0` of what
+    /// flows in, brought down to a static one by its speed.
+    InletOutletTotal {
+        t0: Vec<f64>,
+        gamma: f64,
+    },
 }
 
 impl TKind {
+    /// The temperature a condition that follows the flow gives on face `i`
+    /// of its patch, from the temperature of the cell beside it, the
+    /// compressibility and velocity on the face and the mass flux through
+    /// it: `totalTemperature`'s `T0/(1 + ½ ψ (γ−1)/γ (1 − pos0(φ)) |U|²)`,
+    /// `inletOutlet`'s switch between its inlet value and the cell's and
+    /// `inletOutletTotalTemperature`'s between the static form of `T0` and
+    /// the cell's.
+    fn follow_flow(&self, i: usize, cell: Option<f64>, psi: f64, u: Vec3, phi: f64) -> Option<f64> {
+        let mixed = |reference: f64| {
+            let fraction = 1.0 - pos0(phi);
+            fraction * reference + (1.0 - fraction) * cell.unwrap_or(0.0)
+        };
+        match self {
+            Self::Total { t0, gamma } => {
+                let g_m1_by_g = (gamma - 1.0) / gamma;
+                Some(
+                    t0.get(i).copied()?
+                        / (1.0 + 0.5 * psi * g_m1_by_g * (1.0 - pos0(phi)) * u.dot(u)),
+                )
+            }
+            Self::InletOutlet { inlet } => Some(mixed(inlet.get(i).copied()?)),
+            Self::InletOutletTotal { t0, gamma } => {
+                let g_m1_by_g = (gamma - 1.0) / gamma;
+                Some(mixed(
+                    t0.get(i).copied()? / (1.0 + 0.5 * psi * g_m1_by_g * u.dot(u)),
+                ))
+            }
+            Self::Fixed | Self::ZeroGradient | Self::Empty => None,
+        }
+    }
+
     /// OpenFOAM's `fixesValue`: `fixedValue` and `mixed` conditions do.
     fn fixes_value(&self) -> bool {
         !matches!(self, Self::ZeroGradient | Self::Empty)
@@ -343,27 +380,30 @@ impl Thermo {
                 "fixedValue" => TKind::Fixed,
                 "zeroGradient" | "wedge" => TKind::ZeroGradient,
                 "empty" => TKind::Empty,
-                "totalTemperature" => {
+                "totalTemperature" | "inletOutletTotalTemperature" => {
                     for (key, default) in [("U", "U"), ("phi", "phi"), ("psi", "thermo:psi")] {
                         if pf.settings.word(key).is_some_and(|w| w != default) {
                             return Err(SolverError::Setup(format!(
-                                "T: totalTemperature on '{}' with another {key} is not supported yet",
-                                patch.name
+                                "T: {} on '{}' with another {key} is not supported yet",
+                                pf.kind, patch.name
                             )));
                         }
                     }
-                    TKind::Total {
-                        t0: patch_values(&pf.settings, "T0", patch)?,
-                        gamma: pf
-                            .settings
-                            .scalar("gamma")
-                            .filter(|g| *g > 1.0 && g.is_finite())
-                            .ok_or_else(|| {
-                                SolverError::Setup(format!(
-                                    "T: totalTemperature on '{}' needs a 'gamma' above 1",
-                                    patch.name
-                                ))
-                            })?,
+                    let t0 = patch_values(&pf.settings, "T0", patch)?;
+                    let gamma = pf
+                        .settings
+                        .scalar("gamma")
+                        .filter(|g| *g > 1.0 && g.is_finite())
+                        .ok_or_else(|| {
+                            SolverError::Setup(format!(
+                                "T: {} on '{}' needs a 'gamma' above 1",
+                                pf.kind, patch.name
+                            ))
+                        })?;
+                    if pf.kind == "totalTemperature" {
+                        TKind::Total { t0, gamma }
+                    } else {
+                        TKind::InletOutletTotal { t0, gamma }
                     }
                 }
                 "inletOutlet" => {
@@ -396,10 +436,16 @@ impl Thermo {
             }
             // A totalTemperature without a `value` starts from T0.
             let given = match (&pf.value, &kind) {
-                (None, TKind::Total { t0, .. }) => Some(t0.clone()),
+                (None, TKind::Total { t0, .. } | TKind::InletOutletTotal { t0, .. }) => {
+                    Some(t0.clone())
+                }
                 (value, _) => value.as_ref().and_then(|d| d.expand(patch.size)),
             };
-            if matches!(kind, TKind::Fixed | TKind::Total { .. }) && given.is_none() {
+            if matches!(
+                kind,
+                TKind::Fixed | TKind::Total { .. } | TKind::InletOutletTotal { .. }
+            ) && given.is_none()
+            {
                 return Err(SolverError::Setup(format!(
                     "T: patch '{}' needs a 'value' of {} items",
                     patch.name, patch.size
@@ -413,6 +459,9 @@ impl Thermo {
                         given.as_ref().and_then(|v| v.get(i).copied())
                     }
                     TKind::ZeroGradient => inside,
+                    TKind::InletOutletTotal { .. } => {
+                        given.as_ref().and_then(|v| v.get(i).copied())
+                    }
                     TKind::InletOutlet { inlet } => given
                         .as_ref()
                         .and_then(|v| v.get(i).copied())
@@ -505,15 +554,6 @@ impl Thermo {
         Ok(())
     }
 
-    /// Whether every temperature condition is `fixedValue`, `zeroGradient`
-    /// or `empty`, the ones a solver that sets the energy cell by cell can
-    /// follow.
-    pub(crate) fn has_plain_conditions(&self) -> bool {
-        self.kinds
-            .iter()
-            .all(|k| matches!(k, TKind::Fixed | TKind::ZeroGradient | TKind::Empty))
-    }
-
     /// Sets the energy of the cells and evaluates its conditions as
     /// `e.correctBoundaryConditions()` does for `fixedEnergy` and
     /// `gradientEnergy` (a zero-gradient temperature keeps the cell's
@@ -524,19 +564,38 @@ impl Thermo {
         he: Vec<f64>,
         p: &[f64],
         p_b: &[Option<f64>],
+        flow: &Flow<'_>,
     ) -> Result<()> {
         self.he = he;
         let n_internal = mesh.n_internal_faces();
         for (patch, kind) in mesh.patches().iter().zip(&self.kinds) {
-            if *kind != TKind::ZeroGradient {
-                continue;
-            }
-            for f in patch.faces() {
-                let inside = mesh.owner().get(f).and_then(|&c| self.he.get(c)).copied();
-                if let Some(v) = self.he_b.get_mut(f - n_internal)
-                    && v.is_some()
-                {
-                    *v = inside;
+            for (i, f) in patch.faces().enumerate() {
+                let k = f - n_internal;
+                let cell_he = mesh.owner().get(f).and_then(|&c| self.he.get(c)).copied();
+                let cell_t = mesh.owner().get(f).and_then(|&c| self.t.get(c)).copied();
+                let psi = self.psi_b.get(k).copied().flatten().unwrap_or(0.0);
+                let u = flow.u_b.get(k).copied().flatten().unwrap_or_default();
+                let phi = flow.phi.get(f).copied().unwrap_or(0.0);
+                match kind {
+                    TKind::ZeroGradient => {
+                        if let Some(v) = self.he_b.get_mut(k)
+                            && v.is_some()
+                        {
+                            *v = cell_he;
+                        }
+                    }
+                    // `Tw.evaluate()`: the temperature the flow gives; the
+                    // energy of it follows in `correct`, which a condition that
+                    // fixes the value takes from the temperature.
+                    TKind::Total { .. }
+                    | TKind::InletOutlet { .. }
+                    | TKind::InletOutletTotal { .. } => {
+                        let tw = kind.follow_flow(i, cell_t, psi, u, phi);
+                        if let (Some(slot), Some(tw)) = (self.t_b.get_mut(k), tw) {
+                            *slot = Some(tw);
+                        }
+                    }
+                    TKind::Fixed | TKind::Empty => {}
                 }
             }
         }
@@ -603,13 +662,23 @@ impl Thermo {
                         }
                         values.push(he);
                     }
-                    TKind::InletOutlet { inlet } => {
+                    TKind::InletOutlet { .. } | TKind::InletOutletTotal { .. } => {
                         // The fraction is 0 or 1, so that `mixedEnergy`'s
                         // reference gradient, `δ (he(Tw) − he(Tcell))`,
                         // vanishes wherever it is used.
                         let phi = flow.phi.get(f).copied().unwrap_or(0.0);
                         let fraction = 1.0 - pos0(phi);
-                        let reference = inlet.get(i).copied().unwrap_or(0.0);
+                        let reference = match kind {
+                            TKind::InletOutletTotal { t0, gamma } => {
+                                let psi = self.psi_b.get(k).copied().flatten().unwrap_or(0.0);
+                                let u = flow.u_b.get(k).copied().flatten().unwrap_or_default();
+                                let g_m1_by_g = (gamma - 1.0) / gamma;
+                                t0.get(i).copied().unwrap_or(0.0)
+                                    / (1.0 + 0.5 * psi * g_m1_by_g * u.dot(u))
+                            }
+                            TKind::InletOutlet { inlet } => inlet.get(i).copied().unwrap_or(0.0),
+                            _ => 0.0,
+                        };
                         let tw = fraction * reference + (1.0 - fraction) * cell.unwrap_or(0.0);
                         if let Some(t) = self.t_b.get_mut(k) {
                             *t = Some(tw);
@@ -623,7 +692,7 @@ impl Thermo {
             conditions.push(match kind {
                 TKind::Fixed | TKind::Total { .. } => ScalarBc::FixedValue(values),
                 TKind::ZeroGradient => ScalarBc::FixedGradient(values),
-                TKind::InletOutlet { .. } => ScalarBc::Mixed {
+                TKind::InletOutlet { .. } | TKind::InletOutletTotal { .. } => ScalarBc::Mixed {
                     fraction: fractions,
                     ref_value: values,
                 },

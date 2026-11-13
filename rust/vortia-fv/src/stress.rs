@@ -276,7 +276,23 @@ pub fn dev2_stress(
     nu: &[f64],
     nu_boundary: &[Option<f64>],
 ) -> (Vec<Tensor>, Vec<Option<Tensor>>) {
-    let (cells, boundary) = grad(scheme, mesh, fv, bc, u);
+    dev2_stress_with(scheme, mesh, fv, bc, u, nu, nu_boundary, &[])
+}
+
+/// [`dev2_stress`] where the patches in `unevaluated` have a normal gradient
+/// of zero, as for [`grad_with`].
+#[allow(clippy::too_many_arguments)]
+pub fn dev2_stress_with(
+    scheme: GradScheme,
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    bc: &VectorBoundary,
+    u: &[Vec3],
+    nu: &[f64],
+    nu_boundary: &[Option<f64>],
+    unevaluated: &[usize],
+) -> (Vec<Tensor>, Vec<Option<Tensor>>) {
+    let (cells, boundary) = grad_with(scheme, mesh, fv, bc, u, unevaluated);
     let stress = |t: &Tensor, nu: f64| zip_with(&dev2_transpose(t), &[[nu; 3]; 3], |a, n| n * a);
     let cells = cells.iter().zip(nu).map(|(t, &n)| stress(t, n)).collect();
     let boundary = boundary
