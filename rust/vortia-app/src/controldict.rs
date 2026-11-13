@@ -102,7 +102,7 @@ pub fn apply(text: &str, settings: &RunSettings) -> Result<String, String> {
 }
 
 /// Sets the top-level entry `key` to `value`, keeping the spacing and what follows it.
-fn set_entry(text: &str, key: &str, value: &str) -> Result<String, String> {
+pub(crate) fn set_entry(text: &str, key: &str, value: &str) -> Result<String, String> {
     let mut depth = 0_i32;
     let mut in_block_comment = false;
     let mut out = String::with_capacity(text.len() + value.len());
@@ -131,7 +131,7 @@ fn set_entry(text: &str, key: &str, value: &str) -> Result<String, String> {
 }
 
 /// The part of a line that is code: without comments. `in_block` carries `/* … */` over lines.
-fn code_of(line: &str, in_block: &mut bool) -> String {
+pub(crate) fn code_of(line: &str, in_block: &mut bool) -> String {
     let mut code = String::new();
     let mut chars = line.chars().peekable();
     while let Some(c) = chars.next() {
@@ -158,7 +158,7 @@ fn code_of(line: &str, in_block: &mut bool) -> String {
 
 /// If this line is `key value;`, the line with the value replaced. An entry that does not fit on
 /// one line is refused, since replacing it by position would break it.
-fn replace_in_line(
+pub(crate) fn replace_in_line(
     line: &str,
     code: &str,
     key: &str,

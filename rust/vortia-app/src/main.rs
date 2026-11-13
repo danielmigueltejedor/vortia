@@ -11,7 +11,7 @@
     clippy::indexing_slicing
 )]
 
-use vortia_app::app::{self, VortiaApp};
+use vortia_app::app::{self, TabName, VortiaApp};
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -22,8 +22,8 @@ fn main() -> eframe::Result {
         "Vortia",
         options,
         Box::new(|cc| {
-            // `vortia-app CASE [--run] [--mesh] [--field NAME]`: open a case, start it at once, show its
-            // mesh, or show it coloured with a field.
+            // `vortia-app CASE [--run] [--mesh] [--field NAME] [--conditions] [--settings]`: open a case,
+            // start it at once, or show its mesh (coloured with a field), conditions or settings.
             let mut args = std::env::args_os().skip(1);
             let case = args.next();
             let flags: Vec<_> = args.collect();
@@ -35,6 +35,10 @@ fn main() -> eframe::Result {
                 app.show_mesh_field(&field.to_string_lossy());
             } else if has("--mesh") {
                 app.show_mesh();
+            } else if has("--conditions") {
+                app.show_tab(TabName::Conditions);
+            } else if has("--settings") {
+                app.show_tab(TabName::Settings);
             }
             Ok(Box::new(app))
         }),

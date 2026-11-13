@@ -12,6 +12,7 @@ use eframe::egui::{
 };
 use nodalia_theme::{Accent, Mode, Palette, component, font_size, for_egui, icons, radius, space};
 
+use crate::conditions::{self, Loaded};
 use crate::controldict::{self, SettingsForm};
 use crate::convergence::Convergence;
 #[cfg(target_os = "linux")]
@@ -79,6 +80,12 @@ struct CaseView {
     /// The run settings as typed, and how the last save went (`true` when it worked).
     form: Option<SettingsForm>,
     form_message: Option<(bool, String)>,
+    /// The boundary conditions of one field as typed, the field asked for, and how the last
+    /// save went.
+    conditions: Option<Loaded>,
+    conditions_rx: Option<std::sync::mpsc::Receiver<Loaded>>,
+    conditions_field: Option<String>,
+    conditions_message: Option<(bool, String)>,
     /// A field to colour the mesh with as soon as it is read, asked for on the command line.
     first_field: Option<String>,
     /// The mesh is read the first time it is looked at.
@@ -86,11 +93,19 @@ struct CaseView {
     viewer_rx: Option<std::sync::mpsc::Receiver<Result<surface::Surface, String>>>,
 }
 
+/// A tab that can be asked for from outside, on the command line.
+#[derive(Clone, Copy)]
+pub enum TabName {
+    Conditions,
+    Settings,
+}
+
 /// What the main part of the case screen shows.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Run,
     Mesh,
+    Conditions,
     Settings,
 }
 
@@ -110,9 +125,42 @@ impl CaseView {
             tab: Tab::Run,
             form: None,
             form_message: None,
+            conditions: None,
+            conditions_rx: None,
+            conditions_field: None,
+            conditions_message: None,
             first_field: None,
             viewer: None,
             viewer_rx: None,
+        }
+    }
+
+    /// The folder the conditions are edited in: where the run starts.
+    fn start_time(&self) -> String {
+        let start = self.summary.as_ref().and_then(|s| s.start_time);
+        vortia_foamfile::write::scalar(start.unwrap_or(0.0))
+    }
+
+    /// Reads the field of the Conditions tab on a thread when it is wanted, and takes what it read.
+    fn ensure_conditions(&mut self, ctx: &Context) {
+        if let Some(rx) = &self.conditions_rx
+            && let Ok(loaded) = rx.try_recv()
+        {
+            self.conditions = Some(loaded);
+            self.conditions_rx = None;
+        }
+        if self.tab == Tab::Conditions
+            && self.conditions.is_none()
+            && self.conditions_rx.is_none()
+            && self.summary.is_some()
+        {
+            let repaint = ctx.clone();
+            self.conditions_rx = Some(conditions::spawn(
+                self.dir.clone(),
+                self.start_time(),
+                self.conditions_field.clone(),
+                move || repaint.request_repaint(),
+            ));
         }
     }
 
@@ -305,6 +353,16 @@ impl VortiaApp {
     pub fn show_mesh(&mut self) {
         if let Screen::Case(case) = &mut self.screen {
             case.tab = Tab::Mesh;
+        }
+    }
+
+    /// Switches the open case to one of its tabs.
+    pub fn show_tab(&mut self, tab: TabName) {
+        if let Screen::Case(case) = &mut self.screen {
+            case.tab = match tab {
+                TabName::Conditions => Tab::Conditions,
+                TabName::Settings => Tab::Settings,
+            };
         }
     }
 
@@ -705,10 +763,16 @@ impl VortiaApp {
                     ui.horizontal(|ui| {
                         ui.selectable_value(&mut case.tab, Tab::Run, "Run");
                         ui.selectable_value(&mut case.tab, Tab::Mesh, "Mesh");
+                        ui.selectable_value(&mut case.tab, Tab::Conditions, "Conditions");
                         ui.selectable_value(&mut case.tab, Tab::Settings, "Settings");
                     });
                     ui.add_space(space::SM);
                     case.ensure_viewer(ctx);
+                    case.ensure_conditions(ctx);
+                    if case.tab == Tab::Conditions {
+                        conditions_tab(ui, p, case);
+                        return;
+                    }
                     if case.tab == Tab::Settings {
                         settings_tab(ui, p, case);
                         return;
@@ -1033,6 +1097,136 @@ fn convergence_card(ui: &mut egui::Ui, p: &Palette, report: Option<&Convergence>
         });
 }
 
+/// The boundary conditions of one field of the case, to edit and save into the field's file.
+fn conditions_tab(ui: &mut egui::Ui, p: &Palette, case: &mut CaseView) {
+    let running = case.running();
+    let time = case.start_time();
+    let Some(loaded) = case.conditions.as_mut() else {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Reading the field…");
+        });
+        return;
+    };
+    let mut pick: Option<String> = None;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Field").color(muted(p)));
+        let shown = loaded
+            .current
+            .as_ref()
+            .map(|c| c.field.clone())
+            .unwrap_or_default();
+        egui::ComboBox::from_id_salt("conditions-field")
+            .selected_text(shown.as_str())
+            .show_ui(ui, |ui| {
+                for name in &loaded.fields {
+                    if ui.selectable_label(*name == shown, name).clicked() && *name != shown {
+                        pick = Some(name.clone());
+                    }
+                }
+            });
+        ui.label(
+            RichText::new(format!("from the {time} folder"))
+                .size(font_size::SMALL)
+                .color(muted(p)),
+        );
+    });
+    ui.add_space(space::SM);
+    let (mut save, mut revert) = (false, false);
+    match loaded.current.as_mut() {
+        Err(message) => {
+            ui.colored_label(for_egui::color(p.status_danger_fg), message.as_str());
+        }
+        Ok(field) => {
+            let dirty = field.internal.changed()
+                || field
+                    .patches
+                    .iter()
+                    .any(|patch| patch.items.iter().any(|i| i.changed()));
+            egui::ScrollArea::vertical()
+                .id_salt("conditions")
+                .auto_shrink([false, false])
+                .max_height((ui.available_height() - 90.0).max(120.0))
+                .show(ui, |ui| {
+                    ui.add_enabled_ui(!running, |ui| {
+                        condition_row(ui, p, "internalField", &mut field.internal, "Inside");
+                        for patch in &mut field.patches {
+                            ui.add_space(space::MD);
+                            ui.label(RichText::new(&patch.patch).strong());
+                            for item in &mut patch.items {
+                                condition_row(ui, p, &item.key.clone(), item, &patch.patch);
+                            }
+                        }
+                    });
+                });
+            ui.add_space(space::MD);
+            ui.add_enabled_ui(!running && dirty, |ui| {
+                ui.horizontal(|ui| {
+                    save = accent_button(ui, p, "Save").clicked();
+                    revert = ui.button("Revert").clicked();
+                });
+            });
+            if running {
+                ui.label(
+                    RichText::new("The conditions cannot change while the case runs.")
+                        .color(muted(p)),
+                );
+            }
+        }
+    }
+    if let Some((ok, message)) = &case.conditions_message {
+        let tone = if *ok {
+            p.status_success_fg
+        } else {
+            p.status_danger_fg
+        };
+        ui.colored_label(for_egui::color(tone), message.as_str());
+    }
+    if let Some(name) = pick {
+        case.conditions_field = Some(name);
+        case.conditions = None;
+        case.conditions_message = None;
+    } else if revert {
+        case.conditions = None;
+        case.conditions_message = None;
+    } else if save && let Some(Ok(field)) = case.conditions.as_ref().map(|l| &l.current) {
+        let result = conditions::save(&case.dir, &time, field);
+        case.conditions_message = Some(match result {
+            Ok(()) => (true, format!("Saved to {time}/{}.", field.field)),
+            Err(message) => (false, message),
+        });
+        if matches!(case.conditions_message, Some((true, _))) {
+            // Read it again, so what shows is what the file says.
+            case.conditions_field = Some(field.field.clone());
+            case.conditions = None;
+        }
+    }
+}
+
+/// One entry: its name, and its value in a box when it can be edited.
+fn condition_row(ui: &mut egui::Ui, p: &Palette, key: &str, item: &mut conditions::Item, id: &str) {
+    ui.horizontal(|ui| {
+        ui.add_space(space::MD);
+        ui.allocate_ui_with_layout(
+            Vec2::new(140.0, 24.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                ui.set_min_width(140.0);
+                ui.label(RichText::new(key).color(muted(p)));
+            },
+        );
+        if item.editable {
+            ui.add(
+                egui::TextEdit::singleline(&mut item.text)
+                    .id_salt((id, key))
+                    .desired_width(200.0),
+            );
+        } else {
+            ui.label(item.text.as_str());
+        }
+    });
+}
+
 /// The run settings of the case, to edit and save into its controlDict.
 fn settings_tab(ui: &mut egui::Ui, p: &Palette, case: &mut CaseView) {
     if case.form.is_none()
@@ -1336,6 +1530,47 @@ mod tests {
         let text = std::fs::read_to_string(case.path().join("system/controlDict")).unwrap();
         assert!(text.contains("endTime 20;"), "{text}");
         assert!(text.contains("deltaT 0.5;"), "{text}");
+    }
+
+    #[test]
+    fn the_boundary_conditions_of_a_field_are_shown_and_saved() {
+        let case = case_dir();
+        std::fs::create_dir_all(case.path().join("0")).unwrap();
+        std::fs::write(
+            case.path().join("0/T"),
+            "FoamFile { version 2.0; format ascii; class volScalarField; object T; }\n\
+             dimensions [0 0 0 1 0 0 0];\ninternalField uniform 300;\n\
+             boundaryField\n{\n    inlet\n    {\n        type fixedValue;\n\
+             \x20       value uniform 300;\n    }\n}\n",
+        )
+        .unwrap();
+        let ctx = Context::default();
+        let mut app = VortiaApp::with_prefs(Prefs::default(), None);
+        app.open_case(case.path()).unwrap();
+        app.show_tab(TabName::Conditions);
+        let mut ready = false;
+        for _ in 0..300 {
+            frame(&mut app, &ctx);
+            if let Screen::Case(view) = &app.screen
+                && view.conditions.is_some()
+            {
+                ready = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(ready, "the field was never read");
+        let Screen::Case(view) = &mut app.screen else {
+            panic!("the case closed");
+        };
+        let loaded = view.conditions.as_mut().unwrap();
+        assert_eq!(loaded.fields, ["T"]);
+        let field = loaded.current.as_mut().unwrap();
+        field.patches[0].items[1].text = "uniform 350".into();
+        conditions::save(&view.dir, "0", field).unwrap();
+        let text = std::fs::read_to_string(case.path().join("0/T")).unwrap();
+        assert!(text.contains("value uniform 350;"), "{text}");
+        assert!(text.contains("internalField uniform 300;"), "{text}");
     }
 
     #[test]
