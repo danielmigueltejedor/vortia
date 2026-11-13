@@ -12,6 +12,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   la conserva.
 
 ### Añadido
+- **Motor propio, mirar los resultados:** el comando `vortia` lee un caso ya
+  calculado y da el valor en un punto (`probe`), a lo largo de una línea en
+  CSV (`sample`), la media, la integral y el rango sobre un contorno
+  (`patch`), el caudal que lo atraviesa (`flux`) y la media sobre todo el
+  dominio (`volume`).
 - **App en Rust:** edita el caso desde sus pestañas Conditions, Numerics,
   Schemes y Settings (condiciones de contorno, números del solver, esquemas
   y ajustes de ejecución).

@@ -1,0 +1,16 @@
+[package]
+name = "vortia-post"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Post-processing of the Vortia engine: probes, line sampling, patch and volume integrals"
+
+[dependencies]
+thiserror = "2"
+vortia-core = { path = "../vortia-core" }
+vortia-fields = { path = "../vortia-fields" }
+vortia-foamfile = { path = "../vortia-foamfile" }
+vortia-mesh = { path = "../vortia-mesh" }
+
+[dev-dependencies]
+tempfile = "3"
