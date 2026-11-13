@@ -22,3 +22,7 @@ nodalia-theme = { git = "https://github.com/danielmigueltejedor/nodalia-design",
 
 [dev-dependencies]
 tempfile = "3"
+
+# The shell's global menu, over D-Bus.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"
