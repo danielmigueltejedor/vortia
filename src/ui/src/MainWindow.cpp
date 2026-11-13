@@ -278,6 +278,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         const auto icon = uiIcon(QStringLiteral(":/vortia/icons/") + id + QStringLiteral(".svg"));
         return icon.isNull() ? style()->standardIcon(fallback) : icon;
     };
+    // The tabs hide under the welcome but keep their room: the header lays the window controls
+    // out around them, and without it the close button leaves the corner.
+    auto tabsPolicy = projectTabs_->sizePolicy();
+    tabsPolicy.setRetainSizeWhenHidden(true);
+    projectTabs_->setSizePolicy(tabsPolicy);
     welcome_->setActionIcons(QIcon(), vector(QStringLiteral("open"), QStyle::SP_DialogOpenButton),
                              vector(QStringLiteral("open"), QStyle::SP_DirIcon));
     welcome_->setRecentProjects(settings_->value(QStringLiteral("recentProjects")).toStringList());
