@@ -29,12 +29,18 @@ enum Launch {
     }
 }
 
-/// Fills the store from the demonstration engine: a solved nozzle with its run history.
+/// The demonstration engine: attached with no project, so the welcome shows, then the solved
+/// nozzle opened with its run history.
 @MainActor
 enum DemoSession {
+    static let project = URL(fileURLWithPath: "/Users/demo/Vortia/Tobera", isDirectory: true)
+
     static func start(_ store: VortiaStore) async {
-        let engine = DemoEngine()
-        await store.attach(engine)
+        await store.attach(DemoEngine())
+    }
+
+    static func openProject(_ store: VortiaStore) async {
+        await store.open(project)
         try? await Task.sleep(for: .milliseconds(400))
         for event in DemoEngine.history() { store.apply(event) }
         try? await Task.sleep(for: .milliseconds(600))
@@ -56,6 +62,9 @@ enum Snapshots {
         window.center()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        try? await Task.sleep(for: .seconds(1.5))
+        save(window, to: folder.appendingPathComponent("00-welcome.png"))
+        await DemoSession.openProject(store)
         for (index, stage) in store.visibleStages.enumerated() {
             store.stage = stage
             try? await Task.sleep(for: .seconds(2.5))

@@ -114,19 +114,30 @@ struct ColorLegend: View {
 extension View {
     /// A card of the system's glass on macOS 26, its ordinary grouped background before.
     @ViewBuilder
-    func card() -> some View {
+    func card(padding: CGFloat = 16) -> some View {
         #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
-                self.padding(16)
+                self.padding(padding)
                     .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             } else {
-                self.padding(16)
+                self.padding(padding)
                     .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         #else
-            self.padding(16)
+            self.padding(padding)
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         #endif
+    }
+
+    /// A surface for drawing: the window's plain background in a rounded frame, with a hairline
+    /// edge. Glass is for controls; a drawing reads better on an opaque ground.
+    func canvasSurface() -> some View {
+        self
+            .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(.separator, lineWidth: 1))
     }
 }
 

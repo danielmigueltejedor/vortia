@@ -13,6 +13,8 @@ public final class DemoEngine: EngineClient, @unchecked Sendable {
     private var flow: JSONValue
     /// Where the contour is narrowest, and its radius there (mm).
     private var throat = (x: 0.0, radius: 1.0)
+    /// Whether a project is open: the engine starts with none, so the welcome shows first.
+    private var opened = false
 
     public init() {
         points = DemoEngine.nozzlePoints(NozzleDimensions())
@@ -41,12 +43,13 @@ public final class DemoEngine: EngineClient, @unchecked Sendable {
         case .hello:
             answer = .object([
                 "protocol": .number(1), "version": .string("demo"),
-                "openfoam": DemoEngine.openFoam, "project": try DemoEngine.project(),
+                "openfoam": DemoEngine.openFoam, "project": opened ? try DemoEngine.project() : .null,
                 "running": .bool(false),
             ])
         case .detect:
             answer = DemoEngine.openFoam
         case .create, .open:
+            opened = true
             answer = try DemoEngine.project()
         case .save:
             answer = .object(["saved": .bool(true)])

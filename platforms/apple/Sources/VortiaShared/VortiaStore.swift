@@ -16,11 +16,31 @@ public final class VortiaStore {
         case lost(String)
     }
 
+    /// The six stages of a case, in the order Vortia lists them. A contour project and a box
+    /// project share them; what each stage shows depends on which one is open.
     public enum Stage: String, CaseIterable, Identifiable, Sendable {
-        case geometry, mesh, physics, time, run, results, engineering
-        /// The compressible workflow over a sketched, axisymmetric domain.
-        case contour, flowSetup
+        case project, geometry, mesh, physics, calculation, results
         public var id: String { rawValue }
+    }
+
+    /// The line a profile is sampled along.
+    public enum ProfileLine: String, CaseIterable, Identifiable, Sendable {
+        /// Along X, just above the axis: how a nozzle or a duct is read.
+        case axis
+        /// Across Y, through the middle of the domain: how a cavity or a channel is read.
+        case vertical
+        public var id: String { rawValue }
+    }
+
+    /// A contour as the editor changes it: its vertices (mm) and each segment's bulge.
+    public struct ContourShape: Equatable, Sendable {
+        public var points: [[Double]]
+        public var bulges: [Double]
+
+        public init(points: [[Double]], bulges: [Double]) {
+            self.points = points
+            self.bulges = bulges
+        }
     }
 
     public enum Job: Equatable, Sendable {
@@ -73,18 +93,23 @@ public final class VortiaStore {
 
     /// A project with a contour runs the compressible workflow.
     public var isFlowProject: Bool { sketch != nil }
-    /// The stages the sidebar lists for this project, in order.
-    public var visibleStages: [Stage] {
-        isFlowProject
-            ? [.contour, .flowSetup, .run, .results, .engineering]
-            : [.geometry, .mesh, .physics, .time, .run, .results, .engineering]
-    }
+    /// The stages the sidebar lists, in order: always the same six, as in Vortia.
+    public var visibleStages: [Stage] { Stage.allCases }
+    /// Earlier contours, for undo, and the ones undone, for redo.
+    public private(set) var undoContours: [ContourShape] = []
+    public private(set) var redoContours: [ContourShape] = []
+    public var canUndoContour: Bool { !undoContours.isEmpty && !job.isRunning }
+    public var canRedoContour: Bool { !redoContours.isEmpty && !job.isRunning }
     /// The section to analyse, and the report of the last one.
     public var section = SectionOptions()
     public var sectionLabel = ""
     public private(set) var sectionReport: SectionReport?
     public private(set) var analysing = false
-    public var stage: Stage = .geometry
+    public var stage: Stage = .project
+    /// Where the profile in Results is sampled.
+    public var profileLine: ProfileLine = .vertical {
+        didSet { if profileLine != oldValue { Task { await loadProfile() } } }
+    }
 
     /// The setup being edited. Every change is validated and saved after a pause.
     public var setup: CaseSetup? {
@@ -103,6 +128,8 @@ public final class VortiaStore {
     }
     /// Where along that axis, from 0 to 1 of the domain.
     public var sliceFraction = 0.5
+    /// An axisymmetric slice drawn again below the axis, as the whole section reads.
+    public var revolve = true
     /// The result in 3D (the domain's surface) rather than as a flat slice.
     public var threeD = false {
         didSet { if threeD && !oldValue { Task { await loadSurface() } } }
@@ -184,12 +211,19 @@ public final class VortiaStore {
 
     // MARK: Projects
 
+    /// A new project starts as Vortia's do: a fluid contour to draw, here the parametric
+    /// nozzle, ready to be reshaped.
     public func create(at url: URL) async {
         await perform {
             let name = url.deletingPathExtension().lastPathComponent
             let project = try await $0.call(
                 .create(path: url.path, name: name), as: ProjectInfo.self)
             self.adopt(project)
+            struct Answer: Decodable { var sketch: Sketch }
+            self.sketch = try await $0.call(.nozzle(NozzleDimensions()), as: Answer.self).sketch
+            self.profileLine = .axis
+            await self.loadFlow()
+            self.stage = .geometry
         }
     }
 
@@ -234,7 +268,9 @@ public final class VortiaStore {
         sketch = nil
         flow = nil
         convergence = nil
-        stage = project.state == "solved" ? .results : .geometry
+        undoContours = []
+        redoContours = []
+        stage = project.state == "solved" ? .results : .project
         Task {
             await validateNow()
             await loadSketch()
@@ -290,8 +326,8 @@ public final class VortiaStore {
         guard let answer = try? await client.call(.sketch, as: Answer.self) else { return }
         sketch = answer.sketch
         if sketch != nil {
+            profileLine = .axis
             await loadFlow()
-            if stage == .geometry { stage = .contour }
         }
     }
 
@@ -308,21 +344,59 @@ public final class VortiaStore {
     public func makeNozzle(_ dimensions: NozzleDimensions) async {
         struct Answer: Decodable { var sketch: Sketch }
         await perform {
+            if let sketch = self.sketch { self.remember(sketch) }
             self.sketch = try await $0.call(.nozzle(dimensions), as: Answer.self).sketch
+            self.profileLine = .axis
             await self.loadFlow()
-            self.stage = .contour
+            self.stage = .geometry
         }
     }
 
-    /// Saves an edited contour; boundaries follow their segments in the engine.
+    /// Saves an edited contour, which can be undone; boundaries follow their segments in the
+    /// engine.
     public func updateContour(points: [[Double]], closed: Bool, bulges: [Double]) async {
         guard let sketch else { return }
+        let before = sketch
+        if await sendContour(ContourShape(points: points, bulges: bulges), closed: closed) {
+            remember(before)
+        }
+    }
+
+    public func undoContour() async {
+        guard let sketch, let previous = undoContours.last, !job.isRunning else { return }
+        let current = ContourShape(points: sketch.points, bulges: sketch.bulges)
+        if await sendContour(previous, closed: sketch.closed) {
+            undoContours.removeLast()
+            redoContours.append(current)
+        }
+    }
+
+    public func redoContour() async {
+        guard let sketch, let next = redoContours.last, !job.isRunning else { return }
+        let current = ContourShape(points: sketch.points, bulges: sketch.bulges)
+        if await sendContour(next, closed: sketch.closed) {
+            redoContours.removeLast()
+            undoContours.append(current)
+        }
+    }
+
+    private func remember(_ sketch: Sketch) {
+        undoContours.append(ContourShape(points: sketch.points, bulges: sketch.bulges))
+        if undoContours.count > 100 { undoContours.removeFirst() }
+        redoContours = []
+    }
+
+    private func sendContour(_ shape: ContourShape, closed: Bool) async -> Bool {
+        guard let sketch else { return false }
         struct Answer: Decodable { var sketch: Sketch }
-        let file = sketch.file(points: points, closed: closed, bulges: bulges)
+        let file = sketch.file(points: shape.points, closed: closed, bulges: shape.bulges)
+        var saved = false
         await perform {
             self.sketch = try await $0.call(.saveSketch(file), as: Answer.self).sketch
             await self.loadFlow()
+            saved = true
         }
+        return saved
     }
 
     private func scheduleFlowSave() {
@@ -363,7 +437,7 @@ public final class VortiaStore {
         residualCount = 0
         latest = nil
         log = ""
-        stage = .run
+        stage = .calculation
         await perform {
             _ = try await $0.send(request)
             self.job = .running(phase: request == .mesh || request == .flowMesh ? "mesh" : "solve")
@@ -432,16 +506,27 @@ public final class VortiaStore {
             .slice(field: field, axis: sliceAxis, position: position), as: FieldTriangles.self)
     }
 
-    /// The vertical centre line of the domain, the profile a cavity or a channel is judged by.
+    /// The chosen line through the latest result: along the axis, or vertically through the
+    /// middle of the domain.
     private func loadProfile() async {
         guard let field, let client, let results, results.bounds.count == 2 else { return }
         let low = results.bounds[0]
         let high = results.bounds[1]
         let middle = (0..<3).map { (low[safe: $0] + high[safe: $0]) / 2 }
-        let start = [middle[0], low[safe: 1], middle[2]]
-        let end = [middle[0], high[safe: 1], middle[2]]
+        let start: [Double]
+        let end: [Double]
+        switch profileLine {
+        case .vertical:
+            start = [middle[0], low[safe: 1], middle[2]]
+            end = [middle[0], high[safe: 1], middle[2]]
+        case .axis:
+            // A hair above Y = 0, so the line stays inside the cells that touch the axis.
+            let above = low[safe: 1] + (high[safe: 1] - low[safe: 1]) * 1e-3
+            start = [low[safe: 0], above, middle[2]]
+            end = [high[safe: 0], above, middle[2]]
+        }
         profile = try? await client.call(
-            .line(field: field, start: start, end: end), as: LineProfile.self)
+            .line(field: field, start: start, end: end, points: 200), as: LineProfile.self)
     }
 
     // MARK: Plumbing
