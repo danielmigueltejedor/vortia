@@ -13,6 +13,8 @@ pub enum TokenKind {
     Punct(u8),
     Word(String),
     Str(String),
+    /// A `#{ ... #}` block of code, verbatim.
+    Code(String),
     Label(i64),
     Scalar(f64),
 }
@@ -44,6 +46,7 @@ impl Token {
             TokenKind::Punct(c) => format!("'{}'", *c as char),
             TokenKind::Word(w) => format!("word '{w}'"),
             TokenKind::Str(s) => format!("string \"{s}\""),
+            TokenKind::Code(_) => "a code block".to_string(),
             TokenKind::Label(v) => format!("label {v}"),
             TokenKind::Scalar(v) => format!("scalar {v}"),
         }
@@ -186,12 +189,36 @@ impl<'a> Tokenizer<'a> {
             TokenKind::Punct(c)
         } else if c == b'"' {
             TokenKind::Str(self.read_string(line)?)
+        } else if c == b'#' && self.byte(self.pos + 1) == Some(b'{') {
+            TokenKind::Code(self.read_code(line)?)
         } else if starts_number(c, self.byte(self.pos + 1)) {
             self.read_number()
         } else {
             TokenKind::Word(self.read_word())
         };
         Ok(Some(Token { kind, line }))
+    }
+
+    /// The text between `#{` and `#}`, as it is.
+    fn read_code(&mut self, line: u32) -> Result<String> {
+        self.pos += 2;
+        let start = self.pos;
+        loop {
+            match self.byte(self.pos) {
+                None => return Err(FoamError::parse(line, "code block is never closed")),
+                Some(b'#') if self.byte(self.pos + 1) == Some(b'}') => {
+                    let text = self.src.get(start..self.pos).unwrap_or_default();
+                    self.pos += 2;
+                    return Ok(String::from_utf8_lossy(text).into_owned());
+                }
+                Some(c) => {
+                    if c == b'\n' {
+                        self.line = self.line.saturating_add(1);
+                    }
+                    self.pos += 1;
+                }
+            }
+        }
     }
 
     fn read_string(&mut self, line: u32) -> Result<String> {

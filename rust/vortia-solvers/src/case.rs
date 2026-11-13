@@ -383,7 +383,7 @@ const MAX_EXPANDED_WEIGHT: usize = 1 << 22;
 fn weight(entry: &Entry) -> usize {
     fn value(v: &Value) -> usize {
         match v {
-            Value::Word(s) | Value::Str(s) => 1 + s.len(),
+            Value::Word(s) | Value::Str(s) | Value::Code(s) => 1 + s.len(),
             Value::Label(_) | Value::Scalar(_) => 1,
             Value::List(l) | Value::Dimensions(l) => 1 + l.iter().map(value).sum::<usize>(),
             Value::Dict(d) => 1 + dict(d),

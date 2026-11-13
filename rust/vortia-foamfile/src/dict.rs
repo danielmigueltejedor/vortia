@@ -20,6 +20,8 @@ const MAX_EXPANDED: usize = 1 << 24;
 pub enum Value {
     Word(String),
     Str(String),
+    /// The text of a `#{ ... #}` block.
+    Code(String),
     Label(i64),
     Scalar(f64),
     List(Vec<Value>),
@@ -41,7 +43,7 @@ impl Value {
                 .fold(1usize, |acc, v| acc.saturating_add(v.weight())),
             Value::Dict(d) => d.weight(),
             Value::Keyed(k, d) => text_weight(k).saturating_add(d.weight()),
-            Value::Word(w) | Value::Str(w) => text_weight(w),
+            Value::Word(w) | Value::Str(w) | Value::Code(w) => text_weight(w),
             Value::Label(_) | Value::Scalar(_) => 1,
         }
     }
@@ -49,6 +51,13 @@ impl Value {
     pub fn as_word(&self) -> Option<&str> {
         match self {
             Value::Word(w) | Value::Str(w) => Some(w),
+            _ => None,
+        }
+    }
+
+    pub fn as_code(&self) -> Option<&str> {
+        match self {
+            Value::Code(c) => Some(c),
             _ => None,
         }
     }
@@ -191,7 +200,7 @@ impl Dictionary {
                 // Numeric keys occur, e.g. in tabulated thermophysical data.
                 TokenKind::Label(v) => v.to_string(),
                 TokenKind::Scalar(v) => v.to_string(),
-                TokenKind::Punct(_) => {
+                TokenKind::Punct(_) | TokenKind::Code(_) => {
                     return Err(FoamError::parse(
                         t.line,
                         format!("expected a keyword, found {}", t.describe()),
@@ -246,6 +255,7 @@ pub fn parse_value(first: Token, tok: &mut Tokenizer<'_>, depth: u32) -> Result<
     match first.kind {
         TokenKind::Word(w) => Ok(Value::Word(w)),
         TokenKind::Str(s) => Ok(Value::Str(s)),
+        TokenKind::Code(s) => Ok(Value::Code(s)),
         TokenKind::Scalar(v) => Ok(Value::Scalar(v)),
         TokenKind::Label(n) => {
             let next_is = |tok: &mut Tokenizer<'_>, c| -> Result<bool> {
@@ -410,6 +420,28 @@ mod tests {
         let d = parse("#include \"initialConditions\"\nendTime 1;");
         assert!(matches!(d.get("#include"), Some(Entry::Directive(v)) if v.len() == 1));
         assert_eq!(d.label("endTime"), Some(1));
+    }
+
+    #[test]
+    fn a_code_block_is_kept_as_it_is_and_written_back() {
+        let src = "p { type codedMixed; name x; code\n#{\n const auto& u = f(\"U\");\n if (a) { b; }\n#}; }\nz 1;";
+        let d = parse(src);
+        let p = d.dict("p").unwrap();
+        let code = p.value("code").and_then(Value::as_code).unwrap();
+        assert!(
+            code.contains("f(\"U\");") && code.contains("{ b; }"),
+            "{code}"
+        );
+        assert_eq!(d.label("z"), Some(1));
+        let mut out = String::new();
+        crate::write::dictionary(&mut out, &d, 0);
+        assert_eq!(parse(&out), d, "{out}");
+        for bad in ["a #{ never closed;", "#{ x #}"] {
+            assert!(
+                Dictionary::parse(&mut Tokenizer::new(bad.as_bytes()), false, 0).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]
