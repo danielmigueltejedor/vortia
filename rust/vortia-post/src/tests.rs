@@ -193,3 +193,39 @@ fn names_that_are_not_there_are_refused_with_what_is() {
     assert!(case.field("7", "T").is_err());
     assert_eq!(case.field_names("0").unwrap(), vec!["T".to_owned()]);
 }
+
+#[test]
+fn a_report_sums_the_domain_and_each_patch_from_one_read() {
+    let (dir, case) = case();
+    write_scalar(&dir, &case, "T", |c| c.x);
+    let n = case.mesh().n_internal_faces();
+    write(
+        &dir,
+        "phi",
+        "surfaceScalarField",
+        &format!("uniform 0 /* {n} */"),
+        &[(
+            "xMax",
+            "type calculated; value nonuniform List<scalar> 2(0.5 0.25);",
+        )],
+    );
+    let r = case.report("0", "T").unwrap();
+    assert_eq!(r.volume.average, vec![2.0]);
+    let names: Vec<&str> = r.patches.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, PATCHES);
+    let outlet = r.patches.iter().find(|p| p.name == "xMax").unwrap();
+    assert_eq!((outlet.stats.average[0], outlet.flux), (5.0, Some(0.75)));
+    // The other patches have no `value` for phi: no flux, but still reported.
+    let inlet = r.patches.iter().find(|p| p.name == "xMin").unwrap();
+    assert_eq!((inlet.stats.average[0], inlet.flux), (0.5, None));
+}
+
+#[test]
+fn the_bounds_are_the_box_the_mesh_fills() {
+    let (_dir, case) = case();
+    let b = case.bounds();
+    assert_eq!(
+        (b.min, b.max),
+        (Vec3::new(0.0, 0.0, 0.0), Vec3::new(4.0, 2.0, 1.0))
+    );
+}

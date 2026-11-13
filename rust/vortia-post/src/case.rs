@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vortia_core::Vec3;
+use vortia_core::{Aabb, Vec3};
 use vortia_fields::{Field, FieldValue, Location, Time};
 use vortia_foamfile::FoamFile;
 use vortia_mesh::{MeshGeometry, Patch, PatchKind, PolyMesh};
@@ -59,6 +59,26 @@ impl FieldValues {
                 .collect(),
         }
     }
+}
+
+/// One patch of a [`FieldReport`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct PatchReport {
+    pub name: String,
+    /// `patch`, `wall`, `wedge`, …
+    pub kind: String,
+    pub stats: PatchStats,
+    /// What flows out through it; `None` when the time has no `phi`.
+    pub flux: Option<f64>,
+}
+
+/// A field summed up over the domain and each patch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldReport {
+    pub time: String,
+    pub field: String,
+    pub volume: VolumeStats,
+    pub patches: Vec<PatchReport>,
 }
 
 /// One point of a line, and what the field holds in the cell around it.
@@ -191,12 +211,21 @@ impl Case {
     /// solver and mass flux for a compressible one.
     pub fn flux(&self, time: &str, patch: &str) -> Result<f64> {
         let patch = self.patch(patch)?;
+        let field = self.flux_field(time)?;
+        Self::patch_flux(&field, patch)
+    }
+
+    fn flux_field(&self, time: &str) -> Result<Field<f64>> {
         let path = self.field_path(time, "phi")?;
         let field = Field::<f64>::read(&path)?;
         if field.location != Location::Faces {
             return Err(PostError::Invalid("phi is not a face field".into()));
         }
-        let pf = field
+        Ok(field)
+    }
+
+    fn patch_flux(phi: &Field<f64>, patch: &Patch) -> Result<f64> {
+        let pf = phi
             .patch_field(patch)
             .ok_or_else(|| PostError::Invalid(format!("phi has no entry for '{}'", patch.name)))?;
         let values = pf
@@ -207,6 +236,61 @@ impl Case {
                 PostError::Invalid(format!("phi holds no values on '{}'", patch.name))
             })?;
         Ok(values.iter().sum())
+    }
+
+    /// A field over the whole domain and on every patch, reading it once.
+    /// The flux through each patch comes with it when the time has a `phi`.
+    pub fn report(&self, time: &str, name: &str) -> Result<FieldReport> {
+        let (path, class) = self.field_file(time, name)?;
+        let (cells, faces) = match class.as_str() {
+            "volScalarField" => self.everywhere::<f64>(&path, FieldValues::Scalar)?,
+            "volVectorField" => self.everywhere::<Vec3>(&path, FieldValues::Vector)?,
+            other => {
+                return Err(PostError::Invalid(format!(
+                    "{name} is a {other}; only volScalarField and volVectorField can be looked into"
+                )));
+            }
+        };
+        let volume = VolumeStats::of(&cells, &self.geometry.cell_volumes)
+            .ok_or_else(|| PostError::Invalid("the mesh has no cells".into()))?;
+        let phi = self.flux_field(time).ok();
+        let patches = faces
+            .into_iter()
+            .filter_map(|(patch, values)| {
+                let areas: Vec<f64> = patch
+                    .faces()
+                    .map(|f| self.geometry.face_areas.get(f).map_or(0.0, |a| a.norm()))
+                    .collect();
+                Some(PatchReport {
+                    name: patch.name.clone(),
+                    kind: patch.kind.name().to_owned(),
+                    stats: PatchStats::of(&values, &areas)?,
+                    flux: phi
+                        .as_ref()
+                        .and_then(|phi| Self::patch_flux(phi, patch).ok()),
+                })
+            })
+            .collect();
+        Ok(FieldReport {
+            time: time.to_owned(),
+            field: name.to_owned(),
+            volume,
+            patches,
+        })
+    }
+
+    /// The box around the mesh.
+    pub fn bounds(&self) -> Aabb {
+        let mut points = self.mesh.points().iter();
+        let first = points.next().copied().unwrap_or_default();
+        let mut bounds = Aabb {
+            min: first,
+            max: first,
+        };
+        for &p in points {
+            bounds.extend(p);
+        }
+        bounds
     }
 
     /// Area, integral, average and range of a field over a patch.
@@ -365,21 +449,49 @@ impl Case {
     }
 
     fn cells<T: FieldValue>(&self, path: &Path) -> Result<Vec<T>> {
-        let field = Field::<T>::read(path)?;
-        field.check_against(&self.mesh)?;
-        field
-            .internal
-            .expand(self.mesh.n_cells())
-            .ok_or_else(|| PostError::Invalid("the values do not fit the mesh".into()))
+        Ok(self.read_field::<T>(path)?.1)
     }
 
     fn on_patch<T: FieldValue>(&self, path: &Path, patch: &Patch) -> Result<Vec<T>> {
+        let (field, cells) = self.read_field::<T>(path)?;
+        self.face_values(&field, &cells, patch)
+    }
+
+    fn read_field<T: FieldValue>(&self, path: &Path) -> Result<(Field<T>, Vec<T>)> {
         let field = Field::<T>::read(path)?;
         field.check_against(&self.mesh)?;
         let cells = field
             .internal
             .expand(self.mesh.n_cells())
             .ok_or_else(|| PostError::Invalid("the values do not fit the mesh".into()))?;
+        Ok((field, cells))
+    }
+
+    /// The cells, and the values on each patch that holds any, from one read.
+    fn everywhere<T: FieldValue>(
+        &self,
+        path: &Path,
+        wrap: fn(Vec<T>) -> FieldValues,
+    ) -> Result<(FieldValues, Vec<(&Patch, FieldValues)>)> {
+        let (field, cells) = self.read_field::<T>(path)?;
+        let mut patches = Vec::new();
+        for patch in self
+            .mesh
+            .patches()
+            .iter()
+            .filter(|p| p.kind != PatchKind::Empty && p.size > 0)
+        {
+            patches.push((patch, wrap(self.face_values(&field, &cells, patch)?)));
+        }
+        Ok((wrap(cells), patches))
+    }
+
+    fn face_values<T: FieldValue>(
+        &self,
+        field: &Field<T>,
+        cells: &[T],
+        patch: &Patch,
+    ) -> Result<Vec<T>> {
         if let Some(values) = field
             .patch_field(patch)
             .and_then(|pf| pf.value.as_ref())
