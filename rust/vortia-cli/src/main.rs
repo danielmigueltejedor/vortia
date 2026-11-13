@@ -46,7 +46,8 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20      vortia sample CASE FIELD X0 Y0 Z0 X1 Y1 Z1 POINTS [TIME]\n\
     \x20      vortia patch CASE PATCH FIELD [TIME]\n\
     \x20      vortia flux CASE PATCH [TIME]\n\
-    \x20      vortia volume CASE FIELD [TIME]\n\n\
+    \x20      vortia volume CASE FIELD [TIME]\n\
+    \x20      vortia wall CASE PATCH [TIME]\n\n\
     check-mesh   read CASE/constant/polyMesh (default: the current directory)\n\
     \x20            and report its size, geometry and quality\n\
     fields       read every field of TIME (default: the latest), check it\n\
@@ -61,7 +62,8 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     sample       FIELD along a line, as CSV: distance, point, cell, value\n\
     patch        area, integral, average and range of FIELD over a patch\n\
     flux         what flows out through a patch (the sum of phi on it)\n\
-    volume       volume, integral, average and range of FIELD over the domain";
+    volume       volume, integral, average and range of FIELD over the domain\n\
+    wall         shear stress, y+, forces and heat flux on a wall patch";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

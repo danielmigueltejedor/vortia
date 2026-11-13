@@ -492,12 +492,16 @@ impl Case {
         cells: &[T],
         patch: &Patch,
     ) -> Result<Vec<T>> {
-        if let Some(values) = field
-            .patch_field(patch)
+        let entry = field.patch_field(patch);
+        if let Some(values) = entry
             .and_then(|pf| pf.value.as_ref())
             .and_then(|d| d.expand(patch.size))
         {
             return Ok(values);
+        }
+        // `noSlip` writes no value: the fluid at the wall does not move.
+        if entry.is_some_and(|pf| pf.kind == "noSlip") {
+            return Ok(vec![T::default(); patch.size]);
         }
         patch
             .faces()

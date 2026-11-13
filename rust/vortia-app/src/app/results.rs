@@ -13,7 +13,8 @@ use eframe::egui::{
 };
 use nodalia_theme::{Palette, component, font_size, for_egui, space};
 use vortia_core::{Aabb, Vec3};
-use vortia_post::{Case, FieldReport, FieldValues, Sample};
+use vortia_mesh::PatchKind;
+use vortia_post::{Case, FieldReport, FieldValues, Sample, WallReport};
 
 use super::{accent_button, corner, muted};
 
@@ -237,6 +238,7 @@ pub struct Results {
     time: Option<String>,
     field: Option<String>,
     report: Slot<FieldReport>,
+    walls: Slot<Vec<WallReport>>,
     line: LineForm,
     profile: Slot<Profile>,
     choice: usize,
@@ -252,6 +254,7 @@ impl Results {
     fn update(&mut self, dir: &Path, ctx: &Context) {
         self.case.poll();
         self.report.poll();
+        self.walls.poll();
         self.profile.poll();
         self.probe.poll();
         if self.case.is_idle() {
@@ -279,6 +282,12 @@ impl Results {
             if let Some(last) = self.times.last().cloned() {
                 self.set_time(&case, &last);
             }
+        }
+        if self.walls.is_idle()
+            && let Some(time) = self.time.clone()
+        {
+            let case = Arc::clone(&case);
+            self.walls = spawn(ctx, move || walls_of(&case, &time));
         }
         if self.report.is_idle()
             && let (Some(time), Some(field)) = (self.time.clone(), self.field.clone())
@@ -310,6 +319,7 @@ impl Results {
     /// What was calculated for another time or field is not what is asked for any more.
     fn forget(&mut self) {
         self.report = Slot::Idle;
+        self.walls = Slot::Idle;
         self.profile = Slot::Idle;
         self.probe = Slot::Idle;
         self.saved = None;
@@ -390,10 +400,30 @@ pub(super) fn results_tab(ui: &mut egui::Ui, p: &Palette, dir: &Path, results: &
         .show(ui, |ui| {
             overview(ui, p, results);
             ui.add_space(space::MD);
+            walls_card(ui, p, &results.walls);
+            ui.add_space(space::MD);
             probe_card(ui, p, &case, results);
             ui.add_space(space::MD);
             line_card(ui, p, &case, results);
         });
+}
+
+/// What the flow does to each wall patch; the reason when there is nothing to show.
+fn walls_of(case: &Case, time: &str) -> Result<Vec<WallReport>, String> {
+    let names: Vec<String> = case
+        .mesh()
+        .patches()
+        .iter()
+        .filter(|p| p.kind == PatchKind::Wall && p.size > 0)
+        .map(|p| p.name.clone())
+        .collect();
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    names
+        .iter()
+        .map(|name| case.wall(time, name).map_err(|e| e.to_string()))
+        .collect()
 }
 
 fn wait(ui: &mut egui::Ui, text: &str) {
@@ -417,7 +447,10 @@ fn card<R>(ui: &mut egui::Ui, p: &Palette, add: impl FnOnce(&mut egui::Ui) -> R)
 
 /// A number with a few digits, plain where it is of a size to read and scientific otherwise.
 fn plain(v: f64) -> String {
-    if v == 0.0 || !v.is_finite() {
+    if v == 0.0 {
+        return "0".to_owned();
+    }
+    if !v.is_finite() {
         return format!("{v}");
     }
     if (1.0e-3..1.0e6).contains(&v.abs()) {
@@ -501,6 +534,74 @@ fn overview(ui: &mut egui::Ui, p: &Palette, results: &Results) {
                 );
             }
         }
+    });
+}
+
+fn vector(v: vortia_core::Vec3) -> String {
+    shown(&[v.x, v.y, v.z])
+}
+
+fn walls_card(ui: &mut egui::Ui, p: &Palette, walls: &Slot<Vec<WallReport>>) {
+    let reports = match walls {
+        Slot::Idle | Slot::Working(_) => return,
+        Slot::Done(Ok(reports)) if reports.is_empty() => return,
+        Slot::Done(Err(message)) => {
+            card(ui, p, |ui| {
+                ui.label(RichText::new("Walls").strong());
+                ui.label(RichText::new(format!("Not worked out: {message}")).color(muted(p)));
+            });
+            return;
+        }
+        Slot::Done(Ok(reports)) => reports,
+    };
+    card(ui, p, |ui| {
+        ui.label(RichText::new("Walls").strong());
+        ui.add_space(space::SM);
+        egui::ScrollArea::horizontal()
+            .id_salt("results-walls-scroll")
+            .show(ui, |ui| {
+                egui::Grid::new("results-walls")
+                    .num_columns(6)
+                    .spacing([space::LG, space::XS])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for head in [
+                            "Patch",
+                            "Mean shear",
+                            "Viscous",
+                            "Pressure",
+                            "y+ (min, mean, max)",
+                            "Heat in",
+                        ] {
+                            ui.label(RichText::new(head).size(font_size::SMALL).color(muted(p)));
+                        }
+                        ui.end_row();
+                        for w in reports {
+                            ui.label(&w.patch);
+                            ui.label(vector(w.mean_shear()));
+                            ui.label(vector(w.viscous_force));
+                            ui.label(w.pressure_force.map_or_else(|| "–".to_owned(), vector));
+                            ui.label(w.y_plus_range().map_or_else(
+                                || "–".to_owned(),
+                                |(lo, mean, hi)| {
+                                    format!("{} / {} / {}", plain(lo), plain(mean), plain(hi))
+                                },
+                            ));
+                            ui.label(
+                                w.heat_rate()
+                                    .map_or_else(|| "–".to_owned(), |q| format!("{} W", plain(q))),
+                            );
+                            ui.end_row();
+                        }
+                    });
+            });
+        let units = if reports.iter().any(|w| w.kinematic) {
+            "Per unit density (m²/s², m³/s²): the solver is incompressible."
+        } else {
+            "Stress in Pa, force in N. Shear is the wall's pull on the fluid, so it is negative along the flow."
+        };
+        ui.add_space(space::SM);
+        ui.label(RichText::new(units).size(font_size::SMALL).color(muted(p)));
     });
 }
 

@@ -17,6 +17,7 @@ path = "src/main.rs"
 vortia-core = { path = "../vortia-core" }
 vortia-fields = { path = "../vortia-fields" }
 vortia-foamfile = { path = "../vortia-foamfile" }
+vortia-mesh = { path = "../vortia-mesh" }
 vortia-post = { path = "../vortia-post" }
 vortia-solvers = { path = "../vortia-solvers" }
 serde_json = "1"
@@ -25,7 +26,6 @@ nodalia-theme = { git = "https://github.com/danielmigueltejedor/nodalia-design",
 
 [dev-dependencies]
 tempfile = "3"
-vortia-mesh = { path = "../vortia-mesh" }
 
 # The shell's global menu, over D-Bus.
 [target.'cfg(target_os = "linux")'.dependencies]
