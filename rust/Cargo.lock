@@ -2375,6 +2375,7 @@ dependencies = [
  "nodalia-theme",
  "serde_json",
  "tempfile",
+ "vortia-foamfile",
  "vortia-solvers",
 ]
 

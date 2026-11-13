@@ -19,3 +19,4 @@ pub mod app;
 pub mod convergence;
 pub mod prefs;
 pub mod session;
+pub mod summary;
