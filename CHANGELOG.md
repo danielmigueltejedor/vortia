@@ -17,6 +17,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   CSV (`sample`), la media, la integral y el rango sobre un contorno
   (`patch`), el caudal que lo atraviesa (`flux`) y la media sobre todo el
   dominio (`volume`).
+- **App en Rust:** la pestaña Results muestra un caso calculado: el rango de
+  un campo en el dominio y en cada contorno con el caudal que lo atraviesa,
+  una sonda en un punto y un perfil a lo largo de una línea, que se dibuja y
+  se guarda como CSV en `postProcessing/line`.
 - **App en Rust:** edita el caso desde sus pestañas Conditions, Numerics,
   Schemes y Settings (condiciones de contorno, números del solver, esquemas
   y ajustes de ejecución).

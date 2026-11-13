@@ -24,6 +24,9 @@ use crate::summary::{self, Summary};
 use crate::surface;
 use crate::viewer::{Source, Viewer};
 
+mod results;
+use results::{Results, results_tab};
+
 /// The accent of the app.
 const ACCENT: Accent = Accent::Vortia;
 /// The height of the header.
@@ -91,6 +94,8 @@ struct CaseView {
     /// tab is first looked at), and how the last save went.
     numerics: FileEdit,
     schemes: FileEdit,
+    /// What the Results tab has read and calculated; it reads the case when first looked at.
+    results: Results,
     /// A field to colour the mesh with as soon as it is read, asked for on the command line.
     first_field: Option<String>,
     /// The mesh is read the first time it is looked at.
@@ -108,6 +113,7 @@ struct FileEdit {
 /// A tab that can be asked for from outside, on the command line.
 #[derive(Clone, Copy)]
 pub enum TabName {
+    Results,
     Conditions,
     Numerics,
     Schemes,
@@ -119,6 +125,7 @@ pub enum TabName {
 enum Tab {
     Run,
     Mesh,
+    Results,
     Conditions,
     Numerics,
     Schemes,
@@ -147,6 +154,7 @@ impl CaseView {
             conditions_message: None,
             numerics: FileEdit::default(),
             schemes: FileEdit::default(),
+            results: Results::default(),
             first_field: None,
             viewer: None,
             viewer_rx: None,
@@ -378,6 +386,7 @@ impl VortiaApp {
     pub fn show_tab(&mut self, tab: TabName) {
         if let Screen::Case(case) = &mut self.screen {
             case.tab = match tab {
+                TabName::Results => Tab::Results,
                 TabName::Conditions => Tab::Conditions,
                 TabName::Numerics => Tab::Numerics,
                 TabName::Schemes => Tab::Schemes,
@@ -783,6 +792,7 @@ impl VortiaApp {
                     ui.horizontal(|ui| {
                         ui.selectable_value(&mut case.tab, Tab::Run, "Run");
                         ui.selectable_value(&mut case.tab, Tab::Mesh, "Mesh");
+                        ui.selectable_value(&mut case.tab, Tab::Results, "Results");
                         ui.selectable_value(&mut case.tab, Tab::Conditions, "Conditions");
                         ui.selectable_value(&mut case.tab, Tab::Numerics, "Numerics");
                         ui.selectable_value(&mut case.tab, Tab::Schemes, "Schemes");
@@ -791,6 +801,10 @@ impl VortiaApp {
                     ui.add_space(space::SM);
                     case.ensure_viewer(ctx);
                     case.ensure_conditions(ctx);
+                    if case.tab == Tab::Results {
+                        results_tab(ui, p, &case.dir, &mut case.results);
+                        return;
+                    }
                     if case.tab == Tab::Conditions {
                         conditions_tab(ui, p, case);
                         return;

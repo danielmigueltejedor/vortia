@@ -24,7 +24,7 @@ mod csv;
 mod error;
 mod stats;
 
-pub use case::{Case, FieldValues, Sample};
+pub use case::{Case, FieldReport, FieldValues, MAX_LINE_POINTS, PatchReport, Sample};
 pub use csv::line_csv;
 pub use error::{PostError, Result};
 pub use stats::{PatchStats, VolumeStats};
