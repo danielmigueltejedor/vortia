@@ -17,6 +17,7 @@
 pub mod case;
 pub(crate) mod coded;
 pub mod control;
+pub(crate) mod convergence;
 pub(crate) mod driven;
 pub mod error;
 pub mod ico;

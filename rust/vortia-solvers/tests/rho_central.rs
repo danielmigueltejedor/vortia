@@ -1712,3 +1712,86 @@ fn spalart_allmaras_asks_for_what_it_needs() {
     let err = rho_central::run(&case, |_| {}).unwrap_err().to_string();
     assert!(err.contains("viscous"), "{err}");
 }
+
+/// The wedge case with a gas at rest that its boundaries agree with, and a
+/// run that is allowed to stop on convergence every two iterations.
+fn settled(dir: &Path, convergence: &str) {
+    wedge(dir, true, false);
+    let uniform = |name: &str, from: &str, to: &str| {
+        let path = dir.join("0").join(name);
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(path, text.replace(from, to)).unwrap();
+    };
+    uniform("p", "uniform 150000", "uniform 101325");
+    uniform("T", "uniform 320", "uniform 300");
+    uniform("U", "uniform (30 0 0)", "uniform (0 0 0)");
+    vortia_controls(dir, &format!("maxDiffusionCo 1e300; {convergence}"));
+}
+
+const QUICK: &str = "vortiaConvergence { interval 2; minimumIterations 2; stableSamples 2; }";
+
+fn convergence_report(dir: &Path) -> String {
+    std::fs::read_to_string(dir.join("vortia-convergence.json")).unwrap()
+}
+
+/// A run that settles ends before its last step, keeps the state it
+/// stopped on and says why; one that does not runs to its end and reports
+/// that it hit the limit.
+#[test]
+fn a_settled_run_stops_by_itself_and_reports_it() {
+    let dir = tempfile::tempdir().unwrap();
+    settled(dir.path(), QUICK);
+    let case = Case::open(dir.path()).unwrap();
+    let mut log = String::new();
+    let steps = rho_central::run_vortia(&case, |l: &str| log.push_str(l)).unwrap();
+    assert_eq!(steps.len(), 4, "{log}");
+    assert!(steps.last().is_some_and(|s| s.written));
+    assert!(dir.path().join("4/T").is_file());
+    assert!(!dir.path().join("20").exists());
+    let report = convergence_report(dir.path());
+    assert!(report.contains("\"status\":\"converged\""), "{report}");
+    assert!(report.contains("\"iteration\":4"), "{report}");
+    assert!(log.contains("VORTIA_CONVERGENCE"), "{log}");
+
+    // The same run with the stop turned off goes to its end.
+    let dir = tempfile::tempdir().unwrap();
+    settled(
+        dir.path(),
+        "vortiaConvergence { interval 2; minimumIterations 2; stableSamples 2; enabled no; }",
+    );
+    let case = Case::open(dir.path()).unwrap();
+    let steps = rho_central::run_vortia(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), 20);
+    assert!(convergence_report(dir.path()).contains("\"automatic\":false"));
+
+    // A flow that is still developing does not stop.
+    let dir = tempfile::tempdir().unwrap();
+    wedge(dir.path(), true, false);
+    vortia_controls(
+        dir.path(),
+        "maxDiffusionCo 1e300; vortiaConvergence { interval 5; minimumIterations 5; stableSamples 2; }",
+    );
+    let case = Case::open(dir.path()).unwrap();
+    let steps = rho_central::run_vortia(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), 20);
+    let report = convergence_report(dir.path());
+    assert!(report.contains("\"status\":\"limit\""), "{report}");
+}
+
+#[test]
+fn convergence_controls_out_of_range_are_refused() {
+    for bad in [
+        "interval 0;",
+        "stableSamples 1;",
+        "massTolerance 1;",
+        "minimumIterations 1; interval 2;",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        settled(dir.path(), &format!("vortiaConvergence {{ {bad} }}"));
+        let case = Case::open(dir.path()).unwrap();
+        let e = rho_central::run_vortia(&case, |_| {})
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("vortiaConvergence"), "{bad}: {e}");
+    }
+}
