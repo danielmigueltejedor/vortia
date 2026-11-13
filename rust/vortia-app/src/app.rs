@@ -13,6 +13,8 @@ use eframe::egui::{
 use nodalia_theme::{Accent, Mode, Palette, component, font_size, for_egui, icons, radius, space};
 
 use crate::convergence::Convergence;
+#[cfg(target_os = "linux")]
+use crate::globalmenu::{Entry, GlobalMenu, Menu};
 use crate::prefs::{self, Prefs, Theme};
 use crate::session::{Event, Outcome, Session};
 use crate::summary::{self, Summary};
@@ -157,6 +159,36 @@ pub struct VortiaApp {
     notice: Option<String>,
     screen: Screen,
     dialog: Option<Dialog>,
+    /// The menus in the shell's top bar, where there is one.
+    #[cfg(target_os = "linux")]
+    global_menu: Option<GlobalMenu>,
+}
+
+/// The menus the shell shows for the app, each action named for [`VortiaApp::act`].
+#[cfg(target_os = "linux")]
+fn global_menus() -> Vec<Menu> {
+    vec![
+        Menu {
+            title: "Vortia".into(),
+            entries: vec![
+                Entry::action("About Vortia", "about"),
+                Entry::Separator,
+                Entry::action("Preferences", "preferences"),
+                Entry::action("Keyboard shortcuts", "shortcuts"),
+                Entry::Separator,
+                Entry::action("Quit", "quit"),
+            ],
+        },
+        Menu {
+            title: "Case".into(),
+            entries: vec![
+                Entry::action("Run", "run"),
+                Entry::action("Stop", "stop"),
+                Entry::Separator,
+                Entry::action("Close case", "close"),
+            ],
+        },
+    ]
 }
 
 impl VortiaApp {
@@ -168,6 +200,11 @@ impl VortiaApp {
             .map(Prefs::load_from)
             .unwrap_or_default();
         let mut app = Self::with_prefs(prefs, prefs_file);
+        #[cfg(target_os = "linux")]
+        {
+            let wake = ctx.clone();
+            app.global_menu = GlobalMenu::start(&global_menus(), move || wake.request_repaint());
+        }
         app.apply_theme(ctx);
         if let Some(case) = case {
             let case = PathBuf::from(case);
@@ -189,6 +226,8 @@ impl VortiaApp {
             notice: None,
             screen: Screen::Welcome,
             dialog: None,
+            #[cfg(target_os = "linux")]
+            global_menu: None,
         }
     }
 
@@ -241,6 +280,56 @@ impl VortiaApp {
             Err(e) => {
                 case.outcome = Some(Outcome::Failed(format!("The engine could not start: {e}")))
             }
+        }
+    }
+
+    fn stop_run(&mut self) {
+        if let Screen::Case(case) = &mut self.screen
+            && let Some(session) = &case.session
+            && !case.stopping
+        {
+            session.stop();
+            case.stopping = true;
+        }
+    }
+
+    fn close_case(&mut self) {
+        if matches!(&self.screen, Screen::Case(case) if !case.running()) {
+            self.screen = Screen::Welcome;
+        }
+    }
+
+    /// A command that came from the shell's menu.
+    #[cfg(target_os = "linux")]
+    fn act(&mut self, ctx: &Context, action: &str) {
+        match action {
+            "about" => self.dialog = Some(Dialog::About),
+            "preferences" => self.dialog = Some(Dialog::Preferences),
+            "shortcuts" => self.dialog = Some(Dialog::Shortcuts),
+            "quit" => ctx.send_viewport_cmd(ViewportCommand::Close),
+            "run" => self.start_run(ctx),
+            "stop" => self.stop_run(),
+            "close" => self.close_case(),
+            _ => {}
+        }
+    }
+
+    /// Takes the shell's clicks, and tells it which of the case's commands apply now.
+    #[cfg(target_os = "linux")]
+    fn sync_global_menu(&mut self, ctx: &Context) {
+        let Some(menu) = &self.global_menu else {
+            return;
+        };
+        let clicks = menu.poll();
+        let (open, running, stopping) = match &self.screen {
+            Screen::Case(case) => (true, case.running(), case.stopping),
+            Screen::Welcome => (false, false, false),
+        };
+        menu.set_enabled("run", open && !running);
+        menu.set_enabled("stop", running && !stopping);
+        menu.set_enabled("close", open && !running);
+        for action in clicks {
+            self.act(ctx, &action);
         }
     }
 
@@ -305,6 +394,8 @@ impl VortiaApp {
                 ctx.request_repaint_after(Duration::from_millis(250));
             }
         }
+        #[cfg(target_os = "linux")]
+        self.sync_global_menu(ctx);
         self.shortcuts(ctx);
 
         let p = palette(ctx);
@@ -476,6 +567,7 @@ impl VortiaApp {
     fn case_screen(&mut self, ui: &mut egui::Ui, ctx: &Context, p: &Palette) {
         let mut run = false;
         let mut close = false;
+        let mut stop = false;
         let Screen::Case(case) = &mut self.screen else {
             return;
         };
@@ -494,13 +586,12 @@ impl VortiaApp {
                 );
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if let Some(session) = &case.session {
+                if case.session.is_some() {
                     let stopping = case.stopping;
                     let label = if stopping { "Stopping…" } else { "Stop" };
                     let button = ui.add_enabled(!stopping, egui::Button::new(label));
                     if button.clicked() {
-                        session.stop();
-                        case.stopping = true;
+                        stop = true;
                     }
                 } else {
                     run = accent_button(ui, p, "Run").clicked();
@@ -583,8 +674,11 @@ impl VortiaApp {
         if run {
             self.start_run(ctx);
         }
+        if stop {
+            self.stop_run();
+        }
         if close {
-            self.screen = Screen::Welcome;
+            self.close_case();
         }
     }
 

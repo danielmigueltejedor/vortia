@@ -17,6 +17,8 @@
 
 pub mod app;
 pub mod convergence;
+#[cfg(target_os = "linux")]
+pub mod globalmenu;
 pub mod prefs;
 pub mod session;
 pub mod summary;
