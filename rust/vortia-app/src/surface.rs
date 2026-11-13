@@ -29,6 +29,8 @@ pub struct PatchSurface {
 pub struct Surface {
     positions: Vec<[f32; 3]>,
     triangles: Vec<[u32; 3]>,
+    /// The cell each triangle's face belongs to.
+    triangle_cells: Vec<u32>,
     /// The first point of each face in `loops`, and one more at the end.
     face_starts: Vec<u32>,
     loops: Vec<u32>,
@@ -40,6 +42,8 @@ pub struct Surface {
     pub radius: f32,
     /// The box's extent along x, y and z.
     pub extent: [f32; 3],
+    /// How many cells the mesh has.
+    pub cells: usize,
     /// Set when the surface stopped at [`MAX_TRIANGLES`].
     pub truncated: bool,
 }
@@ -54,6 +58,12 @@ impl Surface {
             .map(|p| [p.x as f32, p.y as f32, p.z as f32])
             .collect();
         surface.face_starts.push(0);
+        surface.cells = mesh
+            .owner
+            .iter()
+            .chain(&mesh.neighbour)
+            .max()
+            .map_or(0, |&highest| highest.saturating_add(1));
         'patches: for patch in &mesh.patches {
             let first_triangle = surface.triangles.len();
             let first_face = surface.face_starts.len().saturating_sub(1);
@@ -76,6 +86,13 @@ impl Surface {
                         surface.triangles.push([a as u32, *b as u32, *c as u32]);
                     }
                 }
+                let cell = mesh
+                    .owner
+                    .get(face_index)
+                    .map_or(0, |&c| u32::try_from(c).unwrap_or(u32::MAX));
+                surface
+                    .triangle_cells
+                    .extend(std::iter::repeat_n(cell, triangles));
                 surface.loops.extend(face.iter().map(|&i| i as u32));
                 surface.face_starts.push(surface.loops.len() as u32);
             }
@@ -323,10 +340,13 @@ impl Camera {
             if !visible.get(patch_index).copied().unwrap_or(true) {
                 continue;
             }
-            for triangle in surface
+            let first = patch.triangles.start;
+            for (offset, triangle) in surface
                 .triangles
                 .get(patch.triangles.clone())
                 .unwrap_or(&[])
+                .iter()
+                .enumerate()
             {
                 let [Some(a), Some(b), Some(c)] = triangle.map(|i| screen.get(i as usize).copied())
                 else {
@@ -350,6 +370,10 @@ impl Camera {
                     depth: (a[2] + b[2] + c[2]) / 3.0,
                     light: 0.35 + 0.65 * facing,
                     patch: patch_index,
+                    cell: surface
+                        .triangle_cells
+                        .get(first + offset)
+                        .map_or(0, |&c| c as usize),
                 });
             }
         }
@@ -450,6 +474,8 @@ pub struct Projected {
     /// 0 to 1: how much light the face gets.
     pub light: f32,
     pub patch: usize,
+    /// The cell the triangle's face belongs to.
+    pub cell: usize,
 }
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {

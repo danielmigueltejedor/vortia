@@ -17,6 +17,7 @@
 
 pub mod app;
 pub mod convergence;
+pub mod fieldview;
 #[cfg(target_os = "linux")]
 pub mod globalmenu;
 pub mod prefs;

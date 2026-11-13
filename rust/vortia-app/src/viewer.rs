@@ -5,6 +5,10 @@ use eframe::egui::{
     self, Color32, CornerRadius, Mesh, PointerButton, Pos2, Sense, Stroke, Vec2, vec2,
 };
 
+use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
+
+use crate::fieldview::{self, CellValues};
 use crate::surface::{Camera, Surface};
 
 /// Outlines are drawn for surfaces up to this many faces; beyond it they would cost more than
@@ -45,11 +49,28 @@ fn is_closing(kind: &str) -> bool {
     )
 }
 
+/// Where the viewer finds the fields of the case: its folder, the times written and the field
+/// files of the latest of them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Source {
+    pub dir: PathBuf,
+    pub times: Vec<String>,
+    pub fields: Vec<String>,
+}
+
 pub struct Viewer {
     surface: Surface,
     camera: Camera,
     visible: Vec<bool>,
     outlines: bool,
+    /// The field the surface is coloured with, or none for the colours of the patches.
+    field: Option<String>,
+    /// The time it is read at; the latest written when none is chosen.
+    time: Option<String>,
+    values: Option<Result<CellValues, String>>,
+    values_rx: Option<Receiver<Result<CellValues, String>>>,
+    /// What `values` (or the read in flight) is of.
+    requested: Option<(String, String)>,
 }
 
 impl Viewer {
@@ -61,6 +82,56 @@ impl Viewer {
             camera,
             visible,
             outlines: true,
+            field: None,
+            time: None,
+            values: None,
+            values_rx: None,
+            requested: None,
+        }
+    }
+
+    /// Colours the surface with a field of the case (`None`: the colours of the patches), at a
+    /// time (`None`: the latest written).
+    pub fn colour_by(&mut self, field: Option<&str>, time: Option<&str>) {
+        self.field = field.map(str::to_owned);
+        self.time = time.map(str::to_owned);
+    }
+
+    pub fn values(&self) -> Option<&Result<CellValues, String>> {
+        self.values.as_ref()
+    }
+
+    /// Takes a finished read, and starts the one the choices ask for if it is not the one held.
+    fn sync_field(&mut self, ctx: &egui::Context, source: &Source) {
+        if let Some(rx) = &self.values_rx
+            && let Ok(read) = rx.try_recv()
+        {
+            self.values = Some(read);
+            self.values_rx = None;
+        }
+        let Some(name) = self.field.clone() else {
+            self.values = None;
+            self.values_rx = None;
+            self.requested = None;
+            return;
+        };
+        let time = self
+            .time
+            .clone()
+            .or_else(|| source.times.last().cloned())
+            .unwrap_or_else(|| "0".to_owned());
+        let wanted = (name.clone(), time.clone());
+        if self.requested.as_ref() != Some(&wanted) {
+            let repaint = ctx.clone();
+            self.values = None;
+            self.values_rx = Some(fieldview::spawn(
+                source.dir.clone(),
+                time,
+                name,
+                self.surface.cells,
+                move || repaint.request_repaint(),
+            ));
+            self.requested = Some(wanted);
         }
     }
 
@@ -86,7 +157,15 @@ impl Viewer {
     }
 
     /// The viewer and its list of patches, filling the room the ui has left.
-    pub fn show(&mut self, ui: &mut egui::Ui, background: Color32, muted: Color32, radius: u8) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        background: Color32,
+        muted: Color32,
+        radius: u8,
+        source: &Source,
+    ) {
+        self.sync_field(&ui.ctx().clone(), source);
         let room = ui.available_size();
         ui.horizontal_top(|ui| {
             let picture = Vec2::new(
@@ -97,7 +176,7 @@ impl Viewer {
             ui.allocate_ui_with_layout(
                 vec2(LEGEND, room.y),
                 egui::Layout::top_down(egui::Align::Min),
-                |ui| self.legend(ui, muted),
+                |ui| self.legend(ui, muted, source),
             );
         });
     }
@@ -142,14 +221,24 @@ impl Viewer {
         mesh.reserve_triangles(triangles.len());
         mesh.reserve_vertices(triangles.len().saturating_mul(3));
         for triangle in &triangles {
-            let base = patch_color(
-                self.surface
-                    .patches
-                    .get(triangle.patch)
-                    .map_or("", |p| p.kind.as_str()),
-                triangle.patch,
-            );
-            let color = shade(base, triangle.light);
+            let color = match &self.values {
+                Some(Ok(values)) => match values.fraction(triangle.cell) {
+                    Some(t) => {
+                        let [r, g, b] = fieldview::scale(t);
+                        // A light touch of shading: the colour is the information.
+                        shade(Color32::from_rgb(r, g, b), 0.85 + 0.15 * triangle.light)
+                    }
+                    None => Color32::from_rgb(0x55, 0x5b, 0x63),
+                },
+                _ => {
+                    let kind = self
+                        .surface
+                        .patches
+                        .get(triangle.patch)
+                        .map_or("", |p| p.kind.as_str());
+                    shade(patch_color(kind, triangle.patch), triangle.light)
+                }
+            };
             let first = mesh.vertices.len() as u32;
             for [x, y] in triangle.points {
                 mesh.colored_vertex(Pos2::new(rect.min.x + x, rect.min.y + y), color);
@@ -210,7 +299,54 @@ impl Viewer {
         );
     }
 
-    fn legend(&mut self, ui: &mut egui::Ui, muted: Color32) {
+    /// The choice of field and time, and the colour scale of the field read.
+    fn field_choices(&mut self, ui: &mut egui::Ui, muted: Color32, source: &Source) {
+        ui.label(egui::RichText::new("Colour by").color(muted));
+        let current = self.field.clone();
+        egui::ComboBox::from_id_salt("viewer-field")
+            .width(LEGEND - 12.0)
+            .selected_text(current.as_deref().unwrap_or("Patches"))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.field, None, "Patches");
+                // A file with a space in its name (a copy of another) is not a field.
+                for name in source.fields.iter().filter(|n| !n.contains(' ')) {
+                    ui.selectable_value(&mut self.field, Some(name.clone()), name);
+                }
+            });
+        if self.field.is_some() {
+            let shown = self
+                .time
+                .clone()
+                .or_else(|| source.times.last().cloned())
+                .unwrap_or_else(|| "0".to_owned());
+            ui.add_space(4.0);
+            egui::ComboBox::from_id_salt("viewer-time")
+                .width(LEGEND - 12.0)
+                .selected_text(format!("Time {shown}"))
+                .show_ui(ui, |ui| {
+                    for time in source.times.iter().rev() {
+                        ui.selectable_value(&mut self.time, Some(time.clone()), time);
+                    }
+                });
+            ui.add_space(6.0);
+            match &self.values {
+                Some(Ok(values)) => scale_bar(ui, values, muted),
+                Some(Err(message)) => {
+                    ui.label(egui::RichText::new(message).size(11.0).color(muted));
+                }
+                None => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(egui::RichText::new("Reading…").color(muted));
+                    });
+                }
+            }
+        }
+        ui.add_space(10.0);
+    }
+
+    fn legend(&mut self, ui: &mut egui::Ui, muted: Color32, source: &Source) {
+        self.field_choices(ui, muted, source);
         if self.surface.face_count() <= MAX_OUTLINED_FACES {
             ui.checkbox(&mut self.outlines, "Cell edges");
             ui.add_space(6.0);
@@ -246,6 +382,57 @@ impl Viewer {
                 }
             });
     }
+}
+
+/// The colour scale as a bar, with the range under it.
+fn scale_bar(ui: &mut egui::Ui, values: &CellValues, muted: Color32) {
+    let Some((low, high)) = values.range else {
+        ui.label(
+            egui::RichText::new("No finite values.")
+                .size(11.0)
+                .color(muted),
+        );
+        return;
+    };
+    let (rect, _) = ui.allocate_exact_size(vec2(LEGEND - 12.0, 12.0), Sense::hover());
+    let mut mesh = Mesh::default();
+    const STEPS: usize = 24;
+    for step in 0..=STEPS {
+        let t = step as f32 / STEPS as f32;
+        let x = rect.min.x + rect.width() * t;
+        let [r, g, b] = fieldview::scale(t);
+        let color = Color32::from_rgb(r, g, b);
+        mesh.colored_vertex(Pos2::new(x, rect.min.y), color);
+        mesh.colored_vertex(Pos2::new(x, rect.max.y), color);
+    }
+    for step in 0..STEPS as u32 {
+        let i = step * 2;
+        mesh.add_triangle(i, i + 1, i + 2);
+        mesh.add_triangle(i + 1, i + 3, i + 2);
+    }
+    ui.painter().add(egui::Shape::mesh(mesh));
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(fieldview::label(low))
+                .monospace()
+                .size(11.0)
+                .color(muted),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(fieldview::label(high))
+                    .monospace()
+                    .size(11.0)
+                    .color(muted),
+            );
+        });
+    });
+    let what = if values.kind == "vector" {
+        format!("{}, length", values.name)
+    } else {
+        values.name.clone()
+    };
+    ui.label(egui::RichText::new(what).size(11.0).color(muted));
 }
 
 fn shade(color: Color32, light: f32) -> Color32 {
