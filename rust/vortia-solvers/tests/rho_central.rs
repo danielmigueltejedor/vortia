@@ -818,3 +818,172 @@ fn a_viscous_gas_needs_the_schemes_of_its_stress() {
     // A gradient scheme the engine does not have is refused, not replaced.
     assert!(run("default Gauss linear;", "default Gauss pointLinear;").is_err());
 }
+
+/// The nozzle's wedge mesh (7500 cells, as the example case has it): air at
+/// 1.5 bar pushed in at 30 m/s through a 320 K inlet and let out at
+/// 1.01325 bar, viscous (mu 0.05, a value that makes the stress matter in
+/// twenty iterations), with local time stepping and the nozzle case's
+/// `Minmod` for the velocity. OpenFOAM v1912 ran the same files for the
+/// reference.
+fn wedge(dir: &Path) {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/nozzle-practice-2026");
+    let mesh = dir.join("constant/polyMesh");
+    std::fs::create_dir_all(&mesh).unwrap();
+    for f in ["points", "faces", "owner", "neighbour", "boundary"] {
+        std::fs::copy(source.join("constant/polyMesh").join(f), mesh.join(f)).unwrap();
+    }
+    let field = |name: &str, class: &str, dims: &str, internal: &str, patches: &str| {
+        write(
+            &dir.join("0").join(name),
+            &format!(
+                "FoamFile {{ version 2.0; format ascii; class {class}; object {name}; }}\n\
+                 dimensions {dims}; internalField uniform {internal};\n\
+                 boundaryField {{ axis {{ type empty; }} front {{ type wedge; }} \
+                 back {{ type wedge; }} {patches} }}\n"
+            ),
+        );
+    };
+    field(
+        "p",
+        "volScalarField",
+        "[1 -1 -2 0 0 0 0]",
+        "150000",
+        "inlet { type zeroGradient; } walls { type zeroGradient; } \
+         atmosphere { type fixedValue; value uniform 101325; }",
+    );
+    field(
+        "T",
+        "volScalarField",
+        "[0 0 0 1 0 0 0]",
+        "300",
+        "inlet { type fixedValue; value uniform 320; } walls { type zeroGradient; } \
+         atmosphere { type zeroGradient; }",
+    );
+    field(
+        "U",
+        "volVectorField",
+        "[0 1 -1 0 0 0 0]",
+        "(0 0 0)",
+        "inlet { type fixedValue; value uniform (30 0 0); } \
+         walls { type fixedValue; value uniform (0 0 0); } \
+         atmosphere { type zeroGradient; }",
+    );
+    write(
+        &dir.join("system/controlDict"),
+        &format!(
+            "{HEADER}application rhoCentralFoam; startFrom startTime; startTime 0; \
+             endTime 20; deltaT 1; writeControl timeStep; writeInterval 20; \
+             writePrecision 17; maxCo 0.5; maxDeltaT 1; rDeltaTSmoothingCoeff 0.1;"
+        ),
+    );
+    write(
+        &dir.join("system/fvSchemes"),
+        &format!(
+            "{HEADER}fluxScheme Kurganov; ddtSchemes {{ default localEuler; }} \
+             gradSchemes {{ default Gauss linear; }} \
+             divSchemes {{ default none; div(tauMC) Gauss linear; }} \
+             laplacianSchemes {{ default Gauss linear corrected; }} \
+             interpolationSchemes {{ default linear; reconstruct(rho) vanLeer; \
+             reconstruct(U) Minmod; reconstruct(T) vanLeer; }} \
+             snGradSchemes {{ default corrected; }}"
+        ),
+    );
+    write(
+        &dir.join("system/fvSolution"),
+        &format!(
+            "{HEADER}solvers {{ \"(rho|rhoU|rhoE)\" {{ solver diagonal; }} \
+             \"(U|e)\" {{ solver PCG; preconditioner DIC; tolerance 1e-15; relTol 0; \
+             maxIter 1000; }} }}"
+        ),
+    );
+    write(
+        &dir.join("constant/thermophysicalProperties"),
+        &format!(
+            "{HEADER}thermoType {{ type hePsiThermo; mixture pureMixture; transport const; \
+             thermo hConst; equationOfState perfectGas; specie specie; \
+             energy sensibleInternalEnergy; }} \
+             mixture {{ specie {{ nMoles 1; molWeight 28.96; }} \
+             thermodynamics {{ Cp 1004.5; Hf 0; }} transport {{ mu 0.05; Pr 0.7; }} }}"
+        ),
+    );
+}
+
+/// `(cell, T, p, rho, Ux, Uy)` after twenty iterations: a cell at the
+/// inlet next to the axis, one at the corner of the inlet and the wall, one
+/// in the middle and one at the outlet.
+const WEDGE_REFERENCE: [(usize, f64, f64, f64, f64, f64); 4] = [
+    (
+        0,
+        314.4964727976364,
+        158911.81416801992,
+        1.7599664542959659,
+        17.377704437762045,
+        -0.101085400799401,
+    ),
+    (
+        2175,
+        309.8433593541364,
+        158013.43440646815,
+        1.7762979036857756,
+        10.378570026014476,
+        -0.8076169334014913,
+    ),
+    (
+        3749,
+        292.7572916615782,
+        145963.10798244664,
+        1.7365982730894725,
+        72.23896468465378,
+        1.0771311963249062,
+    ),
+    (
+        74,
+        299.559343436799,
+        149704.93198580586,
+        1.740673115125714,
+        16.546018858752536,
+        0.03099519380038165,
+    ),
+];
+
+/// A wedge side turns the velocity onto itself and, being a constraint,
+/// takes the cell's density the moment the continuity equation has set it:
+/// the faces of the other patches keep the density the step began with. A
+/// stale density on the wedge made the limited schemes differ from OpenFOAM
+/// by 1e-8 once a pressure wave had reached a cell with a wedge face.
+#[test]
+fn a_viscous_gas_on_a_wedge_matches_openfoam() {
+    let dir = tempfile::tempdir().unwrap();
+    wedge(dir.path());
+    let case = Case::open(dir.path()).unwrap();
+    let steps = rho_central::run(&case, |_| {}).unwrap();
+    assert_eq!(steps.len(), 20);
+    let end = dir.path().join("20");
+    let read = |name: &str| {
+        ScalarField::read(end.join(name))
+            .unwrap()
+            .internal
+            .expand(7500)
+            .unwrap()
+    };
+    let (t, p, rho) = (read("T"), read("p"), read("rho"));
+    let u = VectorField::read(end.join("U"))
+        .unwrap()
+        .internal
+        .expand(7500)
+        .unwrap();
+    let close = |got: f64, want: f64, what: &str| {
+        assert!(
+            (got - want).abs() <= 1e-10 * want.abs().max(1e-3),
+            "{what}: {got} vs {want}"
+        );
+    };
+    for (c, tc, pc, rc, ux, uy) in WEDGE_REFERENCE {
+        close(t[c], tc, &format!("T, cell {c}"));
+        close(p[c], pc, &format!("p, cell {c}"));
+        close(rho[c], rc, &format!("rho, cell {c}"));
+        close(u[c].x, ux, &format!("Ux, cell {c}"));
+        close(u[c].y, uy, &format!("Uy, cell {c}"));
+        assert!(u[c].z.abs() < 1e-9, "Uz in cell {c}: {}", u[c].z);
+    }
+}

@@ -266,7 +266,10 @@ impl Pressure {
         if let Some(c) = bc.conditions.iter().find(|c| {
             !matches!(
                 c,
-                ScalarBc::FixedValue(_) | ScalarBc::ZeroGradient | ScalarBc::Empty
+                ScalarBc::FixedValue(_)
+                    | ScalarBc::ZeroGradient
+                    | ScalarBc::Reflect
+                    | ScalarBc::Empty
             )
         }) {
             return Err(SolverError::Setup(format!(
@@ -453,7 +456,10 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     if let Some(c) = u_bc.conditions.iter().find(|c| {
         !matches!(
             c,
-            VectorBc::FixedValue(_) | VectorBc::ZeroGradient | VectorBc::Empty
+            VectorBc::FixedValue(_)
+                | VectorBc::ZeroGradient
+                | VectorBc::Wedge { .. }
+                | VectorBc::Empty
         )
     }) {
         return Err(SolverError::Setup(format!(
@@ -637,6 +643,20 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let rho_u_new = advance_vector(&mesh, &fv, valid, &rho_u, &phi_up, &r_delta_t);
         rho_u = rho_u_new;
         rho = rho_new;
+        // `rho.correctBoundaryConditions()` leaves the faces of the other
+        // patches alone (`calculated`) but takes the cell's density on a
+        // wedge, whose condition is a constraint.
+        for patch in mesh.patches() {
+            if patch.kind != PatchKind::Wedge {
+                continue;
+            }
+            for f in patch.faces() {
+                let cell = mesh.owner().get(f).and_then(|&c| rho.get(c)).copied();
+                if let (Some(slot), Some(cell)) = (rho_b.get_mut(f - n_internal), cell) {
+                    *slot = Some(cell);
+                }
+            }
+        }
         u = rho_u.iter().zip(&rho).map(|(&m, &r)| m / r).collect();
         u_b = u_bc.face_values(&mesh, &u);
         // The momentum on the boundary takes the density the step began
