@@ -3,7 +3,9 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QJsonArray>
 #include <QJsonObject>
+#include <QStringList>
 #include <QRegularExpression>
 #include <QString>
 
@@ -21,6 +23,89 @@ inline bool matchesSha256(const QByteArray& data, const QString& expected) {
         return false;
     const QByteArray actual = QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
     return actual == expected.toLatin1().toLower();
+}
+
+/// The systems the in-app updater installs on, and the package each one takes.
+enum class UpdatePlatform { MacOSArm64, MacOSIntel, LinuxX86_64, Other };
+
+[[nodiscard]] inline UpdatePlatform currentUpdatePlatform() {
+#if defined(Q_OS_MACOS) && (defined(Q_PROCESSOR_ARM) || defined(__aarch64__))
+    return UpdatePlatform::MacOSArm64;
+#elif defined(Q_OS_MACOS)
+    return UpdatePlatform::MacOSIntel;
+#elif defined(Q_OS_LINUX) && (defined(Q_PROCESSOR_X86_64) || defined(__x86_64__))
+    return UpdatePlatform::LinuxX86_64;
+#else
+    return UpdatePlatform::Other;
+#endif
+}
+
+/// The ends of this system's package names, best first. Matched on the end of the name, so a
+/// `.zsync` or `.sha256` beside the package never counts, and never for another CPU.
+[[nodiscard]] inline QStringList preferredAssetSuffixes(UpdatePlatform platform) {
+    switch (platform) {
+    case UpdatePlatform::MacOSArm64:
+        return {QStringLiteral("macos-arm64.dmg"), QStringLiteral("macos-universal.dmg"),
+                QStringLiteral("macos.dmg")};
+    case UpdatePlatform::MacOSIntel:
+        return {QStringLiteral("macos-x86_64.dmg"), QStringLiteral("macos-intel.dmg"),
+                QStringLiteral("macos-universal.dmg"), QStringLiteral("macos.dmg")};
+    case UpdatePlatform::LinuxX86_64:
+        return {QStringLiteral("linux-x86_64.AppImage"), QStringLiteral("linux-amd64.AppImage"),
+                QStringLiteral("x86_64.AppImage")};
+    case UpdatePlatform::Other:
+        break;
+    }
+    return {};
+}
+
+/// The release carries Vortia Native (SwiftUI) beside this app as `Vortia-<v>-native-macos-…`:
+/// a different app, which this one must never install over itself.
+[[nodiscard]] inline bool isOtherEdition(const QString& assetName) {
+    return assetName.contains(QStringLiteral("-native-"), Qt::CaseInsensitive);
+}
+
+/// This system's package among a release's assets, or an empty object.
+[[nodiscard]] inline QJsonObject selectUpdateAsset(const QJsonArray& assets, UpdatePlatform platform) {
+    for (const QString& suffix : preferredAssetSuffixes(platform)) {
+        for (const QJsonValue& value : assets) {
+            const QJsonObject asset = value.toObject();
+            const QString name = asset.value(QStringLiteral("name")).toString();
+            if (isOtherEdition(name) || !name.endsWith(suffix, Qt::CaseInsensitive))
+                continue;
+            if (asset.value(QStringLiteral("browser_download_url")).toString().isEmpty())
+                continue;
+            return asset;
+        }
+    }
+    return {};
+}
+
+/// The newest published release (not a draft or pre-release) with a package for this system,
+/// from the `releases` list (newest first). Not `releases/latest`: a release for one system only
+/// (a macOS-only fix) must not be offered on the other. With no such release, the newest
+/// published one; with none at all, an empty object (nothing to offer).
+[[nodiscard]] inline QJsonObject chooseUpdateRelease(const QJsonArray& releases, UpdatePlatform platform) {
+    QJsonObject newest;
+    for (const QJsonValue& value : releases) {
+        const QJsonObject release = value.toObject();
+        if (release.value(QStringLiteral("draft")).toBool()
+            || release.value(QStringLiteral("prerelease")).toBool())
+            continue;
+        if (newest.isEmpty())
+            newest = release;
+        if (!selectUpdateAsset(release.value(QStringLiteral("assets")).toArray(), platform).isEmpty())
+            return release;
+    }
+    return newest;
+}
+
+/// How `codesign` checks an app's seal before an update. Not `--strict`: it also refuses the
+/// Finder metadata every file on a disk image carries, so every good update failed with
+/// "invalid code signature". Without it the signature, the sealed files and nested code are
+/// still verified.
+[[nodiscard]] inline QStringList codesignVerifyArguments() {
+    return {QStringLiteral("--verify"), QStringLiteral("--deep"), QStringLiteral("--verbose=2")};
 }
 
 /// Identity extracted from `codesign -dv --verbose=4` stderr.
