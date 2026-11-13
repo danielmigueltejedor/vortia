@@ -4,6 +4,29 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-13
+
+Vortia Native se parece por fin a Vortia: las mismas seis etapas, un editor de
+geometría de verdad y los resultados a toda la ventana. La aplicación Qt no
+cambia.
+
+### Cambiado
+- **Vortia Native** (macOS): la barra lateral sigue las etapas de Vortia,
+  Proyecto, Geometría, Malla, Física, Cálculo y Resultados, con la etapa en el
+  centro y sus ajustes en el inspector. Cada etapa dice cuál es el paso
+  siguiente, y el proyecto muestra qué etapas están hechas.
+- **Geometría:** un editor del contorno con herramientas para seleccionar,
+  añadir puntos y desplazar, zoom, deshacer y rehacer, cotas, coordenadas bajo
+  el cursor y un inspector para el vértice o el segmento elegido (posición,
+  longitud, curvatura, dividir, borrar). La tobera paramétrica es el punto de
+  partida de un proyecto nuevo.
+- **Malla y física:** se dibujan sobre el contorno; en física se elige cada
+  contorno con un clic y los colores de la leyenda dicen qué es cada uno.
+- **Resultados:** el campo ocupa la ventana, con su nombre y unidades, cortes,
+  reflejo sobre el eje, sonda, perfil a lo largo del eje y guardar imagen.
+- **Bienvenida y menús:** proyectos recientes en la bienvenida y en Archivo, y
+  menús Etapas (⌘1–⌘6) y Simulación (Mallar ⌘B, Calcular ⌘R, Detener ⌘.).
+
 ## [0.7.1] — 2026-11-13
 
 La actualización desde la app vuelve a funcionar en macOS, y en Linux los menús

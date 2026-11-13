@@ -84,6 +84,7 @@ struct ResultsViewer: View {
             .padding(16)
             tools(results).padding(.top, 28)
         }
+        .frame(minWidth: 0, maxWidth: .infinity)
         .fileExporter(
             isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),
             document: exporting, contentType: .png,
@@ -154,7 +155,8 @@ struct ResultsViewer: View {
                     ForEach(results.fields, id: \.self) { Text(FieldName.title($0)).tag(Optional($0)) }
                 }
                 .labelsHidden()
-                .frame(width: 210)
+                .frame(width: 170)
+                .help(L10n.t(.field))
             }
             FloatingBar {
                 Picker(L10n.t(.view), selection: $store.threeD) {
@@ -162,9 +164,10 @@ struct ResultsViewer: View {
                     Label(L10n.t(.threeD), systemImage: "cube").tag(true)
                 }
                 .pickerStyle(.segmented)
-                .labelStyle(.titleAndIcon)
+                .labelStyle(.iconOnly)
                 .labelsHidden()
-                .frame(width: 210)
+                .frame(width: 84)
+                .help(L10n.t(.view))
             }
             if !store.threeD {
                 FloatingBar {
@@ -177,8 +180,8 @@ struct ResultsViewer: View {
                         .pickerStyle(.inline)
                     } label: {
                         Label(L10n.t(.sections), systemImage: "square.split.bottomrightquarter")
-                            .labelStyle(.titleAndIcon)
                     }
+                    .help(L10n.t(.sections))
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                     if !store.isFlowProject || store.sliceAxis != 2 {
@@ -209,8 +212,8 @@ struct ResultsViewer: View {
                     exporting = imageDocument()
                 } label: {
                     Label(L10n.t(.saveImage), systemImage: "square.and.arrow.down")
-                        .labelStyle(.titleAndIcon)
                 }
+                .help(L10n.t(.saveImage))
                 .disabled(store.threeD || store.slice == nil)
             }
         }
