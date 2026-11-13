@@ -29,6 +29,7 @@ use crate::case::{Case, VELOCITY, check_dimensions, key_matches};
 use crate::control::{LinearSolver, RunControl, solve_line};
 use crate::driven::{PRESSURE_KINDS, PressureVelocity, TotalPressure, VELOCITY_KINDS};
 use crate::error::{Result, SolverError};
+use crate::explicit;
 use crate::ico::{Algorithm, Step, constrained_boundary, extrapolated, switch};
 use crate::komegasst::{KOmegaSst, Medium};
 use crate::laplacian::Ddt;
@@ -418,11 +419,18 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             &u,
             schemes.momentum_sn_grad.without_correction(),
         )?;
+        let velocity = explicit::Velocity {
+            bc: &u_bc,
+            cells: &u,
+        };
         if schemes.momentum_sn_grad == SnGrad::Corrected {
-            let (g, _) = vortia_fv::stress::grad(schemes.velocity_grad, &mesh, &fv, &u_bc, &u);
-            let corr = correction::sn_grad_correction_vector(&mesh, &fv, &g);
-            let flux = correction::scale_by_gamma_mag_sf(&fv, &rho_nu_f, &corr);
-            correction::subtract_divergence(&mut u_lap.source, &mesh, &flux);
+            explicit::subtract_vector_laplacian_correction(
+                &mut u_lap.source,
+                (&mesh, &fv),
+                schemes.velocity_grad,
+                &velocity,
+                &rho_nu_f,
+            );
         }
         u_eqn.sub(&u_lap);
         let stress = div_dev2_grad_t(
@@ -438,19 +446,13 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             *s = *s + d * v;
         }
         if let Some(scheme) = schemes.momentum.interpolation.grad_scheme() {
-            let (g, _) = vortia_fv::stress::grad(scheme, &mesh, &fv, &u_bc, &u);
-            let corr = vortia_fv::stress::linear_upwind_correction(&mesh, &fv, &phi, &g);
-            for (f, (&o, &n)) in mesh.owner().iter().zip(mesh.neighbour()).enumerate() {
-                let (Some(&x), Some(&c)) = (phi.get(f), corr.get(f)) else {
-                    continue;
-                };
-                if let Some(s) = u_eqn.source.get_mut(o) {
-                    *s = *s - c * x;
-                }
-                if let Some(s) = u_eqn.source.get_mut(n) {
-                    *s = *s + c * x;
-                }
-            }
+            explicit::subtract_linear_upwind_correction(
+                &mut u_eqn.source,
+                (&mesh, &fv),
+                scheme,
+                &velocity,
+                &phi,
+            );
         }
         if let Some(alpha) = alpha_u {
             u_eqn.relax(&mesh, &u, alpha);
@@ -637,9 +639,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             // The correction is explicit, from the pressure of the matrix's
             // assembly; its flux goes into the face flux as well.
             let corrected = (schemes.pressure_sn_grad == SnGrad::Corrected).then(|| {
-                let g = ops::grad(&mesh, &fv, &p.bc, &p.cells);
-                let corr = correction::sn_grad_correction(&mesh, &fv, &g);
-                correction::scale_by_gamma_mag_sf(&fv, &rho_r_atu_f, &corr)
+                explicit::pressure_laplacian_correction((&mesh, &fv), &p.bc, &p.cells, &rho_r_atu_f)
             });
             if let Some(flux) = &corrected {
                 correction::subtract_divergence(&mut m.source, &mesh, flux);

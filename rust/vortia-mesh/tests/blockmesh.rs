@@ -27,7 +27,14 @@ fn mesh_of_file(name: &str) -> Result<RawPolyMesh, String> {
 }
 
 fn mesh_of_text(tag: &str, text: &str) -> Result<RawPolyMesh, String> {
-    let dir = std::env::temp_dir().join(format!("vortia-blockmesh-{}-{tag}", std::process::id()));
+    // Tests run in parallel and some share a tag: each call gets its own
+    // directory, or one test removes it while another reads it.
+    static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "vortia-blockmesh-{}-{call}-{tag}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("blockMeshDict");
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
