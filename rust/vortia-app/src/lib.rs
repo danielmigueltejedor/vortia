@@ -16,6 +16,7 @@
 )]
 
 pub mod app;
+pub mod controldict;
 pub mod convergence;
 pub mod fieldview;
 #[cfg(target_os = "linux")]

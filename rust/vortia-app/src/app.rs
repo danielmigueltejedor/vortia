@@ -12,6 +12,7 @@ use eframe::egui::{
 };
 use nodalia_theme::{Accent, Mode, Palette, component, font_size, for_egui, icons, radius, space};
 
+use crate::controldict::{self, SettingsForm};
 use crate::convergence::Convergence;
 #[cfg(target_os = "linux")]
 use crate::globalmenu::{Entry, GlobalMenu, Menu};
@@ -75,6 +76,9 @@ struct CaseView {
     /// The folder changed (a run ended): read it again.
     summary_stale: bool,
     tab: Tab,
+    /// The run settings as typed, and how the last save went (`true` when it worked).
+    form: Option<SettingsForm>,
+    form_message: Option<(bool, String)>,
     /// A field to colour the mesh with as soon as it is read, asked for on the command line.
     first_field: Option<String>,
     /// The mesh is read the first time it is looked at.
@@ -87,6 +91,7 @@ struct CaseView {
 enum Tab {
     Run,
     Mesh,
+    Settings,
 }
 
 impl CaseView {
@@ -103,6 +108,8 @@ impl CaseView {
             summary_rx: None,
             summary_stale: true,
             tab: Tab::Run,
+            form: None,
+            form_message: None,
             first_field: None,
             viewer: None,
             viewer_rx: None,
@@ -698,9 +705,14 @@ impl VortiaApp {
                     ui.horizontal(|ui| {
                         ui.selectable_value(&mut case.tab, Tab::Run, "Run");
                         ui.selectable_value(&mut case.tab, Tab::Mesh, "Mesh");
+                        ui.selectable_value(&mut case.tab, Tab::Settings, "Settings");
                     });
                     ui.add_space(space::SM);
                     case.ensure_viewer(ctx);
+                    if case.tab == Tab::Settings {
+                        settings_tab(ui, p, case);
+                        return;
+                    }
                     if case.tab == Tab::Mesh {
                         let source = Source {
                             dir: case.dir.clone(),
@@ -1021,6 +1033,83 @@ fn convergence_card(ui: &mut egui::Ui, p: &Palette, report: Option<&Convergence>
         });
 }
 
+/// The run settings of the case, to edit and save into its controlDict.
+fn settings_tab(ui: &mut egui::Ui, p: &Palette, case: &mut CaseView) {
+    if case.form.is_none()
+        && let Some(summary) = &case.summary
+    {
+        case.form = Some(SettingsForm::from_summary(summary));
+    }
+    let running = case.running();
+    let mut save = false;
+    let mut revert = false;
+    let Some(form) = case.form.as_mut() else {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Reading the case…");
+        });
+        return;
+    };
+    ui.add_enabled_ui(!running, |ui| {
+        egui::Grid::new("run-settings")
+            .num_columns(3)
+            .spacing([space::XL, space::MD])
+            .show(ui, |ui| {
+                for (label, unit, text) in [
+                    ("Start time", "s", &mut form.start_time),
+                    ("End time", "s", &mut form.end_time),
+                    ("Time step", "s", &mut form.delta_t),
+                    (
+                        "Write interval",
+                        "steps or s, as the case writes",
+                        &mut form.write_interval,
+                    ),
+                ] {
+                    ui.label(RichText::new(label).color(muted(p)));
+                    ui.add(egui::TextEdit::singleline(text).desired_width(140.0));
+                    ui.label(RichText::new(unit).size(font_size::SMALL).color(muted(p)));
+                    ui.end_row();
+                }
+            });
+        ui.add_space(space::LG);
+        ui.horizontal(|ui| {
+            save = accent_button(ui, p, "Save").clicked();
+            revert = ui.button("Revert").clicked();
+        });
+    });
+    if running {
+        ui.add_space(space::SM);
+        ui.label(RichText::new("The settings cannot change while the case runs.").color(muted(p)));
+    }
+    if let Some((ok, message)) = &case.form_message {
+        ui.add_space(space::SM);
+        let tone = if *ok {
+            p.status_success_fg
+        } else {
+            p.status_danger_fg
+        };
+        ui.colored_label(for_egui::color(tone), message.as_str());
+    }
+    if revert {
+        case.form = case.summary.as_ref().map(SettingsForm::from_summary);
+        case.form_message = None;
+    } else if save {
+        let result = case
+            .form
+            .as_ref()
+            .map(SettingsForm::parse)
+            .unwrap_or_else(|| Err("Nothing to save yet.".to_owned()))
+            .and_then(|settings| controldict::save(&case.dir, &settings));
+        case.form_message = Some(match result {
+            Ok(()) => {
+                case.summary_stale = true;
+                (true, "Saved to system/controlDict.".to_owned())
+            }
+            Err(message) => (false, message),
+        });
+    }
+}
+
 /// The mesh of the case, or why there is none to show.
 fn mesh_tab(
     ui: &mut egui::Ui,
@@ -1206,6 +1295,47 @@ mod tests {
         };
         assert_eq!(view.application.as_deref(), Some("vortiaCentralFoam"));
         assert_eq!(app.prefs.recent, [case.path().to_path_buf()]);
+    }
+
+    #[test]
+    fn the_run_settings_of_a_case_are_edited_and_saved() {
+        let case = case_dir();
+        std::fs::write(
+            case.path().join("system/controlDict"),
+            "application vortiaCentralFoam;\nstartTime 0;\nendTime 10;\ndeltaT 0.5;\n\
+             writeInterval 2;\n",
+        )
+        .unwrap();
+        let ctx = Context::default();
+        let mut app = VortiaApp::with_prefs(Prefs::default(), None);
+        app.open_case(case.path()).unwrap();
+        if let Screen::Case(view) = &mut app.screen {
+            view.tab = Tab::Settings;
+        }
+        let mut ready = false;
+        for _ in 0..200 {
+            frame(&mut app, &ctx);
+            if let Screen::Case(view) = &app.screen
+                && view.form.is_some()
+            {
+                ready = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(ready, "the form never appeared");
+        let Screen::Case(view) = &mut app.screen else {
+            panic!("the case closed");
+        };
+        let form = view.form.as_mut().unwrap();
+        assert_eq!(form.end_time, "10");
+        form.end_time = "20".into();
+        // What the Save button does, without a pointer.
+        let settings = view.form.as_ref().unwrap().parse().unwrap();
+        controldict::save(&view.dir, &settings).unwrap();
+        let text = std::fs::read_to_string(case.path().join("system/controlDict")).unwrap();
+        assert!(text.contains("endTime 20;"), "{text}");
+        assert!(text.contains("deltaT 0.5;"), "{text}");
     }
 
     #[test]
