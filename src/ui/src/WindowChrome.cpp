@@ -283,16 +283,23 @@ WindowChrome::WindowChrome(QWidget* window, QWidget* header, QBoxLayout* headerR
         }
         return button;
     };
-    int index = 0;
-    if (!layout.left.isEmpty()) {
-        headerRow->insertSpacing(index++, 8);
-        for (const WindowButton kind : layout.left)
-            headerRow->insertWidget(index++, makeButton(kind));
-    }
-    for (const WindowButton kind : layout.right)
-        headerRow->addWidget(makeButton(kind));
-    if (!layout.right.isEmpty())
-        headerRow->addSpacing(8);
+    // Each side's buttons live in a group of their own, so that moveButtons() can take them to
+    // another bar as a whole, margin included.
+    const auto makeGroup = [&](const QList<WindowButton>& kinds, bool left) -> QWidget* {
+        if (kinds.isEmpty())
+            return nullptr;
+        auto* group = new QWidget(header_);
+        group->setObjectName(QStringLiteral("ndl-window-buttons"));
+        auto* row = new QHBoxLayout(group);
+        row->setContentsMargins(left ? 8 : 0, 0, left ? 0 : 8, 0);
+        row->setSpacing(0);
+        for (const WindowButton kind : kinds)
+            row->addWidget(makeButton(kind));
+        return group;
+    };
+    leftButtons_ = makeGroup(layout.left, true);
+    rightButtons_ = makeGroup(layout.right, false);
+    placeButtons(headerRow);
 
     addDragArea(header_);
     window_->installEventFilter(this);
@@ -315,6 +322,27 @@ WindowChrome::WindowChrome(QWidget* window, QWidget* header, QBoxLayout* headerR
     }
     placeResizeHandles();
     syncMaximizeButtons();
+}
+
+void WindowChrome::placeButtons(QBoxLayout* row) {
+    if (leftButtons_) {
+        leftButtons_->setParent(header_);
+        row->insertWidget(0, leftButtons_, 0, Qt::AlignVCenter);
+        leftButtons_->show();
+    }
+    if (rightButtons_) {
+        rightButtons_->setParent(header_);
+        row->addWidget(rightButtons_, 0, Qt::AlignVCenter);
+        rightButtons_->show();
+    }
+}
+
+void WindowChrome::moveButtons(QWidget* header, QBoxLayout* headerRow) {
+    if (!header || !headerRow || header == header_)
+        return;
+    header_ = header;
+    addDragArea(header_);
+    placeButtons(headerRow);
 }
 
 void WindowChrome::addDragArea(QWidget* widget) {

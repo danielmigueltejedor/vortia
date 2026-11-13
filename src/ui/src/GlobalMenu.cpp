@@ -343,6 +343,8 @@ private:
 /// Set once the registrar has accepted the registration: until then the menus stay in the
 /// window, and they come back to it if a later registration is refused.
 bool registrationAccepted = false;
+/// The menu bar handed to exportGlobalMenu(): on X11 it is Qt's own export that reaches the bar.
+QPointer<QMenuBar> nativeBar;
 std::function<void(bool)> onRegistration;
 
 /// Tells the registrar where the menu is. The window id is this process's id: on Wayland a
@@ -368,6 +370,10 @@ void registerWithRegistrar() {
 namespace vortia::ndl {
 
 bool globalMenuAvailable() {
+    // On X11, XWayland included, Qt hands a menu bar to the registrar by itself, by window id,
+    // and every registrar understands that. The bar is then native: the top bar shows its menus.
+    if (QGuiApplication::platformName() == QStringLiteral("xcb"))
+        return nativeBar && nativeBar->isNativeMenuBar();
     if (!QGuiApplication::platformName().startsWith(QStringLiteral("wayland")) || !registrationAccepted)
         return false;
     QDBusConnection bus = QDBusConnection::sessionBus();
@@ -383,6 +389,7 @@ bool globalMenuAvailable() {
 
 void exportGlobalMenu(QMenuBar* menuBar, std::function<void(bool)> registered) {
     onRegistration = std::move(registered);
+    nativeBar = menuBar;
     // On X11 Qt registers the menu bar by itself; elsewhere there is no top bar to hand it to.
     if (!menuBar || !QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
         return;

@@ -1003,14 +1003,22 @@ void MainWindow::buildDocks() {
             menuLayout->addWidget(inlineMenus,0,Qt::AlignVCenter);menuLayout->addStretch(1);
             chrome->addDragArea(menuRow);
             qobject_cast<QVBoxLayout*>(topBar->layout())->insertWidget(0,menuRow);
-            menuRow->setVisible(!ndl::globalMenuAvailable());
+            // The window controls sit in whichever row is on top, so they stay in the corner.
+            const auto showMenus=[chrome=QPointer<ndl::WindowChrome>(chrome),menusRow=QPointer<QWidget>(menuRow),
+                                  header=QPointer<QWidget>(header),row](bool visible){
+                if(!chrome||!menusRow||!header)return;
+                menusRow->setVisible(visible);
+                if(visible)chrome->moveButtons(menusRow,qobject_cast<QBoxLayout*>(menusRow->layout()));
+                else chrome->moveButtons(header,row);
+            };
             // Guarded: the registrar can answer, or vanish, after the window has gone.
-            ndl::exportGlobalMenu(menuBar(),[menusRow=QPointer<QWidget>(menuRow),window=QPointer<MainWindow>(this)](bool accepted){
-                if(!menusRow||!window)return;
-                menusRow->setVisible(!accepted||!ndl::globalMenuAvailable());
+            ndl::exportGlobalMenu(menuBar(),[showMenus,window=QPointer<MainWindow>(this)](bool accepted){
+                if(!window)return;
+                showMenus(!accepted||!ndl::globalMenuAvailable());
                 auto* ribbon=window->findChild<QTabWidget*>("vortia-ribbon");
                 window->setContextToolsVisible(ribbon&&!ribbon->isHidden());
             });
+            showMenus(!ndl::globalMenuAvailable());
             menuBar()->hide();
         }
     } else {
