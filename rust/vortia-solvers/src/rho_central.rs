@@ -2,7 +2,8 @@
 //! scheme of Kurganov and Tadmor, explicit in time.
 //!
 //! The engine's counterpart of OpenFOAM's `rhoCentralFoam` (OpenFOAM v1912,
-//! GPL-3.0-or-later), inviscid, with a fixed time step: the densities of
+//! GPL-3.0-or-later), inviscid, with a fixed time step or, under
+//! `ddtSchemes localEuler`, a time step of its own for each cell: the densities of
 //! mass, momentum and energy are advanced from the fluxes of the two
 //! directed face values the limited `reconstruct(...)` schemes give, and
 //! the velocity, the energy, the temperature and the pressure follow from
@@ -13,6 +14,7 @@ use vortia_core::Vec3;
 use vortia_fields::{Data, Location, ScalarField, VectorField};
 use vortia_fv::ops;
 use vortia_fv::reconstruct::{Reconstruction, interpolate};
+use vortia_fv::smooth::smooth;
 use vortia_fv::vector::solution_directions;
 use vortia_fv::{Boundary, ScalarBc, VectorBc, VectorBoundary};
 use vortia_mesh::{PatchKind, PolyMesh};
@@ -78,6 +80,81 @@ impl Schemes {
             t: read("reconstruct(T)", false)?,
         })
     }
+}
+
+/// How the equations advance in time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Stepping {
+    /// One `deltaT` everywhere.
+    Euler,
+    /// `localEuler`: each cell has the time step its Courant number allows,
+    /// from `setRDeltaT.H`.
+    Local {
+        max_co: f64,
+        max_delta_t: f64,
+        smoothing: f64,
+    },
+}
+
+impl Stepping {
+    fn read(case: &Case) -> Result<Self> {
+        let mut found = None;
+        for key in ["ddt(rho)", "ddt(rhoU)", "ddt(rhoE)"] {
+            let word = case.scheme("ddtSchemes", key)?.first().cloned();
+            let this = match word.as_deref() {
+                Some("Euler") => false,
+                Some("localEuler") => true,
+                other => {
+                    return Err(SolverError::Setup(format!(
+                        "ddt scheme '{}' is not supported: use Euler or localEuler",
+                        other.unwrap_or("")
+                    )));
+                }
+            };
+            if found.is_some_and(|f| f != this) {
+                return Err(SolverError::Setup(
+                    "ddt(rho), ddt(rhoU) and ddt(rhoE) must all be Euler or all localEuler".into(),
+                ));
+            }
+            found = Some(this);
+        }
+        if found != Some(true) {
+            return Ok(Self::Euler);
+        }
+        let max_co = case.scalar("maxCo")?;
+        if !(max_co > 0.0 && max_co.is_finite()) {
+            return Err(SolverError::Setup("maxCo must be positive".into()));
+        }
+        let max_delta_t = case.control.scalar("maxDeltaT").unwrap_or(1.0e15);
+        if max_delta_t.is_nan() || max_delta_t <= 0.0 {
+            return Err(SolverError::Setup("maxDeltaT must be positive".into()));
+        }
+        Ok(Self::Local {
+            max_co,
+            max_delta_t,
+            smoothing: case.control.scalar("rDeltaTSmoothingCoeff").unwrap_or(0.02),
+        })
+    }
+}
+
+/// `setRDeltaT.H`: the reciprocal time step of each cell, from the sums of
+/// its faces' largest fluxes, smoothed so neighbours stay within a ratio.
+fn local_r_delta_t(
+    mesh: &PolyMesh,
+    volumes: &[f64],
+    sum_amax: &[f64],
+    (max_co, max_delta_t, smoothing): (f64, f64, f64),
+) -> Vec<f64> {
+    let floor = 1.0 / max_delta_t;
+    let mut r: Vec<f64> = sum_amax
+        .iter()
+        .zip(volumes)
+        .map(|(&s, &v)| max(floor, s / ((2.0 * max_co) * v)))
+        .collect();
+    if smoothing < 1.0 {
+        smooth(mesh, &mut r, smoothing);
+    }
+    r
 }
 
 /// The pressure, its conditions and its value on the boundary faces.
@@ -170,13 +247,14 @@ fn face_flux(flux: FluxScheme, sf: Vec3, mag_sf: f64, pos: Side, neg: Side) -> F
 
 /// `solve(fvm::ddt(x) + fvc::div(flux))` with Euler's `ddt` and the
 /// diagonal solver: `(x⁰ / Δt V − V ∇·φ) / (V / Δt)`, in OpenFOAM's order.
-fn advance(old: &[f64], div: &[f64], volumes: &[f64], r_delta_t: f64) -> Vec<f64> {
+fn advance(old: &[f64], div: &[f64], volumes: &[f64], r_delta_t: &[f64]) -> Vec<f64> {
     old.iter()
         .zip(div)
         .zip(volumes)
-        .map(|((&x, &d), &v)| {
-            let source = r_delta_t * x * v - v * d;
-            source / (r_delta_t * v)
+        .zip(r_delta_t)
+        .map(|(((&x, &d), &v), &r)| {
+            let source = r * x * v - v * d;
+            source / (r * v)
         })
         .collect()
 }
@@ -189,7 +267,7 @@ fn advance_vector(
     valid: [bool; 3],
     old: &[Vec3],
     flux: &[Vec3],
-    r_delta_t: f64,
+    r_delta_t: &[f64],
 ) -> Vec<Vec3> {
     let solve = |ok: bool, pick: fn(&Vec3) -> f64| -> Option<Vec<f64>> {
         ok.then(|| {
@@ -231,7 +309,8 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             "rhoCentralFoam with a viscous gas is not supported yet; use mu 0".into(),
         ));
     }
-    if switch(&case.control, "adjustTimeStep") == Some(true) {
+    let stepping = Stepping::read(case)?;
+    if stepping == Stepping::Euler && switch(&case.control, "adjustTimeStep") == Some(true) {
         return Err(SolverError::Setup(
             "rhoCentralFoam with adjustTimeStep is not supported yet; use a fixed deltaT".into(),
         ));
@@ -293,7 +372,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let gamma = thermo.gas.cp_by_cpv();
     let n_internal = mesh.n_internal_faces();
     let n_faces = mesh.n_faces();
-    let r_delta_t = 1.0 / run.delta_t;
+    let mut r_delta_t = vec![1.0 / run.delta_t; mesh.n_cells()];
     let volumes = fv.volumes();
     let total_volume: f64 = volumes.iter().sum();
 
@@ -373,6 +452,22 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let mean_co = 0.5 * (sum_amax.iter().sum::<f64>() / total_volume) * run.delta_t;
         let co = 0.5 * max_co * run.delta_t;
         log(&format!("Mean and max Courant Numbers = {mean_co} {co}\n"));
+        if let Stepping::Local {
+            max_co,
+            max_delta_t,
+            smoothing,
+        } = stepping
+        {
+            r_delta_t =
+                local_r_delta_t(&mesh, volumes, &sum_amax, (max_co, max_delta_t, smoothing));
+            let low = r_delta_t.iter().copied().fold(f64::INFINITY, f64::min);
+            let high = r_delta_t.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            log(&format!(
+                "Flow time scale min/max = {}, {}\n",
+                1.0 / high,
+                1.0 / low
+            ));
+        }
         log(&format!("\nTime = {name}\n\n"));
 
         // Density, momentum, then velocity.
@@ -380,9 +475,9 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             &rho,
             &ops::surface_integrate(&mesh, &fv, &phi),
             volumes,
-            r_delta_t,
+            &r_delta_t,
         );
-        let rho_u_new = advance_vector(&mesh, &fv, valid, &rho_u, &phi_up, r_delta_t);
+        let rho_u_new = advance_vector(&mesh, &fv, valid, &rho_u, &phi_up, &r_delta_t);
         rho_u = rho_u_new;
         rho = rho_new;
         u = rho_u.iter().zip(&rho).map(|(&m, &r)| m / r).collect();
@@ -400,7 +495,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             &rho_e,
             &ops::surface_integrate(&mesh, &fv, &phi_ep),
             volumes,
-            r_delta_t,
+            &r_delta_t,
         );
         rho_e = rho_e_new;
         let e: Vec<f64> = rho_e
@@ -433,6 +528,21 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             thermo.to_write(&mesh).write(&case.dir, &name)?;
             calculated_field(&mesh, "rho", Location::Cells, DENSITY, &rho, &rho_b)
                 .write(&case.dir, &name)?;
+            if stepping != Stepping::Euler {
+                let owner = mesh.owner();
+                let on_faces: Vec<Option<f64>> = (n_internal..n_faces)
+                    .map(|f| owner.get(f).and_then(|&o| r_delta_t.get(o)).copied())
+                    .collect();
+                calculated_field(
+                    &mesh,
+                    "rDeltaT",
+                    Location::Cells,
+                    [0, 0, -1, 0, 0, 0, 0],
+                    &r_delta_t,
+                    &on_faces,
+                )
+                .write(&case.dir, &name)?;
+            }
         }
         steps.push(Step {
             time: name,
