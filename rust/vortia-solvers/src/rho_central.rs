@@ -29,6 +29,7 @@ use vortia_mesh::{PatchKind, PolyMesh};
 use crate::case::{Case, VELOCITY, check_dimensions};
 use crate::coded::Programmed;
 use crate::control::{LinearSolver, RunControl, solve_line};
+use crate::convergence::{Fields, Limits, Monitor, Origin};
 use crate::driven::{
     CENTRAL_PRESSURE_KINDS, CENTRAL_VELOCITY_KINDS, PressureVelocity, TotalPressure,
 };
@@ -678,6 +679,25 @@ fn run_as(case: &Case, mut log: impl FnMut(&str), vortia: bool) -> Result<Vec<St
     );
 
     let mut steps = Vec::new();
+    let mut monitor = if vortia {
+        let nu = turbulence.as_ref().map(|t| t.fields()[0]);
+        Some(Monitor::new(
+            &case.dir,
+            Limits::read(&case.control)?,
+            &Fields {
+                p: (&p_cells, &p_b),
+                t: (&thermo.t, &thermo.t_b),
+                rho: (&rho, &rho_b),
+                u: (&u, &u_b),
+                nu_tilda: nu.map(|n| (n.cells.as_slice(), n.faces.as_slice())),
+            },
+            run.start_time,
+            &mut log,
+        ))
+    } else {
+        None
+    };
+    let mut converged = false;
     for step in 1..=run.n_steps {
         let name = run.name(step);
 
@@ -697,6 +717,16 @@ fn run_as(case: &Case, mut log: impl FnMut(&str), vortia: bool) -> Result<Vec<St
                 };
                 (side(1.0), side(-1.0))
             };
+        // What the step starts from, for the monitor's sample.
+        let sampled_start = monitor.as_ref().filter(|m| m.due()).map(|_| {
+            (
+                p_cells.clone(),
+                thermo.t.clone(),
+                rho.clone(),
+                u.clone(),
+                c.clone(),
+            )
+        });
         let (rho_pos, rho_neg) = scalar(schemes.rho, &rho, &rho_b, schemes.grads[0]);
         let (r_psi_pos, r_psi_neg) = scalar(schemes.t, &r_psi, &r_psi_b, schemes.grads[1]);
         let (c_pos, c_neg) = scalar(schemes.t, &c, &c_b, schemes.grads[2]);
@@ -1101,8 +1131,42 @@ fn run_as(case: &Case, mut log: impl FnMut(&str), vortia: bool) -> Result<Vec<St
                 "diagonal:  Solving for {line}, Initial residual = 0, Final residual = 0, No Iterations 0\n"
             ));
         }
-        // vortiaCentralFoam always keeps the state its run ends on.
-        let written = run.writes(step) || (vortia && step == run.n_steps);
+        if let Some(m) = monitor.as_mut() {
+            let sample = sampled_start.as_ref().map(|(p, t, rho, u, c)| {
+                (
+                    p.as_slice(),
+                    t.as_slice(),
+                    rho.as_slice(),
+                    u.as_slice(),
+                    c.as_slice(),
+                )
+            });
+            let nu = turbulence.as_ref().map(|t| t.fields()[0]);
+            converged = m.check(
+                (&mesh, &fv),
+                &phi,
+                &Fields {
+                    p: (&p_cells, &p_b),
+                    t: (&thermo.t, &thermo.t_b),
+                    rho: (&rho, &rho_b),
+                    u: (&u, &u_b),
+                    nu_tilda: nu.map(|n| (n.cells.as_slice(), n.faces.as_slice())),
+                },
+                sample.map(|(p, t, rho, u, sound)| Origin {
+                    p,
+                    t,
+                    rho,
+                    u,
+                    sound,
+                }),
+                &r_delta_t,
+                run.start_time + step as f64 * run.delta_t,
+                &mut log,
+            )?;
+        }
+        // vortiaCentralFoam always keeps the state its run ends on, and the
+        // one a converged run stops on.
+        let written = run.writes(step) || (vortia && (step == run.n_steps || converged));
         if written {
             u_field.internal = Data::NonUniform(u.clone());
             u_field.drop_zero_gradient_values();
@@ -1139,6 +1203,13 @@ fn run_as(case: &Case, mut log: impl FnMut(&str), vortia: bool) -> Result<Vec<St
             solves: Vec::new(),
             written,
         });
+        if converged {
+            log("Vortia: converged; stopping the run\n");
+            break;
+        }
+    }
+    if let Some(m) = &monitor {
+        m.finish(run.start_time + steps.len() as f64 * run.delta_t, &mut log);
     }
     log("End\n");
     let _ = (&mut p.bc, PatchKind::Empty);
