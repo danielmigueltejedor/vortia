@@ -31,6 +31,14 @@ if [[ -n "$outside" ]]; then echo "$outside" | head -n 20; bad "references outsi
 echo "== Headless start =="
 "$exe" --verify-spanish || bad "--verify-spanish rc=$?"
 
+if [[ -x "$app/Contents/MacOS/vortia-engine" ]]; then
+  echo "== vortia-engine starts on its own (Vortia Native launches it directly) =="
+  reply="$(printf '%s\n' '{"id":1,"cmd":"hello"}' '{"id":2,"cmd":"quit"}' |
+    env -i HOME="$HOME" PATH=/usr/bin:/bin "$app/Contents/MacOS/vortia-engine" 2>&1)"
+  echo "$reply" | head -n 5 | cut -c1-300
+  grep -q '"id":1,"ok":true' <<<"$reply" || bad "vortia-engine did not answer hello"
+fi
+
 echo "== Main window and OpenGL viewport =="
 log="$(mktemp)"
 DYLD_PRINT_LIBRARIES=1 "$exe" --verify-startup >"$log" 2>&1
