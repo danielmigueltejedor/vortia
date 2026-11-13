@@ -26,6 +26,8 @@ public:
     void setRecentProjects(const QStringList& folders);
     /// Follows the window's size and the header's height.
     void place();
+    /// Places itself again whenever this bar above it moves, resizes, shows or hides.
+    void follow(QWidget* bar);
 
 signals:
     void newProjectRequested();

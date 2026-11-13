@@ -8,6 +8,7 @@ struct VortiaApp: App {
     @State private var store = VortiaStore()
     @State private var supervisor = EngineSupervisor()
     @State private var recents = RecentProjects()
+    @State private var updater = AppUpdater()
 
     var body: some Scene {
         // One window: the engine holds one project at a time.
@@ -18,7 +19,12 @@ struct VortiaApp: App {
             )
             .environment(store)
             .frame(minWidth: 1040, minHeight: 680)
+            .sheet(isPresented: Binding(get: { updater.presented }, set: { updater.presented = $0 })) {
+                UpdateSheet(updater: updater)
+            }
             .task {
+                // The demonstration and its pictures never look for a new version.
+                if !Launch.demo { updater.start() }
                 if let appearance = Launch.appearance { NSApp.appearance = appearance }
                 if Launch.snapshotFolder != nil { NSApp.setActivationPolicy(.regular) }
                 if Launch.demo {
@@ -39,6 +45,7 @@ struct VortiaApp: App {
         }
         .defaultSize(width: 1280, height: 820)
         .commands {
+            UpdateCommands(updater: updater)
             CommandGroup(replacing: .newItem) {
                 Button(L10n.t(.newProject), action: newProject).keyboardShortcut("n")
                 Button(L10n.t(.openProject), action: openProject).keyboardShortcut("o")

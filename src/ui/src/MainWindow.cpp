@@ -272,6 +272,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             bottom = menuBar()->geometry().bottom() + 1;
         return bottom;
     });
+    for (const char* name : {"vortia-document-header", "vortia-menu-row"})
+        welcome_->follow(findChild<QWidget*>(QLatin1String(name)));
     const auto vector = [this](const QString& id, QStyle::StandardPixmap fallback) {
         const auto icon = uiIcon(QStringLiteral(":/vortia/icons/") + id + QStringLiteral(".svg"));
         return icon.isNull() ? style()->standardIcon(fallback) : icon;
@@ -301,7 +303,8 @@ void MainWindow::setWelcomeVisible(bool visible) {
 }
 
 bool MainWindow::welcomeVisible() const {
-    return welcome_ && welcome_->isVisible();
+    // Hidden explicitly, not merely unshown: the window itself may not be on screen yet.
+    return welcome_ && !welcome_->isHidden();
 }
 
 bool MainWindow::isPristineDocument(int index) const {
@@ -337,6 +340,10 @@ bool MainWindow::eventFilter(QObject* object,QEvent* event) {
 }
 
 MainWindow::~MainWindow() {
+    // The welcome follows this window's events and asks it for its header: it must not outlive
+    // the parts of the window it asks.
+    delete welcome_;
+    welcome_ = nullptr;
     clearFlowEditors();
     auto* preview=meshWorkspace_;meshWorkspace_=nullptr;delete preview;
     // Stop/join the worker before documents release their temporary case dirs.
