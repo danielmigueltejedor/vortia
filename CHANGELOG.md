@@ -4,10 +4,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
-## [0.9.1] — 2026-11-13
+## [0.9.2] — 2026-11-13
 
-La 0.9.0 no llegó a publicarse: su bienvenida tapaba la barra superior en
-Linux y la app de macOS fallaba al salir. Esta versión la sustituye.
+La 0.9.0 y la 0.9.1 no llegaron a publicarse: con la bienvenida abierta, los
+botones de la ventana se salían de la barra superior en Linux, y la 0.9.0
+además fallaba al salir en macOS. Esta versión las sustituye.
 
 ### Añadido
 - **Bienvenida:** sin proyecto abierto, Vortia muestra Nuevo proyecto, Abrir
