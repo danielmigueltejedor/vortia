@@ -7,8 +7,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 ## [0.8.0] — 2026-11-13
 
 Vortia Native se parece por fin a Vortia: las mismas seis etapas, un editor de
-geometría de verdad y los resultados a toda la ventana. La aplicación Qt y el
-motor de cálculo no cambian.
+geometría de verdad y los resultados a toda la ventana. La aplicación Qt no
+cambia.
 
 ### Cambiado
 - **Vortia Native** (macOS): la barra lateral sigue las etapas de Vortia,
