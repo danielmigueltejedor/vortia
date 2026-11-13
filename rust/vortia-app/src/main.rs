@@ -22,13 +22,18 @@ fn main() -> eframe::Result {
         "Vortia",
         options,
         Box::new(|cc| {
-            // `vortia-app CASE [--run] [--mesh]`: open a case, start it at once, or show its mesh.
+            // `vortia-app CASE [--run] [--mesh] [--field NAME]`: open a case, start it at once, show its
+            // mesh, or show it coloured with a field.
             let mut args = std::env::args_os().skip(1);
             let case = args.next();
             let flags: Vec<_> = args.collect();
             let has = |flag: &str| flags.iter().any(|a| a == flag);
             let mut app = VortiaApp::new(&cc.egui_ctx, case, has("--run"));
-            if has("--mesh") {
+            if let Some(at) = flags.iter().position(|a| a == "--field")
+                && let Some(field) = flags.get(at + 1)
+            {
+                app.show_mesh_field(&field.to_string_lossy());
+            } else if has("--mesh") {
                 app.show_mesh();
             }
             Ok(Box::new(app))

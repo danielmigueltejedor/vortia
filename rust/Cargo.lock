@@ -2680,6 +2680,8 @@ dependencies = [
  "nodalia-theme",
  "serde_json",
  "tempfile",
+ "vortia-core",
+ "vortia-fields",
  "vortia-foamfile",
  "vortia-solvers",
  "zbus",

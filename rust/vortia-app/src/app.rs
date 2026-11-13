@@ -19,7 +19,7 @@ use crate::prefs::{self, Prefs, Theme};
 use crate::session::{Event, Outcome, Session};
 use crate::summary::{self, Summary};
 use crate::surface;
-use crate::viewer::Viewer;
+use crate::viewer::{Source, Viewer};
 
 /// The accent of the app.
 const ACCENT: Accent = Accent::Vortia;
@@ -75,6 +75,8 @@ struct CaseView {
     /// The folder changed (a run ended): read it again.
     summary_stale: bool,
     tab: Tab,
+    /// A field to colour the mesh with as soon as it is read, asked for on the command line.
+    first_field: Option<String>,
     /// The mesh is read the first time it is looked at.
     viewer: Option<Result<Viewer, String>>,
     viewer_rx: Option<std::sync::mpsc::Receiver<Result<surface::Surface, String>>>,
@@ -101,6 +103,7 @@ impl CaseView {
             summary_rx: None,
             summary_stale: true,
             tab: Tab::Run,
+            first_field: None,
             viewer: None,
             viewer_rx: None,
         }
@@ -111,7 +114,12 @@ impl CaseView {
         if let Some(rx) = &self.viewer_rx
             && let Ok(read) = rx.try_recv()
         {
-            self.viewer = Some(read.map(Viewer::new));
+            let first_field = self.first_field.take();
+            self.viewer = Some(read.map(|surface| {
+                let mut viewer = Viewer::new(surface);
+                viewer.colour_by(first_field.as_deref(), None);
+                viewer
+            }));
             self.viewer_rx = None;
         }
         if self.tab == Tab::Mesh && self.viewer.is_none() && self.viewer_rx.is_none() {
@@ -290,6 +298,14 @@ impl VortiaApp {
     pub fn show_mesh(&mut self) {
         if let Screen::Case(case) = &mut self.screen {
             case.tab = Tab::Mesh;
+        }
+    }
+
+    /// Switches the open case to its mesh, coloured with a field of the latest time.
+    pub fn show_mesh_field(&mut self, field: &str) {
+        self.show_mesh();
+        if let Screen::Case(case) = &mut self.screen {
+            case.first_field = Some(field.to_owned());
         }
     }
 
@@ -686,7 +702,20 @@ impl VortiaApp {
                     ui.add_space(space::SM);
                     case.ensure_viewer(ctx);
                     if case.tab == Tab::Mesh {
-                        mesh_tab(ui, p, case.viewer.as_mut());
+                        let source = Source {
+                            dir: case.dir.clone(),
+                            times: case
+                                .summary
+                                .as_ref()
+                                .map(|s| s.times.clone())
+                                .unwrap_or_default(),
+                            fields: case
+                                .summary
+                                .as_ref()
+                                .map(|s| s.fields.clone())
+                                .unwrap_or_default(),
+                        };
+                        mesh_tab(ui, p, case.viewer.as_mut(), &source);
                         return;
                     }
                     convergence_card(ui, p, case.report.as_ref());
@@ -993,7 +1022,12 @@ fn convergence_card(ui: &mut egui::Ui, p: &Palette, report: Option<&Convergence>
 }
 
 /// The mesh of the case, or why there is none to show.
-fn mesh_tab(ui: &mut egui::Ui, p: &Palette, viewer: Option<&mut Result<Viewer, String>>) {
+fn mesh_tab(
+    ui: &mut egui::Ui,
+    p: &Palette,
+    viewer: Option<&mut Result<Viewer, String>>,
+    source: &Source,
+) {
     match viewer {
         None => {
             ui.horizontal(|ui| {
@@ -1009,6 +1043,7 @@ fn mesh_tab(ui: &mut egui::Ui, p: &Palette, viewer: Option<&mut Result<Viewer, S
             for_egui::color(p.surface_sunken),
             muted(p),
             component::CONTROL_RADIUS.round().clamp(0.0, 255.0) as u8,
+            source,
         ),
     }
 }
@@ -1203,6 +1238,48 @@ mod tests {
         }
         assert!(ready, "the mesh was not read");
         // And it draws once it is there.
+        frame(&mut app, &ctx);
+    }
+
+    #[test]
+    fn the_mesh_is_coloured_with_a_field_of_the_case() {
+        let case = case_dir();
+        let data = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../vortia-foamfile/tests/data/cavity-ascii");
+        let to = case.path().join("constant/polyMesh");
+        std::fs::create_dir_all(&to).unwrap();
+        for entry in std::fs::read_dir(data.join("constant/polyMesh")).unwrap() {
+            let entry = entry.unwrap();
+            std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+        }
+        std::fs::create_dir_all(case.path().join("0.01")).unwrap();
+        for name in ["p", "U", "phi"] {
+            std::fs::copy(
+                data.join("0.01").join(name),
+                case.path().join("0.01").join(name),
+            )
+            .unwrap();
+        }
+        let ctx = Context::default();
+        let mut app = VortiaApp::with_prefs(Prefs::default(), None);
+        app.open_case(case.path()).unwrap();
+        app.show_mesh_field("p");
+        let mut seen = None;
+        for _ in 0..300 {
+            frame(&mut app, &ctx);
+            if let Screen::Case(view) = &app.screen
+                && let Some(Ok(viewer)) = &view.viewer
+                && let Some(values) = viewer.values()
+            {
+                seen = Some(values.clone());
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let values = seen.expect("the field was not read").unwrap();
+        assert_eq!((values.name.as_str(), values.time.as_str()), ("p", "0.01"));
+        assert_eq!(values.kind, "scalar");
+        assert_eq!(values.values.len(), 12);
         frame(&mut app, &ctx);
     }
 
