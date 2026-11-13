@@ -186,17 +186,30 @@ void WelcomeScreen::setRecentProjects(const QStringList& folders) {
 
 void WelcomeScreen::place() {
     auto* window = parentWidget();
-    if (!window)
+    if (!window || isHidden())
         return;
     const int y = top_ ? std::clamp(top_(), 0, window->height()) : 0;
     setGeometry(0, y, window->width(), window->height() - y);
     raise();
+    // Over the work area, under the window's own resize handles.
+    for (auto* handle : window->findChildren<QWidget*>(QStringLiteral("ndl-resize-handle"),
+                                                        Qt::FindDirectChildrenOnly))
+        handle->raise();
+}
+
+void WelcomeScreen::follow(QWidget* bar) {
+    if (bar)
+        bar->installEventFilter(this);
 }
 
 bool WelcomeScreen::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == parentWidget()
-        && (event->type() == QEvent::Resize || event->type() == QEvent::LayoutRequest
-            || event->type() == QEvent::Show))
+    const auto type = event->type();
+    const bool window = watched == parentWidget()
+        && (type == QEvent::Resize || type == QEvent::LayoutRequest || type == QEvent::Show);
+    const bool bar = watched != parentWidget()
+        && (type == QEvent::Resize || type == QEvent::Move || type == QEvent::Show
+            || type == QEvent::Hide);
+    if (window || bar)
         place();
     return QWidget::eventFilter(watched, event);
 }
