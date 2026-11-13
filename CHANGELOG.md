@@ -4,6 +4,30 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-11-13
+
+La actualización desde la app vuelve a funcionar en macOS, y en Linux los menús
+tienen su propia fila.
+
+### Corregido
+- **Actualización en macOS:** fallaba siempre con «firma de código no válida»,
+  porque la comprobación rechazaba los metadatos del Finder que lleva todo
+  archivo de un disco de instalación. Ahora comprueba la firma sin ese modo
+  estricto y el error dice por qué falla.
+- **Actualización en macOS:** desde la 0.7.0 podía descargar el disco de Vortia
+  Native en lugar del de Vortia. Ahora toma siempre el suyo.
+- **Actualización en Linux y macOS:** ofrece la versión más reciente que tenga
+  paquete para tu sistema, y nunca un archivo `.zsync` en lugar del AppImage.
+
+### Cambiado
+- **Menús en Linux:** Archivo, Simulación, Herramientas, Vista, Resultados y
+  Ayuda van en su propia fila encima de las pestañas de proyecto. Si la barra
+  superior del escritorio muestra los menús, esa fila desaparece.
+
+### Nota
+- En macOS, el botón de actualizar de la 0.7.0 es justo el que fallaba:
+  descarga la 0.7.1 a mano una vez. Desde la 0.7.1 la app se actualiza sola.
+
 ## [0.7.0] — 2026-11-12
 
 Vortia Native para macOS, el motor de casos sin interfaz y el motor propio en
