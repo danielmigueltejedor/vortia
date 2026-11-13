@@ -187,7 +187,7 @@ pub fn grad_with(
 
 /// `cellLimited` on a vector: each component is limited as a scalar, and
 /// scales its column of the gradient tensor (`g[i][j] = ∂ᵢ uⱼ`).
-fn limit_cells(
+pub(crate) fn limit_cells(
     mesh: &PolyMesh,
     fv: &FvGeometry,
     u: &[Vec3],

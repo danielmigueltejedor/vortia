@@ -55,21 +55,62 @@ pub fn sn_grad_correction_vector(mesh: &PolyMesh, fv: &FvGeometry, g: &[Tensor])
         .collect()
 }
 
+/// OpenFOAM's `small`, in `limitedSnGrad`.
+const SMALL: f64 = 1e-15;
+
+/// `limitedSnGrad::correction`: the correction of every internal face
+/// scaled by `min(k |sn| / ((1 − k) |correction| + small), 1)`, where `sn` is
+/// the uncorrected gradient `deltaCoeff (ψ_N − ψ_P)`. `mag` is the norm of a
+/// face value.
+pub fn limit_correction<T>(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    cells: &[T],
+    correction: &[T],
+    k: f64,
+    mag: impl Fn(T) -> f64,
+) -> Vec<T>
+where
+    T: std::ops::Mul<f64, Output = T> + std::ops::Sub<Output = T> + Copy,
+{
+    mesh.owner()
+        .iter()
+        .zip(mesh.neighbour())
+        .zip(correction)
+        .enumerate()
+        .map(|(f, ((&o, &n), &corr))| {
+            let (Some(&po), Some(&pn)) = (cells.get(o), cells.get(n)) else {
+                return corr;
+            };
+            let dc = fv.non_orth_delta_coeffs.get(f).copied().unwrap_or(0.0);
+            let sn = mag((pn - po) * dc);
+            let limiter = (k * sn / ((1.0 - k) * mag(corr) + SMALL)).min(1.0);
+            corr * limiter
+        })
+        .collect()
+}
+
 /// `fvc::snGrad(U)` on every face: across an internal face the cell
 /// difference over the distance, plus, for a `Corrected` scheme, the
-/// correction from the cells' gradients `g`; on a boundary face what the
+/// correction (limited by `limit`) from the cells' gradients `g`; on a boundary face what the
 /// condition gives (nothing through a zero gradient or an empty patch).
 pub fn face_sn_grad_vector(
     mesh: &PolyMesh,
     fv: &FvGeometry,
     bc: &VectorBoundary,
     cells: &[Vec3],
-    scheme: SnGrad,
+    (scheme, limit): (SnGrad, Option<f64>),
     g: &[Tensor],
 ) -> Vec<Vec3> {
     let coeffs = scheme.coeffs(fv);
     let cell = |c: Option<&usize>| c.and_then(|&c| cells.get(c)).copied().unwrap_or_default();
-    let corr = (scheme == SnGrad::Corrected).then(|| sn_grad_correction_vector(mesh, fv, g));
+    let corr = (scheme == SnGrad::Corrected).then(|| {
+        let corr = sn_grad_correction_vector(mesh, fv, g);
+        match limit {
+            Some(k) => limit_correction(mesh, fv, cells, &corr, k, Vec3::norm),
+            None => corr,
+        }
+    });
     let mut out = Vec::with_capacity(mesh.n_faces());
     for f in 0..mesh.n_internal_faces() {
         let (o, n) = (cell(mesh.owner().get(f)), cell(mesh.neighbour().get(f)));
@@ -182,6 +223,43 @@ mod tests {
             off = off.max((diff - exact).abs());
         }
         assert!(off > 1e-3, "the mesh is not non-orthogonal: {off}");
+    }
+
+    /// `limited 0` takes the whole correction away, `limited 1` keeps it
+    /// wherever the uncorrected gradient is not zero, and in between the
+    /// correction stays below `k / (1 − k)` times that gradient.
+    #[test]
+    fn a_limited_correction_stays_within_its_share_of_the_gradient() {
+        let (mesh, fv) = sheared();
+        let a = Vec3::new(2.0, 3.0, 0.0);
+        let cells: Vec<f64> = fv.geo.cell_centres.iter().map(|&c| a.dot(c)).collect();
+        let boundary: Vec<Option<f64>> = (mesh.n_internal_faces()..mesh.n_faces())
+            .map(|f| fv.geo.face_centres.get(f).map(|&c| a.dot(c)))
+            .collect();
+        let g = gauss_grad(&mesh, &fv, &cells, &boundary);
+        let corr = sn_grad_correction(&mesh, &fv, &g);
+        let limit = |k: f64| limit_correction(&mesh, &fv, &cells, &corr, k, f64::abs);
+        assert!(limit(0.0).iter().all(|&c| c == 0.0));
+        for (f, (&full, &whole)) in corr.iter().zip(&limit(1.0)).enumerate() {
+            let sn =
+                fv.non_orth_delta_coeffs[f] * (cells[mesh.neighbour()[f]] - cells[mesh.owner()[f]]);
+            if sn != 0.0 {
+                assert_eq!(full, whole, "face {f}");
+            }
+        }
+        let k = 0.25;
+        let mut cut = 0;
+        for (f, (&full, &part)) in corr.iter().zip(&limit(k)).enumerate() {
+            let sn =
+                fv.non_orth_delta_coeffs[f] * (cells[mesh.neighbour()[f]] - cells[mesh.owner()[f]]);
+            assert!(
+                part.abs() <= k / (1.0 - k) * sn.abs() * (1.0 + 1e-12),
+                "face {f}"
+            );
+            assert!(part.abs() <= full.abs() * (1.0 + 1e-12), "face {f}");
+            cut += usize::from(part.abs() < full.abs());
+        }
+        assert!(cut > 0, "nothing was limited");
     }
 
     /// `source −= V ∇·flux` puts a face's flux on its owner and takes it from
