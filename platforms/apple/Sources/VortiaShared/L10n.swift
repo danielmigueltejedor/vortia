@@ -156,7 +156,7 @@ public enum L10n {
         .meshHint: "The near-wall size refines the cells along walls; the wedge angle is the slice of the axisymmetric domain that is meshed.",
         .generateMesh: "Generate the mesh",
         .meshSketchNote: "A sketch of the sizes, not the mesh itself",
-        .estimate: "estimate",
+        .estimate: "estimated count",
         .converged: "Converged",
         .fieldPressure: "Pressure",
         .fieldSpeed: "Speed",
