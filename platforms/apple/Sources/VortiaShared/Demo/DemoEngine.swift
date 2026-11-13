@@ -36,8 +36,10 @@ public final class DemoEngine: EngineClient, @unchecked Sendable {
     // MARK: Requests
 
     public func send(_ request: EngineRequest) async throws -> Data {
-        lock.lock()
-        defer { lock.unlock() }
+        try lock.withLock { try JSONEncoder().encode(try answer(request)) }
+    }
+
+    private func answer(_ request: EngineRequest) throws -> JSONValue {
         let answer: JSONValue
         switch request {
         case .hello:
@@ -109,7 +111,7 @@ public final class DemoEngine: EngineClient, @unchecked Sendable {
         case .section(let options, let label):
             answer = section(options, label: label)
         }
-        return try JSONEncoder().encode(answer)
+        return answer
     }
 
     // MARK: The project
