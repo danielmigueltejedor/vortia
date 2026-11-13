@@ -36,6 +36,7 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20      vortia fields [CASE [TIME]]\n\
     \x20      vortia solve [CASE]\n\
     \x20      vortia blockmesh [CASE]\n\
+    \x20      vortia setfields [CASE]\n\
     \x20      vortia gmshtofoam [-keepOrientation] FILE [CASE]\n\
     \x20      vortia fluenttofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\
     \x20      vortia cgnstofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\n\
@@ -45,6 +46,7 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20            fits the mesh and print its range\n\
     solve        run the solver controlDict names (laplacianFoam today)\n\
     blockmesh    mesh CASE/system/blockMeshDict into CASE/constant/polyMesh\n\
+    setfields    set the cells of the start time as CASE/system/setFieldsDict says\n\
     gmshtofoam   convert a Gmsh .msh file into CASE/constant/polyMesh\n\
     fluenttofoam convert a Fluent .msh file into CASE/constant/polyMesh\n\
     cgnstofoam   convert a CGNS (ADF) file into CASE/constant/polyMesh";
@@ -73,6 +75,8 @@ fn main() -> ExitCode {
             vortia_mesh::fluent::fluent_to_foam(&String::from_utf8_lossy(bytes), options)
         }),
         ["cgnstofoam", rest @ ..] => import("cgnstofoam", rest, vortia_mesh::cgns::cgns_to_foam),
+        ["setfields"] => setfields(Path::new(".")),
+        ["setfields", case] => setfields(Path::new(case)),
         ["solve"] => solve(Path::new(".")),
         ["solve", case] => solve(Path::new(case)),
         ["fields"] => fields(Path::new("."), None),
@@ -392,6 +396,19 @@ fn solve(case: &Path) -> ExitCode {
         })
     });
     match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("vortia: {}", shown(&e.to_string()));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn setfields(case: &Path) -> ExitCode {
+    let mut out = std::io::stdout().lock();
+    match vortia_solvers::set_fields::run(case, |line| {
+        let _ = out.write_all(shown_line(line).as_bytes());
+    }) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("vortia: {}", shown(&e.to_string()));

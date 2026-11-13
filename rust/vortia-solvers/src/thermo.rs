@@ -336,6 +336,7 @@ fn pos0(x: f64) -> f64 {
 
 /// The temperature, the energy and the properties that follow from them,
 /// in every cell and on every boundary face (`None` on empty faces).
+#[derive(Clone)]
 pub(crate) struct Thermo {
     pub(crate) gas: Gas,
     file: ScalarField,
