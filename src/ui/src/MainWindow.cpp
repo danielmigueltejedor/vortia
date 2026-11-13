@@ -22,6 +22,7 @@
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include "vortia/ui/MainWindow.hpp"
+#include "vortia/ui/WelcomeScreen.hpp"
 
 #include "vortia/core/Logger.hpp"
 #include "vortia/core/Project.hpp"
@@ -259,6 +260,64 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if(auto* dock=findChild<QDockWidget*>("vortia-dock-properties"))dock->hide();
     activateWorkflowStage(1);
     setProjectState(tr("New project: draw a closed fluid domain, then configure its mesh and flow."));
+
+    // The welcome starts below the header that holds the window controls and the menus, or at
+    // the top where the system draws them.
+    welcome_ = new WelcomeScreen(this, [this] {
+        int bottom = 0;
+        for (const char* name : {"vortia-document-header", "vortia-menu-row"})
+            if (auto* bar = findChild<QWidget*>(QLatin1String(name)); bar && bar->isVisible())
+                bottom = std::max(bottom, bar->mapTo(this, QPoint(0, bar->height())).y());
+        if (bottom == 0 && menuBar()->isVisible() && !menuBar()->isNativeMenuBar())
+            bottom = menuBar()->geometry().bottom() + 1;
+        return bottom;
+    });
+    const auto vector = [this](const QString& id, QStyle::StandardPixmap fallback) {
+        const auto icon = uiIcon(QStringLiteral(":/vortia/icons/") + id + QStringLiteral(".svg"));
+        return icon.isNull() ? style()->standardIcon(fallback) : icon;
+    };
+    welcome_->setActionIcons(QIcon(), vector(QStringLiteral("open"), QStyle::SP_DialogOpenButton),
+                             vector(QStringLiteral("open"), QStyle::SP_DirIcon));
+    welcome_->setRecentProjects(settings_->value(QStringLiteral("recentProjects")).toStringList());
+    connect(welcome_, &WelcomeScreen::newProjectRequested, this, &MainWindow::onNewProject);
+    connect(welcome_, &WelcomeScreen::openProjectRequested, this, [this] {
+        if (projectSwitchLocked()) return;
+        const QString dir = QFileDialog::getExistingDirectory(this, tr("Open Vortia Project"));
+        if (!dir.isEmpty())
+            openFromWelcome(dir);
+    });
+    connect(welcome_, &WelcomeScreen::recentProjectRequested, this, &MainWindow::openFromWelcome);
+    setWelcomeVisible(true);
+}
+
+void MainWindow::setWelcomeVisible(bool visible) {
+    if (!welcome_)
+        return;
+    welcome_->setVisible(visible);
+    if (visible)
+        welcome_->place();
+    // The untitled project under the welcome is not a project anyone opened: no tab for it.
+    projectTabs_->setVisible(!visible);
+}
+
+bool MainWindow::welcomeVisible() const {
+    return welcome_ && welcome_->isVisible();
+}
+
+bool MainWindow::isPristineDocument(int index) const {
+    if (index < 0 || static_cast<std::size_t>(index) >= documents_.size())
+        return false;
+    const auto& doc = documents_[static_cast<std::size_t>(index)];
+    const bool modified = index == activeProjectTab_ ? dirty_ : doc.modified;
+    return doc.root.empty() && doc.externalCase.empty() && !modified;
+}
+
+void MainWindow::rememberRecentProject(const QString& folder) {
+    const auto recent = vortia::rememberRecentProject(
+        settings_->value(QStringLiteral("recentProjects")).toStringList(), folder);
+    settings_->setValue(QStringLiteral("recentProjects"), recent);
+    if (welcome_)
+        welcome_->setRecentProjects(recent);
 }
 
 bool MainWindow::eventFilter(QObject* object,QEvent* event) {
@@ -454,7 +513,7 @@ void MainWindow::buildMenusAndToolbar() {
         connect(button,&QToolButton::toggled,this,[this,i](bool checked){if(checked)activateWorkflowStage(i);});
         // A normal press may also reactivate the current stage (e.g. return
         // from a monitor). Accessibility can change checked without clicked.
-        connect(button,&QToolButton::clicked,this,[this,i](){activateWorkflowStage(i);});
+        connect(button,&QToolButton::clicked,this,[this,i](){setWelcomeVisible(false);activateWorkflowStage(i);});
     }
     navLayout->addStretch(1);
     // Preferences moved to the main menu at the top of the side bar.
@@ -1297,6 +1356,8 @@ void MainWindow::closeProjectTab(int index) {
     activeProjectTab_ = -1;
     if (documents_.empty()) {
         addProjectTab(tr("Untitled %1").arg(++untitledCount_), makeCavity());
+        activateWorkflowStage(1);
+        setWelcomeVisible(true);
     } else {
         const int next = index == oldActive
             ? std::min(index, static_cast<int>(documents_.size()) - 1)
@@ -1311,7 +1372,11 @@ void MainWindow::closeProjectTab(int index) {
 
 void MainWindow::onNewProject() {
     if (projectSwitchLocked()) return;
-    addProjectTab(tr("Untitled %1").arg(++untitledCount_), makeCavity());
+    // From the welcome, the new project is the untitled one already waiting under it.
+    const bool reuse = welcomeVisible() && documents_.size() == 1 && isPristineDocument(0);
+    setWelcomeVisible(false);
+    if (!reuse)
+        addProjectTab(tr("Untitled %1").arg(++untitledCount_), makeCavity());
     activateWorkflowStage(1);
     setProjectState(tr("New project: draw a closed fluid domain, then configure its mesh and flow."));
 }
@@ -1326,6 +1391,25 @@ void MainWindow::onOpenProject() {
 
 bool MainWindow::openProjectDirectory(const QString& dir) {
     if (projectSwitchLocked()) return false;
+    if (!openProjectFolder(dir))
+        return false;
+    setWelcomeVisible(false);
+    const QString canonical = QFileInfo(dir).canonicalFilePath();
+    rememberRecentProject(canonical.isEmpty() ? dir : canonical);
+    return true;
+}
+
+bool MainWindow::openFromWelcome(const QString& dir) {
+    // The project takes the place of the untitled one waiting under the welcome.
+    const bool replace = welcomeVisible() && documents_.size() == 1 && isPristineDocument(0);
+    if (!openProjectDirectory(dir))
+        return false;
+    if (replace && documents_.size() > 1 && isPristineDocument(0))
+        closeProjectTab(0);
+    return true;
+}
+
+bool MainWindow::openProjectFolder(const QString& dir) {
     // Reopening a directory must focus its document, never create competing
     // in-memory copies that can overwrite each other's saved sketch.
     const QString canonical = QFileInfo(dir).canonicalFilePath();
@@ -1439,6 +1523,7 @@ bool MainWindow::saveProject() {
             return false;
         }
         projectRoot_ = project->rootDir();
+        rememberRecentProject(QString::fromStdString(projectRoot_.string()));
     }
 
     auto project = Project::open(projectRoot_);

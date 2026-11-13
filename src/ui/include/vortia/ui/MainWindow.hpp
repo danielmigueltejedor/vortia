@@ -31,6 +31,7 @@ class QAction;
 
 namespace vortia {
 class RunMonitor;
+class WelcomeScreen;
 class MeshRegionsWidget;
 class FlowSetupPanel;
 
@@ -84,6 +85,17 @@ private slots:
 private:
     friend struct WorkspaceTestAccess;
     bool openProjectDirectory(const QString& directory);
+    /// The work of opening a folder, without the welcome and recent projects around it.
+    bool openProjectFolder(const QString& directory);
+    /// Open, from the welcome: the project replaces the untitled one waiting under it.
+    bool openFromWelcome(const QString& directory);
+    /// The welcome lies over the window while no project is open: at start and after the last
+    /// project closes. Under it waits an untitled project, which New Project takes.
+    void setWelcomeVisible(bool visible);
+    bool welcomeVisible() const;
+    /// True for the untitled project nobody has touched, the one waiting under the welcome.
+    bool isPristineDocument(int index) const;
+    void rememberRecentProject(const QString& folder);
     bool saveProject();
     bool projectSwitchLocked() const;
     void setJobUiRunning(bool running);
@@ -137,6 +149,7 @@ private:
         std::shared_ptr<QTemporaryDir> temporaryCase;
     };
     std::vector<ProjectDocument> documents_;
+    WelcomeScreen* welcome_{};
     int activeProjectTab_{-1};
     int untitledCount_{0};
 

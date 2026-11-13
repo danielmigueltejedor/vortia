@@ -4,6 +4,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-11-13
+
+Vortia empieza como Vortia Native: con una bienvenida para crear o abrir un
+proyecto.
+
+### Añadido
+- **Bienvenida:** sin proyecto abierto, Vortia muestra Nuevo proyecto, Abrir
+  proyecto y los proyectos recientes, como Vortia Native. Vuelve al cerrar el
+  último proyecto. Un proyecto abierto desde ella ocupa el lugar del proyecto
+  sin título, en lugar de abrirse en otra pestaña.
+
 ## [0.8.0] — 2026-11-13
 
 Vortia Native se parece por fin a Vortia: las mismas seis etapas, un editor de
