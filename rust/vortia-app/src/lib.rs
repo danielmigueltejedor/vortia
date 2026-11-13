@@ -16,6 +16,7 @@
 )]
 
 pub mod app;
+pub mod conditions;
 pub mod controldict;
 pub mod convergence;
 pub mod fieldview;
