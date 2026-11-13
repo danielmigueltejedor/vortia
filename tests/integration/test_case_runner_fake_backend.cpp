@@ -269,6 +269,23 @@ TEST_F(FakeBackendTest, NozzleCasesRunOnTheRustEngineWhenTheEnvironmentNamesIt) 
     EXPECT_EQ(resumed->name, "blockMesh");
 }
 
+TEST_F(FakeBackendTest, TheRustEngineMayBeShippedUnderTheNameOfTheBundle) {
+    makeFakeTool("vortia-rust-engine", "echo \"$1\" >> \"$PWD/engine-calls\"\nexit 0\n");
+    const auto caseDir = dir_ / "case";
+    ASSERT_TRUE(CaseWriter::write(caseDir, minimalSetup(), caps_).hasValue());
+    { std::ofstream marker(caseDir / ".vortia-nozzle-case"); marker << "vortia-nozzle-video-2026-v3\n"; }
+    environment_.emplace_back("VORTIA_NATIVE_ENGINE", (bin_ / "vortia-rust-engine").string());
+    PosixProcessRunner processes;
+    CaseRunner runner(processes, environment_);
+    auto solved = runner.runSolver(caseDir, minimalSetup(), caps_, {}, nullptr, "vortiaCentralFoam");
+    ASSERT_TRUE(solved.hasValue());
+    EXPECT_TRUE(solved->process.succeeded());
+    std::ifstream calls(caseDir / "engine-calls");
+    std::ostringstream all;
+    all << calls.rdbuf();
+    EXPECT_EQ(all.str(), "solve\n");
+}
+
 TEST_F(FakeBackendTest, ARustEnginePathThatIsNotPlainIsIgnored) {
     makeFakeTool("vortia", "exit 0\n");
     makeFakeTool("blockMesh", "exit 0\n");

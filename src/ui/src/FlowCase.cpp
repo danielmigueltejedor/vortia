@@ -22,6 +22,7 @@
 #include <QCryptographicHash>
 #include <QTemporaryFile>
 #include <QSaveFile>
+#include <QSettings>
 
 #include <algorithm>
 
@@ -150,6 +151,21 @@ QString updateFlowRunControls(const QString& caseDir,const QJsonObject& solver,
     return {};
 }
 
+std::string bundledNativeEngine() {
+    // It sits beside the app: `vortia` is the app itself, so the engine has a name of its own.
+    const QFileInfo file(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("vortia-rust-engine")));
+    return file.isFile() && file.isExecutable() ? file.canonicalFilePath().toStdString() : std::string{};
+}
+
+std::string nativeEnginePath() {
+    // A path in the environment wins, then the preference and the bundled tool.
+    if (const auto fromEnvironment = qEnvironmentVariable("VORTIA_NATIVE_ENGINE"); !fromEnvironment.isEmpty())
+        return fromEnvironment.toStdString();
+    const QSettings settings(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
+    return settings.value(QStringLiteral("calculation/rustEngine"), false).toBool() ? bundledNativeEngine()
+                                                                                    : std::string{};
+}
+
 std::vector<std::pair<std::string, std::string>> flowSolverRuntime(
         const std::vector<std::pair<std::string, std::string>>& environment, const std::string& installation) {
     QJsonObject runtime{{"installation", QString::fromStdString(installation)}};
@@ -172,9 +188,9 @@ std::vector<std::pair<std::string, std::string>> flowSolverRuntime(
     const auto cache = QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath("flow-engines");
     std::vector<std::pair<std::string, std::string>> result{
         {"VORTIA_SOLVER_RUNTIME_KEY", key.toStdString()}, {"VORTIA_SOLVER_CACHE_DIR", cache.toStdString()}};
-    // Opt in to the Rust engine for the nozzle cases: the absolute path of
-    // its `vortia` command line tool. CaseRunner ignores anything else.
-    if (const char* engine = std::getenv("VORTIA_NATIVE_ENGINE"); engine && *engine)
+    // Opt in to the Rust engine for the nozzle cases. CaseRunner ignores
+    // anything but the absolute path of the `vortia` tool.
+    if (const auto engine = nativeEnginePath(); !engine.empty())
         result.emplace_back("VORTIA_NATIVE_ENGINE", engine);
     return result;
 }

@@ -17,6 +17,8 @@ struct ApplicationPreferences {
     bool showToolLabels=true;
     bool automaticMeshPreview=true;
     bool checkForUpdatesAutomatically=true;
+    /// Run the nozzle cases on Vortia's own Rust engine instead of OpenFOAM (experimental).
+    bool rustEngine=false;
     bool showConsoleOnRun=false,showAssessmentOnRun=true,automaticPreview=true;
     static ApplicationPreferences load(QSettings&);
     void save(QSettings&) const;

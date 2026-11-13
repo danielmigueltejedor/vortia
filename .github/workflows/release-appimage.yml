@@ -195,6 +195,7 @@ jobs:
             cxx-compiler
             sysroot_linux-64=2.28
             pkg-config
+            rust
             qt6-main
             vtk
             nlohmann_json
@@ -247,6 +248,15 @@ jobs:
           echo "glibc symbol versions needed by the executable:"
           "$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-objdump" -T build/bin/vortia |
             grep -o 'GLIBC_[0-9][0-9.]*' | sort -u -V | tail -n 3
+
+      # Vortia's own engine, linked by the conda toolchain against the same
+      # glibc 2.28 sysroot as the app, so it runs wherever the AppImage does.
+      - name: Build the Rust engine
+        run: |
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-cc"
+          cargo build --release --locked --manifest-path rust/Cargo.toml -p vortia-cli
+          test -x rust/target/release/vortia
+          echo "VORTIA_RUST_ENGINE=$PWD/rust/target/release/vortia" >> "$GITHUB_ENV"
 
       - uses: actions/download-artifact@v4
         with:
@@ -367,6 +377,15 @@ jobs:
             echo "CONDA_BUILD_SYSROOT=$sdk"
           } >> "$GITHUB_ENV"
 
+      # Vortia's own engine, built before the conda environment is active.
+      - name: Build the Rust engine
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo build --release --locked --manifest-path rust/Cargo.toml -p vortia-cli
+          echo "VORTIA_RUST_ENGINE=$PWD/rust/target/release/vortia" >> "$GITHUB_ENV"
+
       - name: Setup micromamba (Qt6 + VTK)
         uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462 # v2
         with:
@@ -431,6 +450,9 @@ jobs:
           # vortia-engine rides in the Qt bundle so its libraries are deployed with the app's;
           # Vortia Native is built from this bundle (platforms/apple/build.sh).
           install -m755 build/bin/vortia-engine build/Vortia.app/Contents/MacOS/vortia-engine
+          # The Rust engine beside it, named apart from the app's own `vortia`.
+          install -m755 "$VORTIA_RUST_ENGINE" build/Vortia.app/Contents/MacOS/vortia-rust-engine
+          build/Vortia.app/Contents/MacOS/vortia-rust-engine help > /dev/null
           cocoa="$(find "$CONDA_PREFIX" -name libqcocoa.dylib -not -path '*/pkgs/*' | head -n 1)"
           test -n "$cocoa"
           plugins="$(dirname "$(dirname "$cocoa")")"
