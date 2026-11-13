@@ -264,6 +264,63 @@ pub fn production(g: &Tensor) -> f64 {
     sxx * xx + sxy * xy + sxz * xz + sxy * yx + syy * yy + syz * yz + sxz * zx + syz * zy + szz * zz
 }
 
+/// `ν dev2(T(fvc::grad(U)))` in each cell and on each boundary face (`None`
+/// on empty faces), for `nu` in every cell and on every boundary face: the
+/// `tauMC` of `rhoCentralFoam`.
+pub fn dev2_stress(
+    scheme: GradScheme,
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    bc: &VectorBoundary,
+    u: &[Vec3],
+    nu: &[f64],
+    nu_boundary: &[Option<f64>],
+) -> (Vec<Tensor>, Vec<Option<Tensor>>) {
+    let (cells, boundary) = grad(scheme, mesh, fv, bc, u);
+    let stress = |t: &Tensor, nu: f64| zip_with(&dev2_transpose(t), &[[nu; 3]; 3], |a, n| n * a);
+    let cells = cells.iter().zip(nu).map(|(t, &n)| stress(t, n)).collect();
+    let boundary = boundary
+        .iter()
+        .zip(nu_boundary)
+        .map(|(t, n)| match (t, n) {
+            (Some(t), Some(n)) => Some(stress(t, *n)),
+            _ => None,
+        })
+        .collect();
+    (cells, boundary)
+}
+
+/// `Sf & ψ_f` on every face for a tensor field: the cells' values
+/// interpolated linearly inside, the boundary values (zero on empty faces)
+/// on the boundary: `fvc::dotInterpolate(Sf, T)`.
+pub fn dot_interpolate_tensor(
+    mesh: &PolyMesh,
+    fv: &FvGeometry,
+    cells: &[Tensor],
+    boundary: &[Option<Tensor>],
+) -> Vec<Vec3> {
+    let sf = &fv.geo.face_areas;
+    let mut out = Vec::with_capacity(mesh.n_faces());
+    for (f, (&o, &n)) in mesh.owner().iter().zip(mesh.neighbour()).enumerate() {
+        let (Some(&w), Some(&s), Some(p), Some(q)) =
+            (fv.weights.get(f), sf.get(f), cells.get(o), cells.get(n))
+        else {
+            out.push(Vec3::default());
+            continue;
+        };
+        let face = zip_with(p, q, |p, q| w * (p - q) + q);
+        out.push(dot(s, &face));
+    }
+    let n_internal = mesh.n_internal_faces();
+    for (k, t) in boundary.iter().enumerate() {
+        out.push(match (t, sf.get(n_internal + k)) {
+            (Some(t), Some(&s)) => dot(s, t),
+            _ => Vec3::default(),
+        });
+    }
+    out
+}
+
 /// `fvc::div(ν dev2(T(fvc::grad(U))))` with the gradient `scheme`, per cell, for
 /// `nu` in every cell and on every boundary face (`None` on empty faces).
 pub fn div_dev2_grad_t(
@@ -275,20 +332,12 @@ pub fn div_dev2_grad_t(
     nu: &[f64],
     nu_boundary: &[Option<f64>],
 ) -> Vec<Vec3> {
-    let (cells, boundary) = grad(scheme, mesh, fv, bc, u);
-    let stress = |t: &Tensor, nu: f64| zip_with(&dev2_transpose(t), &[[nu; 3]; 3], |a, n| n * a);
-    let cells: Vec<Tensor> = cells.iter().zip(nu).map(|(t, &n)| stress(t, n)).collect();
-    let sf = &fv.geo.face_areas;
+    let (cells, boundary) = dev2_stress(scheme, mesh, fv, bc, u, nu, nu_boundary);
+    let flux = dot_interpolate_tensor(mesh, fv, &cells, &boundary);
     let own = mesh.owner();
     let mut div = vec![Vec3::default(); mesh.n_cells()];
     for (f, (&o, &n)) in own.iter().zip(mesh.neighbour()).enumerate() {
-        let (Some(&w), Some(&s), Some(p), Some(q)) =
-            (fv.weights.get(f), sf.get(f), cells.get(o), cells.get(n))
-        else {
-            continue;
-        };
-        let face = zip_with(p, q, |p, q| w * (p - q) + q);
-        let flux = dot(s, &face);
+        let Some(&flux) = flux.get(f) else { continue };
         if let Some(d) = div.get_mut(o) {
             *d = *d + flux;
         }
@@ -299,13 +348,10 @@ pub fn div_dev2_grad_t(
     let n_internal = mesh.n_internal_faces();
     for (k, t) in boundary.iter().enumerate() {
         let f = n_internal + k;
-        let (Some(t), Some(&s), Some(&o), Some(Some(n))) =
-            (t, sf.get(f), own.get(f), nu_boundary.get(k))
-        else {
-            continue;
-        };
-        if let Some(d) = div.get_mut(o) {
-            *d = *d + dot(s, &stress(t, *n));
+        if let (Some(_), Some(&o), Some(&flux)) = (t, own.get(f), flux.get(f))
+            && let Some(d) = div.get_mut(o)
+        {
+            *d = *d + flux;
         }
     }
     for (d, &vol) in div.iter_mut().zip(fv.volumes()) {

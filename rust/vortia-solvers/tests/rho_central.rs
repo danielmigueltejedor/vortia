@@ -316,7 +316,6 @@ fn what_the_engine_does_not_have_is_refused_not_guessed() {
         let err = rho_central::run(&case, |_| {}).expect_err(want).to_string();
         assert!(err.contains(want), "{err}");
     };
-    refused(1.8e-5, "", VAN_LEER, "viscous");
     refused(0.0, "adjustTimeStep yes;", VAN_LEER, "adjustTimeStep");
     refused(
         0.0,
@@ -565,4 +564,257 @@ fn local_time_stepping_refuses_what_it_cannot_run() {
             .unwrap_err()
             .contains("not supported")
     );
+}
+
+const SIDE: usize = 8;
+
+/// OpenFOAM v1912's values after 40 steps on [`skewed_cell`].
+const SKEWED_REFERENCE: &[Reference] = &[
+    (
+        "0.0004",
+        "T",
+        &[
+            (0, 300.2873869904484),
+            (7, 301.49212831781716),
+            (9, 299.5658722245639),
+            (18, 298.4420449600283),
+            (27, 298.1410542928057),
+            (28, 298.3477412767703),
+            (35, 298.4509355105221),
+            (36, 298.4630808860827),
+            (45, 299.2600358222535),
+            (54, 300.41934450265643),
+            (63, 301.8515463528817),
+        ],
+    ),
+    (
+        "0.0004",
+        "p",
+        &[
+            (0, 100727.01795194737),
+            (7, 103980.07010466969),
+            (9, 100659.78867776744),
+            (18, 99918.08833887035),
+            (27, 99748.7141985587),
+            (28, 100053.49829737605),
+            (35, 99998.09420992833),
+            (36, 100174.95110606232),
+            (45, 101103.1668758527),
+            (54, 102488.29628151405),
+            (63, 105554.21985377886),
+        ],
+    ),
+    (
+        "0.0004",
+        "rho",
+        &[
+            (0, 1.1683497482045653),
+            (7, 1.201263030716618),
+            (9, 1.1703820770621691),
+            (18, 1.1661330192451007),
+            (27, 1.1653315554852912),
+            (28, 1.1680824723713845),
+            (35, 1.1670319932321764),
+            (36, 1.1690484350360115),
+            (45, 1.1767386527779562),
+            (54, 1.188256949417914),
+            (63, 1.2179968878435048),
+        ],
+    ),
+];
+
+/// `U` in the same cells: (cell, x, y).
+const SKEWED_VELOCITY: &[(usize, f64, f64)] = &[
+    (0, -0.8623096988324563, -0.49900548083730545),
+    (7, -0.44138520051197666, -0.6719728812501325),
+    (9, -1.453136593380057, -0.12118819392313929),
+    (18, -0.9663691592784907, 2.582941373979926),
+    (27, -3.4589060712909148, 2.3526926605438714),
+    (28, -4.671554795272886, -0.3799495680389129),
+    (35, -5.523047640709842, 2.488303192258605),
+    (36, -6.418225435554284, -0.7183681901270215),
+    (45, -4.946571163376982, -3.0461012400884138),
+    (54, -0.20808016624992423, -3.8434941576941846),
+    (63, 6.9895119608179375, -0.789902626454534),
+];
+
+/// A viscous gas in a skewed 8 × 8 box (`x += 0.3 y`, so every face is off
+/// orthogonal) closed by walls, the top one moving, with a pressure bump in
+/// the middle: the stress terms, the corrected Laplacians and the
+/// conditions of the velocity and the energy all take part.
+fn skewed_cell(dir: &Path) {
+    let bounds = Aabb {
+        min: Vec3::new(0.0, 0.0, 0.0),
+        max: Vec3::new(0.1, 0.1, 0.01),
+    };
+    let mut raw = structured_box_raw(bounds, [SIDE, SIDE, 1]).unwrap();
+    for point in &mut raw.points {
+        point.x += 0.3 * point.y;
+    }
+    let p = raw.patches.clone();
+    let merge = |name: &str, kind: &str, from: &[RawPatch]| RawPatch {
+        name: name.into(),
+        kind: kind.into(),
+        start_face: from[0].start_face,
+        n_faces: from.iter().map(|p| p.n_faces).sum(),
+        groups: vec![kind.into()],
+        dict: Default::default(),
+    };
+    raw.patches = vec![
+        merge("walls", "wall", &p[0..3]),
+        merge("lid", "wall", &p[3..4]),
+        merge("frontAndBack", "empty", &p[4..6]),
+    ];
+    raw.write_case(dir).unwrap();
+
+    let bump = list((0..SIDE * SIDE).map(|c| {
+        let (i, j) = (c % SIDE, c / SIDE);
+        if (3..5).contains(&i) && (3..5).contains(&j) {
+            "1.2e5"
+        } else {
+            "1e5"
+        }
+        .to_string()
+    }));
+    let field = |name: &str, dims: &str, internal: &str, kind: &str, walls: &str, lid: &str| {
+        write(
+            &dir.join("0").join(name),
+            &format!(
+                "FoamFile {{ version 2.0; format ascii; class vol{kind}Field; object {name}; }}\n\
+                 dimensions {dims}; internalField {internal};\n\
+                 boundaryField {{ walls {{ {walls} }} lid {{ {lid} }} \
+                 frontAndBack {{ type empty; }} }}\n"
+            ),
+        );
+    };
+    let zero_gradient = "type zeroGradient;";
+    field(
+        "p",
+        "[1 -1 -2 0 0 0 0]",
+        &format!("nonuniform List<scalar>\n{bump}"),
+        "Scalar",
+        zero_gradient,
+        zero_gradient,
+    );
+    field(
+        "T",
+        "[0 0 0 1 0 0 0]",
+        "uniform 300",
+        "Scalar",
+        "type fixedValue; value uniform 300;",
+        zero_gradient,
+    );
+    field(
+        "U",
+        "[0 1 -1 0 0 0 0]",
+        "uniform (0 0 0)",
+        "Vector",
+        "type fixedValue; value uniform (0 0 0);",
+        "type fixedValue; value uniform (30 0 0);",
+    );
+    write(
+        &dir.join("system/controlDict"),
+        &format!(
+            "{HEADER}application rhoCentralFoam; startFrom startTime; startTime 0; \
+             endTime 0.0004; deltaT 0.00001; writeControl timeStep; writeInterval 40; \
+             writePrecision 17;"
+        ),
+    );
+    write(
+        &dir.join("system/fvSchemes"),
+        &format!(
+            "{HEADER}fluxScheme Kurganov; ddtSchemes {{ default Euler; }} \
+             gradSchemes {{ default Gauss linear; }} \
+             divSchemes {{ default none; div(tauMC) Gauss linear; }} \
+             laplacianSchemes {{ default Gauss linear corrected; }} \
+             interpolationSchemes {{ default linear; {VAN_LEER} }} \
+             snGradSchemes {{ default corrected; }}"
+        ),
+    );
+    write(
+        &dir.join("system/fvSolution"),
+        &format!(
+            "{HEADER}solvers {{ \"(rho|rhoU|rhoE)\" {{ solver diagonal; }} \
+             \"(U|e)\" {{ solver PCG; preconditioner DIC; tolerance 1e-15; relTol 0; \
+             maxIter 1000; }} }}"
+        ),
+    );
+    write(
+        &dir.join("constant/thermophysicalProperties"),
+        &format!(
+            "{HEADER}thermoType {{ type hePsiThermo; mixture pureMixture; transport const; \
+             thermo hConst; equationOfState perfectGas; specie specie; \
+             energy sensibleInternalEnergy; }} \
+             mixture {{ specie {{ nMoles 1; molWeight 28.96; }} \
+             thermodynamics {{ Cp 1004.5; Hf 0; }} transport {{ mu 0.5; Pr 0.7; }} }}"
+        ),
+    );
+}
+
+#[test]
+fn a_viscous_gas_on_a_skewed_mesh_matches_openfoam() {
+    let dir = tempfile::tempdir().unwrap();
+    skewed_cell(dir.path());
+    if let Ok(keep) = std::env::var("VORTIA_KEEP_CASE") {
+        skewed_cell(Path::new(&keep));
+    }
+    let case = Case::open(dir.path()).unwrap();
+    let mut log = String::new();
+    rho_central::run(&case, |line| log.push_str(line)).unwrap();
+    assert!(log.contains("Solving for Ux"), "{log}");
+    assert!(log.contains("Solving for Uy"), "{log}");
+    assert!(log.contains("Solving for e,"), "{log}");
+    let close = |got: f64, want: f64, what: &str| {
+        assert!(
+            (got - want).abs() <= 1e-10 * want.abs().max(1e-3),
+            "{what}: {got} vs {want}"
+        );
+    };
+    for (time, name, expected) in SKEWED_REFERENCE {
+        let v = ScalarField::read(dir.path().join(time).join(name))
+            .unwrap()
+            .internal
+            .expand(SIDE * SIDE)
+            .unwrap();
+        for (i, want) in expected.iter() {
+            close(v[*i], *want, &format!("{name}, cell {i}"));
+        }
+    }
+    let u = VectorField::read(dir.path().join("0.0004/U"))
+        .unwrap()
+        .internal
+        .expand(SIDE * SIDE)
+        .unwrap();
+    for (i, x, y) in SKEWED_VELOCITY {
+        close(u[*i].x, *x, &format!("Ux, cell {i}"));
+        close(u[*i].y, *y, &format!("Uy, cell {i}"));
+    }
+}
+
+#[test]
+fn a_viscous_gas_needs_the_schemes_of_its_stress() {
+    let run = |from: &str, to: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        skewed_cell(dir.path());
+        let schemes = dir.path().join("system/fvSchemes");
+        let text = std::fs::read_to_string(&schemes).unwrap();
+        assert!(text.contains(from), "{text}");
+        write(&schemes, &text.replace(from, to));
+        let case = Case::open(dir.path()).unwrap();
+        rho_central::run(&case, |_| {})
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    };
+    assert!(
+        run("div(tauMC) Gauss linear;", "")
+            .unwrap_err()
+            .contains("div(tauMC)")
+    );
+    assert!(
+        run("div(tauMC) Gauss linear;", "div(tauMC) Gauss upwind;")
+            .unwrap_err()
+            .contains("div(tauMC)")
+    );
+    // A gradient scheme the engine does not have is refused, not replaced.
+    assert!(run("default Gauss linear;", "default Gauss pointLinear;").is_err());
 }
