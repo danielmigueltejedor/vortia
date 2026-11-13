@@ -47,7 +47,7 @@ All under [`rust/`](../../rust), one workspace:
 | `vortia-fv` | Finite-volume operators, LDU matrices, linear solvers | Diffusion, Euler time derivative, Gauss gradient, PCG/DIC |
 | `vortia-solvers` | Laplacian, PISO/SIMPLE incompressible, k-ω SST, compressible | Diffusion (`laplacianFoam`), transport (`scalarTransportFoam`), PISO (`icoFoam`), SIMPLE with k-ε and k-ω SST (`simpleFoam`), laminar compressible SIMPLE/SIMPLEC (`rhoSimpleFoam`) |
 | `vortia-cli` | `vortia` command: one subcommand per stage | `blockmesh`, `check-mesh`, `fields`, `solve` |
-| app | Interface over the crates | Planned (toolkit below) |
+| `vortia-app` | Desktop app: egui in the Nodalia Design Language | First window: welcome, recent cases, a run of the engine on a thread with its log and convergence report, Preferences / shortcuts / About; Linux draws its own window controls. Next: the case's settings, the 3D viewer, the D-Bus global menu |
 
 ## Stages
 
@@ -77,3 +77,8 @@ egui, styled with `nodalia-theme` from Nodalia Design (decided 2026-11-11).
 The 3D viewer renders with wgpu inside the egui window. On Linux the menus
 must also be exported over D-Bus to the shell's global menu; egui does not do
 that by itself, so the app carries a small exporter of its own.
+
+`vortia-app` opens a case folder (`vortia-app CASE [--run]`), runs the solver the
+`controlDict` names in-process on its own thread, and shows the solver's log and
+the convergence report as they arrive. The engine has no cancel yet, so a run
+cannot be stopped from the window; that comes with a stop flag in the solvers.

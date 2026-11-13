@@ -32,6 +32,8 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
   (`icoFoam`), steady flow with SIMPLE (`simpleFoam`, laminar, k-ε or
   k-ω SST) and steady laminar flow of a perfect gas (`rhoSimpleFoam`).
 - `vortia-cli`: the `vortia` command.
+- `vortia-app`: the desktop app, drawn with egui in the Nodalia Design Language
+  (`cargo run -p vortia-app -- CASE --run`).
 
 The meshing commands read and write a case's `constant/polyMesh`:
 `vortia blockmesh` (the engine's `blockMesh`), `vortia gmshtofoam` (Gmsh

@@ -1,0 +1,23 @@
+[package]
+name = "vortia-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Desktop front end of the Vortia engine, drawn with egui in the Nodalia Design Language"
+
+[lib]
+name = "vortia_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vortia-app"
+path = "src/main.rs"
+
+[dependencies]
+vortia-solvers = { path = "../vortia-solvers" }
+serde_json = "1"
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+nodalia-theme = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "85f07a3dd677e55a545e45ddcf37c3d834d25a93", features = ["egui"] }
+
+[dev-dependencies]
+tempfile = "3"
