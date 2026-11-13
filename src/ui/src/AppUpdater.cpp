@@ -29,7 +29,7 @@ namespace {
 // SHA-256 / macOS publisher helpers live in AppUpdaterInternal.hpp (header-only).
 
 constexpr auto kReleasesApi =
-    "https://api.github.com/repos/danielmigueltejedor/vortia/releases/latest";
+    "https://api.github.com/repos/getnodalia/vortia/releases?per_page=20";
 constexpr auto kUserAgent = "Vortia-AppUpdater";
 
 QString stripVersionPrefix(QString v) {
@@ -81,12 +81,15 @@ QString macOSBundlePath() {
 #ifdef Q_OS_MACOS
 bool readCodeIdentity(const QString& bundle, detail::MacOSCodeIdentity* identity, QString* error) {
     QProcess verify;
-    verify.start(QStringLiteral("/usr/bin/codesign"),
-                 {QStringLiteral("--verify"), QStringLiteral("--deep"), QStringLiteral("--strict"), bundle});
+    verify.start(QStringLiteral("/usr/bin/codesign"), detail::codesignVerifyArguments() << bundle);
     if (!verify.waitForStarted() || !verify.waitForFinished(30'000) || verify.exitStatus() != QProcess::NormalExit
         || verify.exitCode() != 0) {
+        // codesign names the file and the reason; keep its last line so the message points at it.
+        const QStringList lines =
+            QString::fromLocal8Bit(verify.readAllStandardError()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
         if (error)
-            *error = QObject::tr("The downloaded macOS app has an invalid code signature.");
+            *error = QObject::tr("The macOS app at %1 has an invalid code signature (%2).")
+                         .arg(bundle, lines.isEmpty() ? QString() : lines.last().trimmed());
         return false;
     }
 
@@ -228,8 +231,19 @@ void AppUpdater::handleReleaseReply(QNetworkReply* reply, bool userInitiated) {
         emit checkFailed(tr("Could not reach GitHub Releases: %1").arg(reply->errorString()), userInitiated);
         return;
     }
+    const QJsonDocument list = QJsonDocument::fromJson(reply->readAll());
+    if (!list.isArray()) {
+        emit checkFailed(tr("Unexpected response from GitHub Releases."), userInitiated);
+        return;
+    }
+    const QJsonObject chosen = detail::chooseUpdateRelease(list.array(), detail::currentUpdatePlatform());
+    if (chosen.isEmpty()) {
+        // Nothing published yet is nothing newer.
+        emit upToDate(currentVersion(), userInitiated);
+        return;
+    }
     QString error;
-    const AppUpdateInfo info = parseRelease(reply->readAll(), &error);
+    const AppUpdateInfo info = parseRelease(QJsonDocument(chosen).toJson(QJsonDocument::Compact), &error);
     if (!error.isEmpty()) {
         emit checkFailed(error, userInitiated);
         return;
@@ -271,35 +285,16 @@ AppUpdateInfo AppUpdater::parseRelease(const QByteArray& json, QString* error) c
 }
 
 QUrl AppUpdater::selectAssetUrl(const QJsonArray& assets, QString* name, QString* sha256, qint64* bytes) const {
-    QStringList preferred;
-#if defined(Q_OS_MACOS)
-    #if defined(Q_PROCESSOR_ARM) || defined(__aarch64__)
-    preferred << QStringLiteral("macos-arm64.dmg") << QStringLiteral("macos-universal.dmg")
-              << QStringLiteral("macos.dmg");
-    #else
-    preferred << QStringLiteral("macos-x86_64.dmg") << QStringLiteral("macos-intel.dmg")
-              << QStringLiteral("macos-universal.dmg") << QStringLiteral("macos.dmg");
-    #endif
-#elif defined(Q_OS_LINUX)
-    preferred << QStringLiteral("linux-x86_64.AppImage") << QStringLiteral("linux-amd64.AppImage")
-              << QStringLiteral("x86_64.AppImage") << QStringLiteral(".AppImage");
-#endif
-    for (const QString& needle : preferred) {
-        for (const QJsonValue& value : assets) {
-            const QJsonObject asset = value.toObject();
-            const QString assetName = asset.value(QStringLiteral("name")).toString();
-            if (!assetName.contains(needle, Qt::CaseInsensitive))
-                continue;
-            if (name)
-                *name = assetName;
-            if (sha256)
-                *sha256 = detail::githubAssetSha256(asset);
-            if (bytes)
-                *bytes = static_cast<qint64>(asset.value(QStringLiteral("size")).toDouble());
-            return QUrl(asset.value(QStringLiteral("browser_download_url")).toString());
-        }
-    }
-    return {};
+    const QJsonObject asset = detail::selectUpdateAsset(assets, detail::currentUpdatePlatform());
+    if (asset.isEmpty())
+        return {};
+    if (name)
+        *name = asset.value(QStringLiteral("name")).toString();
+    if (sha256)
+        *sha256 = detail::githubAssetSha256(asset);
+    if (bytes)
+        *bytes = static_cast<qint64>(asset.value(QStringLiteral("size")).toDouble());
+    return QUrl(asset.value(QStringLiteral("browser_download_url")).toString());
 }
 
 void AppUpdater::downloadAndApply(const AppUpdateInfo& info) {

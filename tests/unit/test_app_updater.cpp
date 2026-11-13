@@ -88,3 +88,59 @@ TEST(AppUpdater, AllowsMatchingDeveloperIdTeams) {
     vortia::detail::MacOSCodeIdentity downloaded = installed;
     EXPECT_TRUE(vortia::detail::sameMacOSUpdatePublisher(installed, downloaded, nullptr));
 }
+
+namespace {
+
+QJsonObject asset(const char* name) {
+    return {{QStringLiteral("name"), QString::fromLatin1(name)},
+            {QStringLiteral("browser_download_url"), QStringLiteral("https://e/") + QString::fromLatin1(name)}};
+}
+
+QJsonObject release(const char* tag, QJsonArray assets, bool draft = false, bool prerelease = false) {
+    return {{QStringLiteral("tag_name"), QString::fromLatin1(tag)},
+            {QStringLiteral("draft"), draft},
+            {QStringLiteral("prerelease"), prerelease},
+            {QStringLiteral("assets"), assets}};
+}
+
+} // namespace
+
+// 0.7.0 ships Vortia Native beside the Qt app; the Qt app must take its own disk image
+// whatever order GitHub lists the assets in.
+TEST(AppUpdater, TakesItsOwnDiskImageNotVortiaNative) {
+    using vortia::detail::UpdatePlatform;
+    const QJsonArray assets{asset("Vortia-0.7.0-native-macos-arm64.dmg"), asset("Vortia-0.7.0-macos-arm64.dmg"),
+                            asset("Vortia-0.7.0-linux-x86_64.AppImage.zsync"),
+                            asset("Vortia-0.7.0-linux-x86_64.AppImage")};
+    EXPECT_EQ(vortia::detail::selectUpdateAsset(assets, UpdatePlatform::MacOSArm64).value("name").toString(),
+              QStringLiteral("Vortia-0.7.0-macos-arm64.dmg"));
+    EXPECT_EQ(vortia::detail::selectUpdateAsset(assets, UpdatePlatform::LinuxX86_64).value("name").toString(),
+              QStringLiteral("Vortia-0.7.0-linux-x86_64.AppImage"));
+    EXPECT_TRUE(vortia::detail::selectUpdateAsset(assets, UpdatePlatform::MacOSIntel).isEmpty())
+        << "an Intel Mac is never offered the arm64 image";
+    const QJsonArray onlyNative{asset("Vortia-0.7.0-native-macos-arm64.dmg")};
+    EXPECT_TRUE(vortia::detail::selectUpdateAsset(onlyNative, UpdatePlatform::MacOSArm64).isEmpty());
+}
+
+TEST(AppUpdater, OffersTheNewestReleaseWithAPackageForThisSystem) {
+    using vortia::detail::UpdatePlatform;
+    const QJsonArray releases{
+        release("v0.9.0", {asset("Vortia-0.9.0-macos-arm64.dmg")}, true),
+        release("v0.8.1", {asset("Vortia-0.8.1-macos-arm64.dmg")}),
+        release("v0.8.0-rc.1", {asset("Vortia-0.8.0-rc.1-linux-x86_64.AppImage")}, false, true),
+        release("v0.8.0", {asset("Vortia-0.8.0-linux-x86_64.AppImage"), asset("Vortia-0.8.0-macos-arm64.dmg")}),
+    };
+    EXPECT_EQ(vortia::detail::chooseUpdateRelease(releases, UpdatePlatform::MacOSArm64).value("tag_name").toString(),
+              QStringLiteral("v0.8.1"));
+    EXPECT_EQ(vortia::detail::chooseUpdateRelease(releases, UpdatePlatform::LinuxX86_64).value("tag_name").toString(),
+              QStringLiteral("v0.8.0"))
+        << "a macOS-only release is not offered on Linux";
+    EXPECT_TRUE(vortia::detail::chooseUpdateRelease(QJsonArray{}, UpdatePlatform::LinuxX86_64).isEmpty());
+}
+
+TEST(AppUpdater, SealCheckIsNotStrict) {
+    const QStringList args = vortia::detail::codesignVerifyArguments();
+    EXPECT_FALSE(args.contains(QStringLiteral("--strict")))
+        << "--strict refuses the Finder metadata every file on a disk image carries";
+    EXPECT_TRUE(args.contains(QStringLiteral("--verify")) && args.contains(QStringLiteral("--deep")));
+}
