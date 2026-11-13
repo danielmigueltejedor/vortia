@@ -4,6 +4,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+### Cambiado
+- **Motor propio por defecto:** los casos de tobera se calculan con el motor
+  propio de Vortia, sin OpenFOAM, a menos que se desmarque en Preferencias ›
+  Cálculo. Corre en un proceso: si se piden varios (el valor automático lo
+  hace), ya no falla, se ejecuta en uno. Quien ya había elegido una opción
+  la conserva.
+
+### Añadido
+- **App en Rust:** edita el caso desde sus pestañas Conditions, Numerics,
+  Schemes y Settings (condiciones de contorno, números del solver, esquemas
+  y ajustes de ejecución).
+
 ## [0.9.3] — 2026-11-13
 
 ### Corregido

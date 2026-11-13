@@ -162,7 +162,7 @@ std::string nativeEnginePath() {
     if (const auto fromEnvironment = qEnvironmentVariable("VORTIA_NATIVE_ENGINE"); !fromEnvironment.isEmpty())
         return fromEnvironment.toStdString();
     const QSettings settings(QStringLiteral("Vortia"), QStringLiteral("Vortia"));
-    return settings.value(QStringLiteral("calculation/rustEngine"), false).toBool() ? bundledNativeEngine()
+    return settings.value(QStringLiteral("calculation/rustEngine"), true).toBool() ? bundledNativeEngine()
                                                                                     : std::string{};
 }
 

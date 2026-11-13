@@ -48,7 +48,7 @@ ApplicationPreferences ApplicationPreferences::load(QSettings& s) {
     p.showToolLabels=s.value("ui/showToolLabels",true).toBool();
     p.automaticMeshPreview=s.value("mesh/automaticPreview",true).toBool();
     p.checkForUpdatesAutomatically=s.value("updates/automaticCheck",true).toBool();
-    p.rustEngine=s.value("calculation/rustEngine",false).toBool();
+    p.rustEngine=s.value("calculation/rustEngine",true).toBool();
     p.defaultProcesses=integer(s,"calculation/processes",0,0,8);
     p.checkpointInterval=integer(s,"calculation/checkpointInterval",500,1,200000);
     p.iterationLimit=integer(s,"calculation/iterationLimit",50000,1,200000);
@@ -140,10 +140,10 @@ std::optional<ApplicationPreferences> editApplicationPreferences(QWidget* parent
     auto* assessment=check(calculation,"assessment","Open numerical assessment when a run starts",previous.showAssessmentOnRun);
     auto* console=check(calculation,"console","Show detailed console when a run starts",previous.showConsoleOnRun);
     auto* lines=spin(calculation,"console-lines","Console history (lines)",previous.consoleLines,1000,100000);lines->setSingleStep(1000);
-    auto* rust=check(calculation,"rust-engine","Run nozzle calculations on Vortia's own engine (experimental)",previous.rustEngine);
+    auto* rust=check(calculation,"rust-engine","Run nozzle calculations on Vortia's own engine",previous.rustEngine);
     rust->setEnabled(!running);
     info(calculation,bundledNativeEngine().empty()?"Vortia's own engine is not part of this installation, so OpenFOAM keeps running the calculations."
-        :"Vortia's own engine meshes, initialises and solves the nozzle cases without OpenFOAM, on one process. Existing results are kept.");
+        :"Vortia's own engine meshes, initialises and solves the nozzle cases without OpenFOAM, on one process whatever the default number of processes says. Turn it off to run them with OpenFOAM. Existing results are kept.");
     auto* storage=page("Storage and OpenFOAM","open","Engine and storage");
     auto folder=[&](const char* key,const char* label,const QString& value){auto* row=new QWidget(&dialog);auto* h=new QHBoxLayout(row);h->setContentsMargins(0,0,0,0);auto* text=new QLineEdit(value,row);text->setObjectName(QString("preference-%1").arg(key));text->setPlaceholderText(tr("Automatic (recommended)"));auto* browse=new QPushButton(tr("Choose…"),row);h->addWidget(text,1);h->addWidget(browse);storage->addRow(tr(label),row);QObject::connect(browse,&QPushButton::clicked,&dialog,[&dialog,text](){const auto path=QFileDialog::getExistingDirectory(&dialog,tr("Choose folder"),text->text());if(!path.isEmpty())text->setText(path);});return text;};
     auto* cases=folder("storage","New calculation storage",previous.caseStorage);

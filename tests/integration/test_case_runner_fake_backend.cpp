@@ -259,10 +259,11 @@ TEST_F(FakeBackendTest, NozzleCasesRunOnTheRustEngineWhenTheEnvironmentNamesIt) 
     std::ostringstream all;
     all << calls.rdbuf();
     EXPECT_EQ(all.str(), "blockmesh\ncheck-mesh\nsetfields\nsolve\n");
-    // One process only, and a saved solution is never initialised again.
+    // More processes than one are asked for (the default is automatic): the engine runs on one,
+    // and a saved solution is never initialised again.
     auto parallel = runner.runSolver(caseDir, minimalSetup(), none, {}, nullptr, "vortiaCentralFoam", 2);
-    ASSERT_FALSE(parallel.hasValue());
-    EXPECT_EQ(parallel.error().code, ErrorCode::InvalidArgument);
+    ASSERT_TRUE(parallel.hasValue());
+    EXPECT_EQ(parallel->name, "vortiaCentralFoam");
     std::filesystem::create_directory(caseDir / "1e-06");
     auto resumed = runner.runMeshing(caseDir, none, {}, nullptr);
     ASSERT_TRUE(resumed.hasValue());

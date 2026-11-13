@@ -250,9 +250,8 @@ Expected<StepOutcome> CaseRunner::runSolver(const std::filesystem::path& caseDir
             return Error::make(ErrorCode::InvalidData,
                 "prepare a fresh v3 no-swirl nozzle case; earlier or unmarked cases cannot use this backend");
         if (const auto engine = nativeEngine(environment_); engine && !generalFlow) {
-            if (processes > 1)
-                return Error::make(ErrorCode::InvalidArgument,
-                    "the Rust engine runs on one process; select one process");
+            // The Rust engine runs on one process; asking for more is not an error, as the
+            // default number of processes is automatic.
             return withNativeEngine(*engine).execute("vortiaCentralFoam", engine->filename().string(), {"solve"},
                                                      caseDir, callbacks, token);
         }
