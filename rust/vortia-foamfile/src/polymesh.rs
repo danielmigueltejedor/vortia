@@ -11,7 +11,7 @@ use std::fmt::Write as _;
 
 use crate::dict::{Dictionary, Entry, Value};
 use crate::error::{FoamError, Result};
-use crate::file::FoamFile;
+use crate::file::{FoamFile, Header};
 use crate::lists::{self, FaceList};
 use crate::token::Tokenizer;
 use crate::write;
@@ -72,7 +72,7 @@ impl RawPolyMesh {
         let dir = dir.as_ref();
         Ok(Self {
             points: read_with(&dir.join("points"), lists::read_vectors)?,
-            faces: read_with(&dir.join("faces"), lists::read_faces)?,
+            faces: read_faces_file(&dir.join("faces"))?,
             owner: read_with(&dir.join("owner"), lists::read_labels)?,
             neighbour: read_with(&dir.join("neighbour"), lists::read_labels)?,
             patches: read_with(&dir.join("boundary"), read_boundary)?,
@@ -231,13 +231,33 @@ fn labels(items: &[usize]) -> String {
     out
 }
 
+/// The `faces` file, a `faceList` or (always in binary) a `faceCompactList`.
+fn read_faces_file(path: &Path) -> Result<FaceList> {
+    read_with_header(path, |header, tok| {
+        if header.is_some_and(|h| h.class == "faceCompactList") {
+            lists::read_compact_faces(tok)
+        } else {
+            lists::read_faces(tok)
+        }
+    })
+}
+
 fn read_with<T>(path: &Path, read: impl FnOnce(&mut Tokenizer<'_>) -> Result<T>) -> Result<T> {
+    read_with_header(path, |header, tok| {
+        if header.is_some_and(|h| h.class == "faceCompactList") {
+            return Err(FoamError::Unsupported("a compact face list here".into()));
+        }
+        read(tok)
+    })
+}
+
+fn read_with_header<T>(
+    path: &Path,
+    read: impl FnOnce(Option<&Header>, &mut Tokenizer<'_>) -> Result<T>,
+) -> Result<T> {
     let file = FoamFile::open(path)?;
-    let (header, mut tok) = file.ascii_tokens().map_err(|e| e.in_file(&file.path))?;
-    if header.is_some_and(|h| h.class == "faceCompactList") {
-        return Err(FoamError::Unsupported("compact face lists".into()).in_file(&file.path));
-    }
-    let value = read(&mut tok).map_err(|e| e.in_file(&file.path))?;
+    let (header, mut tok) = file.tokens().map_err(|e| e.in_file(&file.path))?;
+    let value = read(header.as_ref(), &mut tok).map_err(|e| e.in_file(&file.path))?;
     if let Some(t) = tok.next().map_err(|e| e.in_file(&file.path))? {
         return Err(FoamError::parse(
             t.line,

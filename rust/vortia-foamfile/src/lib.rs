@@ -5,10 +5,10 @@
 //! between the two and results can be compared file for file while the engine
 //! is being built.
 //!
-//! What is read today: the ASCII format, optionally gzip-compressed;
-//! dictionaries with nested lists, dimension sets and directives (kept, not
-//! evaluated); and the `polyMesh` files. Binary files are refused with an
-//! error that says so.
+//! What is read today: the ASCII and binary formats (any `arch`), optionally
+//! gzip-compressed; dictionaries with nested lists, dimension sets and
+//! directives (kept, not evaluated); and the `polyMesh` files, with faces as
+//! a `faceList` or a `faceCompactList`.
 //!
 //! Every input is treated as hostile: no panics, nesting is bounded, and a
 //! declared list length never decides how much memory is reserved.
@@ -24,6 +24,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod binary;
 pub mod dict;
 pub mod error;
 pub mod file;
@@ -33,6 +34,7 @@ pub mod polymesh;
 pub mod token;
 pub mod write;
 
+pub use binary::Arch;
 pub use dict::{Dictionary, Entry, Value};
 pub use error::{FoamError, Result};
 pub use file::{FoamFile, Format, Header};

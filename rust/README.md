@@ -12,7 +12,8 @@ in [`docs/architecture/rust-engine.md`](../docs/architecture/rust-engine.md).
   application, atomic write) and process runner (no shell, timeout). Its tests
   are the cases of `tests/unit/test_{units,version,project}.cpp`.
 - `vortia-foamfile`: reader for the case format: dictionaries, lists,
-  dimension sets, the `polyMesh` files; ASCII, optionally gzip-compressed.
+  dimension sets, the `polyMesh` files (faces as `faceList` or
+  `faceCompactList`); ASCII or binary, optionally gzip-compressed.
 - `vortia-mesh`: the engine's polyhedral mesh: validation, face and cell
   geometry, the quality report `checkMesh` gives, and structured boxes it
   can write as `polyMesh` files.

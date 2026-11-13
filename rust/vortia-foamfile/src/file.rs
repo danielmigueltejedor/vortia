@@ -3,6 +3,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use crate::binary::Arch;
 use crate::dict::Dictionary;
 use crate::error::{FoamError, Result};
 use crate::token::{TokenKind, Tokenizer};
@@ -97,23 +98,20 @@ impl FoamFile {
         tok.next()?;
         tok.expect_punct(b'{')?;
         let d = Dictionary::parse(&mut tok, true, 1)?;
-        Ok((Some(Header::from_dict(&d)?), tok))
-    }
-
-    /// The header, refusing binary files, which are not read yet.
-    pub fn ascii_tokens(&self) -> Result<(Option<Header>, Tokenizer<'_>)> {
-        let (header, tok) = self.tokens()?;
-        if header.as_ref().is_some_and(|h| h.format == Format::Binary) {
-            return Err(FoamError::Unsupported(
-                "binary case files; write the case with 'writeFormat ascii'".into(),
-            ));
+        let header = Header::from_dict(&d)?;
+        if header.format == Format::Binary {
+            let arch = match &header.arch {
+                Some(text) => Arch::parse(text)?,
+                None => Arch::default(),
+            };
+            tok.set_binary(arch);
         }
-        Ok((header, tok))
+        Ok((Some(header), tok))
     }
 
     /// Reads the whole file as a dictionary (controlDict, fvSchemes, fields).
     pub fn dictionary(&self) -> Result<(Option<Header>, Dictionary)> {
-        let (header, mut tok) = self.ascii_tokens().map_err(|e| e.in_file(&self.path))?;
+        let (header, mut tok) = self.tokens().map_err(|e| e.in_file(&self.path))?;
         let d = Dictionary::parse(&mut tok, false, 0).map_err(|e| e.in_file(&self.path))?;
         Ok((header, d))
     }

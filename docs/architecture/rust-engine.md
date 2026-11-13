@@ -41,7 +41,7 @@ All under [`rust/`](../../rust), one workspace:
 | Crate | Role | State |
 |---|---|---|
 | `vortia-core` | Units, vectors, project manifest, processes | Ported from `src/core` |
-| `vortia-foamfile` | Case format: dictionaries, lists, `polyMesh`; ASCII and `.gz` | Done (binary: next) |
+| `vortia-foamfile` | Case format: dictionaries, lists, `polyMesh`; ASCII and binary (any `arch`), and `.gz` | Done: binary meshes and fields read to the same bits as OpenFOAM v2606's full-precision ASCII |
 | `vortia-mesh` | Polyhedral mesh, geometry, quality report, structured boxes, `blockMesh` (hex blocks, grading, curved edges, merge, collapsed hex to prism) | Done |
 | `vortia-fields` | Volume and surface fields, boundary conditions, time directories | Read and write done; evaluating conditions comes with E3 |
 | `vortia-fv` | Finite-volume operators, LDU matrices, linear solvers | Diffusion, Euler time derivative, Gauss gradient, PCG/DIC |

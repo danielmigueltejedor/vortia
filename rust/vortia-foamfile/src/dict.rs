@@ -5,6 +5,7 @@
 //! nest: `(...)` is a list, `[...]` a dimension set, `N(...)` a list that
 //! declares its length, `N{v}` a list of N copies of one value.
 
+use crate::binary::Item;
 use crate::error::{FoamError, Result};
 use crate::token::{Token, TokenKind, Tokenizer};
 
@@ -222,12 +223,57 @@ impl Dictionary {
                     if t.is_punct(b';') {
                         break;
                     }
+                    if let Some(list) = binary_list(&values, &t, tok)? {
+                        values.push(list);
+                        continue;
+                    }
                     values.push(parse_value(t, tok, depth + 1)?);
                 }
                 dict.insert(key, Entry::Values(values));
             }
         }
     }
+}
+
+/// In a binary file, the list after `List<T>` (`T` a label, scalar, vector or
+/// tensor) is raw bytes: `N(` bytes `)`, or a bare `0` when it is empty.
+/// `None` when `t` does not start such a list.
+fn binary_list(before: &[Value], t: &Token, tok: &mut Tokenizer<'_>) -> Result<Option<Value>> {
+    let (Some(arch), Some(Value::Word(ty)), TokenKind::Label(n)) =
+        (tok.binary(), before.last(), &t.kind)
+    else {
+        return Ok(None);
+    };
+    let Some(item) = Item::of_list(ty) else {
+        return Ok(None);
+    };
+    let n = usize::try_from(*n)
+        .map_err(|_| FoamError::parse(t.line, format!("a list of {n} items")))?;
+    if !tok.peek()?.is_some_and(|p| p.is_punct(b'(')) {
+        return if n == 0 {
+            Ok(Some(Value::List(Vec::new())))
+        } else {
+            Err(FoamError::parse(
+                t.line,
+                format!("a binary {ty} of {n} items has no '('"),
+            ))
+        };
+    }
+    tok.expect_punct(b'(')?;
+    let bytes = n
+        .checked_mul(item.bytes(&arch))
+        .ok_or_else(|| FoamError::parse(t.line, format!("binary list of {n} items")))?;
+    let raw = tok.raw_list(bytes)?;
+    let items = match item {
+        Item::Label => arch.labels(raw).into_iter().map(Value::Label).collect(),
+        Item::Scalars(1) => arch.scalars(raw).into_iter().map(Value::Scalar).collect(),
+        Item::Scalars(k) => arch
+            .scalars(raw)
+            .chunks_exact(k)
+            .map(|c| Value::List(c.iter().copied().map(Value::Scalar).collect()))
+            .collect(),
+    };
+    Ok(Some(Value::List(items)))
 }
 
 /// Directives take the rest of their line's values up to `;` or one value.
