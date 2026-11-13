@@ -1,6 +1,6 @@
 //! The engine's central-upwind solver against OpenFOAM's `rhoCentralFoam` on
 //! the same case: an air shock tube of 40 cells, `Kurganov` flux, `vanLeer`
-//! and `vanLeerV` reconstruction, Euler in time.
+//! and `vanLeerV` reconstruction, in Euler time and with local time stepping.
 //!
 //! The reference numbers were produced by OpenFOAM v1912 on this exact case
 //! (`writePrecision 17`).
@@ -344,4 +344,225 @@ fn a_negative_temperature_is_an_error_and_not_a_panic() {
     );
     let case = Case::open(dir.path()).unwrap();
     assert!(rho_central::run(&case, |_| {}).is_err());
+}
+
+/// The same tube with `ddtSchemes localEuler`: 20 iterations of a time
+/// step of 1 s that each cell shrinks to its Courant number's `maxCo`,
+/// smoothed by `fvc::smooth`. OpenFOAM v1912's values.
+const LTS_REFERENCE: &[Reference] = &[
+    (
+        "10",
+        "T",
+        &[
+            (0, 348.4),
+            (12, 341.39436128996005),
+            (15, 291.4957087695604),
+            (17, 281.5362479845592),
+            (19, 265.0976413322489),
+            (20, 251.6610998109621),
+            (22, 260.130478939079),
+            (24, 304.47382444734257),
+            (27, 420.2781484506806),
+            (31, 278.69999999999993),
+            (39, 278.7),
+        ],
+    ),
+    (
+        "10",
+        "p",
+        &[
+            (0, 100000.0),
+            (12, 93177.80472705251),
+            (15, 54881.28303282501),
+            (17, 49255.54671158334),
+            (19, 39227.77674974472),
+            (20, 31826.480916323348),
+            (22, 31803.057697740667),
+            (24, 29540.06582797747),
+            (27, 39881.809118077836),
+            (31, 9999.999999999996),
+            (39, 10000.000000000002),
+        ],
+    ),
+    (
+        "10",
+        "rho",
+        &[
+            (0, 0.9997371646908592),
+            (12, 0.9506488209985045),
+            (15, 0.6557768383713368),
+            (17, 0.6093752465975578),
+            (19, 0.5154087826646584),
+            (20, 0.4404904671694607),
+            (22, 0.4258352609483304),
+            (24, 0.3379290129620208),
+            (27, 0.33052325699142593),
+            (31, 0.12497611344754046),
+            (39, 0.1249761134475405),
+        ],
+    ),
+    (
+        "10",
+        "rDeltaT",
+        &[
+            (0, 1496.9659509375754),
+            (12, 1542.201228464807),
+            (15, 1931.5227335920758),
+            (17, 2107.200195342241),
+            (19, 2220.5702377230355),
+            (20, 2261.0086911467242),
+            (22, 2617.0514500008653),
+            (24, 2622.973427227218),
+            (27, 2961.5469630052376),
+            (31, 2022.776424428138),
+            (39, 1338.8790112303418),
+        ],
+    ),
+    (
+        "20",
+        "T",
+        &[
+            (0, 348.4),
+            (12, 277.2022328766363),
+            (15, 281.99433591906035),
+            (17, 245.9390731757839),
+            (19, 258.3609419929934),
+            (20, 220.78967462524574),
+            (22, 258.34345362507105),
+            (24, 232.89528506583838),
+            (27, 280.1998490640986),
+            (31, 429.0318018677801),
+            (39, 278.7),
+        ],
+    ),
+    (
+        "20",
+        "p",
+        &[
+            (0, 100000.0),
+            (12, 46378.175775672156),
+            (15, 51168.9925836526),
+            (17, 31786.417016087576),
+            (19, 42521.890999022246),
+            (20, 22031.926368836655),
+            (22, 37622.80279985585),
+            (24, 26213.790973971863),
+            (27, 40420.84208333727),
+            (31, 50392.72931870152),
+            (39, 10000.000000000002),
+        ],
+    ),
+    (
+        "20",
+        "rho",
+        &[
+            (0, 0.9997371646908592),
+            (12, 0.5827481740881236),
+            (15, 0.6320194808237012),
+            (17, 0.4501715325396869),
+            (19, 0.5732574321330621),
+            (20, 0.34756632783188934),
+            (22, 0.5072448758813078),
+            (24, 0.39204247214182036),
+            (27, 0.5024599413138727),
+            (31, 0.409112151225109),
+            (39, 0.1249761134475405),
+        ],
+    ),
+    (
+        "20",
+        "rDeltaT",
+        &[
+            (0, 1496.9659509375754),
+            (12, 1992.0312309080903),
+            (15, 2105.2343940430464),
+            (17, 2436.5381714137047),
+            (19, 2436.5381714137047),
+            (20, 2262.268762321259),
+            (22, 2737.3452024087237),
+            (24, 2341.0643186885186),
+            (27, 2921.258962688342),
+            (31, 3716.3779634093726),
+            (39, 2114.8804729117974),
+        ],
+    ),
+];
+
+#[test]
+fn local_time_stepping_matches_openfoam() {
+    let dir = tempfile::tempdir().unwrap();
+    tube(dir.path(), SOD, 0.0, "", VAN_LEER);
+    write(
+        &dir.path().join("system/controlDict"),
+        &format!(
+            "{HEADER}application rhoCentralFoam; startFrom startTime; startTime 0;              endTime 20; deltaT 1; writeControl timeStep; writeInterval 10;              writePrecision 17; maxCo 0.5; maxDeltaT 1; rDeltaTSmoothingCoeff 0.1;"
+        ),
+    );
+    let schemes = dir.path().join("system/fvSchemes");
+    let text = std::fs::read_to_string(&schemes).unwrap();
+    write(
+        &schemes,
+        &text.replace("default Euler", "default localEuler"),
+    );
+    let case = Case::open(dir.path()).unwrap();
+    let mut log = String::new();
+    let steps = rho_central::run(&case, |line| log.push_str(line)).unwrap();
+    assert_eq!(steps.len(), 20);
+    assert!(log.contains("Flow time scale min/max = 0.00066801786598665"));
+    for (time, name, expected) in LTS_REFERENCE {
+        let v = scalar(dir.path(), time, name);
+        for (i, want) in expected.iter() {
+            let got = v[*i];
+            assert!(
+                (got - want).abs() <= 1e-10 * want.abs(),
+                "{name} at {time}, cell {i}: {got} vs {want}"
+            );
+        }
+    }
+}
+
+#[test]
+fn local_time_stepping_refuses_what_it_cannot_run() {
+    let local = |control: &str, ddt: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        tube(dir.path(), SOD, 0.0, "", VAN_LEER);
+        write(
+            &dir.path().join("system/controlDict"),
+            &format!(
+                "{HEADER}application rhoCentralFoam; startFrom startTime; startTime 0; \
+                 endTime 2; deltaT 1; writeControl timeStep; writeInterval 1; {control}"
+            ),
+        );
+        let schemes = dir.path().join("system/fvSchemes");
+        let text = std::fs::read_to_string(&schemes).unwrap();
+        write(&schemes, &text.replace("default Euler", ddt));
+        let case = Case::open(dir.path()).unwrap();
+        rho_central::run(&case, |_| {})
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    };
+    let ok = "maxCo 0.5; maxDeltaT 1; rDeltaTSmoothingCoeff 0.1;";
+    assert!(local(ok, "default localEuler").is_ok());
+    // A smoothing coefficient of 1 or more leaves the time scale unsmoothed.
+    assert!(local("maxCo 0.5; rDeltaTSmoothingCoeff 1;", "default localEuler").is_ok());
+    assert!(
+        local("", "default localEuler")
+            .unwrap_err()
+            .contains("maxCo")
+    );
+    assert!(
+        local("maxCo -1;", "default localEuler")
+            .unwrap_err()
+            .contains("maxCo")
+    );
+    assert!(
+        local("maxCo 0.5; maxDeltaT 0;", "default localEuler")
+            .unwrap_err()
+            .contains("maxDeltaT")
+    );
+    assert!(
+        local(ok, "default backward")
+            .unwrap_err()
+            .contains("not supported")
+    );
 }

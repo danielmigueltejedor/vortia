@@ -7,6 +7,7 @@
 //! - [`bc`]: scalar boundary conditions, evaluated.
 //! - [`ops`]: gradient, diffusion, convection and time-derivative operators.
 //! - [`reconstruct`]: directed face values of limited schemes (central-upwind fluxes).
+//! - [`smooth`]: `fvc::smooth`, the ratio limit on a cell field (local time stepping).
 //! - [`vector`]: vector conditions and equations (momentum).
 
 #![forbid(unsafe_code)]
@@ -30,6 +31,7 @@ pub mod limited;
 pub mod ops;
 pub mod reconstruct;
 pub mod scalar;
+pub mod smooth;
 pub mod solve;
 pub mod stress;
 pub mod vector;
