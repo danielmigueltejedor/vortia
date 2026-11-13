@@ -45,12 +45,15 @@ fn default_names(settings: &Dictionary, what: &str, names: &[(&str, &str)]) -> R
 
 /// The `totalPressure` patches of `p` and their `p0`.
 pub(crate) struct TotalPressure {
-    patches: Vec<(usize, Vec<f64>)>,
+    /// Patch index, `p0`, and `γ` for the form that takes the compressibility
+    /// `ψ`, high-speed flow's.
+    patches: Vec<(usize, Vec<f64>, Option<f64>)>,
 }
 
 impl TotalPressure {
-    /// Takes the patches of kind `totalPressure`. Only the form without
-    /// `psi` is known: `p = p0 − ½ ρ (1 − pos0(φ)) |U|²`.
+    /// Takes the patches of kind `totalPressure`: without `psi`,
+    /// `p = p0 − ½ ρ (1 − pos0(φ)) |U|²`; with `psi thermo:psi` and a `gamma`,
+    /// the high-speed form `p0 / (1 + ½ ψ (γ−1)/γ (1 − pos0(φ)) |U|²)^(γ/(γ−1))`.
     pub(crate) fn read(file: &ScalarField, mesh: &PolyMesh) -> Result<Self> {
         let mut patches = Vec::new();
         for (i, patch) in mesh.patches().iter().enumerate() {
@@ -64,8 +67,19 @@ impl TotalPressure {
             default_names(
                 &pf.settings,
                 &what,
-                &[("U", "U"), ("phi", "phi"), ("rho", "rho"), ("psi", "none")],
+                &[("U", "U"), ("phi", "phi"), ("rho", "rho")],
             )?;
+            let gamma = match pf.settings.word("psi") {
+                None | Some("none") => None,
+                Some("thermo:psi") => Some(pf.settings.scalar("gamma").ok_or_else(|| {
+                    SolverError::Setup(format!("{what} with psi needs a 'gamma'"))
+                })?),
+                Some(other) => {
+                    return Err(SolverError::Setup(format!(
+                        "{what} with psi '{other}' is not supported yet; use thermo:psi"
+                    )));
+                }
+            };
             let p0 = pf
                 .settings
                 .values("p0")
@@ -75,23 +89,30 @@ impl TotalPressure {
                 .ok_or_else(|| {
                     SolverError::Setup(format!("{what} needs 'p0' with {} items", patch.size))
                 })?;
-            patches.push((i, p0));
+            patches.push((i, p0, gamma));
         }
         Ok(Self { patches })
     }
 
-    /// `totalPressure::updateCoeffs`, from the density and velocity on the
-    /// boundary and the mass flux (`phi`, every face).
+    /// Whether a patch takes the compressibility `psi` and `gamma`, which the
+    /// solvers that carry no `psi` on the boundary cannot give it.
+    pub(crate) fn uses_psi(&self) -> bool {
+        self.patches.iter().any(|(_, _, gamma)| gamma.is_some())
+    }
+
+    /// `totalPressure::updateCoeffs`, from the density or the
+    /// compressibility `psi_b` and the velocity on the boundary and the mass
+    /// flux (`phi`, every face).
     pub(crate) fn update(
         &self,
         mesh: &PolyMesh,
         bc: &mut Boundary,
-        rho_b: &[Option<f64>],
+        (rho_b, psi_b): (&[Option<f64>], &[Option<f64>]),
         u_b: &[Option<Vec3>],
         phi: &[f64],
     ) {
         let n_internal = mesh.n_internal_faces();
-        for (index, p0) in &self.patches {
+        for (index, p0, gamma) in &self.patches {
             let (Some(patch), Some(ScalarBc::FixedValue(values))) =
                 (mesh.patches().get(*index), bc.conditions.get_mut(*index))
             else {
@@ -102,8 +123,17 @@ impl TotalPressure {
                 let rho = rho_b.get(k).copied().flatten().unwrap_or(0.0);
                 let u = u_b.get(k).copied().flatten().unwrap_or_default();
                 let flux = phi.get(f).copied().unwrap_or(0.0);
+                let psi = psi_b.get(k).copied().flatten().unwrap_or(0.0);
                 if let (Some(v), Some(&p0)) = (values.get_mut(i), p0.get(i)) {
-                    *v = p0 - 0.5 * rho * (1.0 - pos0(flux)) * u.dot(u);
+                    *v = match gamma {
+                        None => p0 - 0.5 * rho * (1.0 - pos0(flux)) * u.dot(u),
+                        Some(g) if *g > 1.0 => {
+                            let g_m1_by_g = (g - 1.0) / g;
+                            p0 / (1.0 + 0.5 * psi * g_m1_by_g * (1.0 - pos0(flux)) * u.dot(u))
+                                .powf(1.0 / g_m1_by_g)
+                        }
+                        Some(_) => p0 / (1.0 + 0.5 * psi * (1.0 - pos0(flux)) * u.dot(u)),
+                    };
                 }
             }
         }
@@ -112,7 +142,7 @@ impl TotalPressure {
     /// `p.relax()` of the boundary values these patches hold: the field is
     /// assigned `prev + α (p − prev)` everywhere, forced onto fixed values.
     pub(crate) fn relax(&self, bc: &mut Boundary, prev: &Boundary, alpha: f64) {
-        for (index, _) in &self.patches {
+        for (index, _, _) in &self.patches {
             if let (Some(ScalarBc::FixedValue(now)), Some(ScalarBc::FixedValue(before))) =
                 (bc.conditions.get_mut(*index), prev.conditions.get(*index))
             {
@@ -320,7 +350,7 @@ mod tests {
     fn total_pressure_loses_the_dynamic_pressure_only_where_the_flow_comes_in() {
         let (mesh, _) = cell();
         let total = TotalPressure {
-            patches: vec![(0, vec![1000.0]), (1, vec![1000.0])],
+            patches: vec![(0, vec![1000.0], None), (1, vec![1000.0], None)],
         };
         let mut bc = Boundary {
             conditions: vec![ScalarBc::FixedValue(vec![0.0]); 6],
@@ -328,21 +358,45 @@ mod tests {
         let rho_b = vec![Some(2.0); 6];
         let u_b = vec![Some(Vec3::new(3.0, 0.0, 4.0)); 6];
         // Flux into the domain: p0 − ½ ρ |U|² = 1000 − 25.
-        total.update(&mesh, &mut bc, &rho_b, &u_b, &flux(&mesh, -1.0));
+        total.update(&mesh, &mut bc, (&rho_b, &[]), &u_b, &flux(&mesh, -1.0));
         assert_eq!(bc.conditions[0], ScalarBc::FixedValue(vec![975.0]));
         // Flux out of it, and none: p0.
-        total.update(&mesh, &mut bc, &rho_b, &u_b, &flux(&mesh, 1.0));
+        total.update(&mesh, &mut bc, (&rho_b, &[]), &u_b, &flux(&mesh, 1.0));
         assert_eq!(bc.conditions[1], ScalarBc::FixedValue(vec![1000.0]));
-        total.update(&mesh, &mut bc, &rho_b, &u_b, &flux(&mesh, 0.0));
+        total.update(&mesh, &mut bc, (&rho_b, &[]), &u_b, &flux(&mesh, 0.0));
         assert_eq!(bc.conditions[0], ScalarBc::FixedValue(vec![1000.0]));
         // The patches it does not own stay as they were.
         assert_eq!(bc.conditions[2], ScalarBc::FixedValue(vec![0.0]));
     }
 
     #[test]
+    fn total_pressure_with_psi_follows_the_isentropic_relation() {
+        let (mesh, _) = cell();
+        let gamma = 1.4;
+        let total = TotalPressure {
+            patches: vec![(0, vec![1.0e5], Some(gamma))],
+        };
+        let mut bc = Boundary {
+            conditions: vec![ScalarBc::FixedValue(vec![0.0]); 6],
+        };
+        let psi_b = vec![Some(1.0e-5); 6];
+        let u_b = vec![Some(Vec3::new(60.0, 0.0, 80.0)); 6];
+        let (rho_b, k) = (vec![None; 6], (gamma - 1.0) / gamma);
+        total.update(&mesh, &mut bc, (&rho_b, &psi_b), &u_b, &flux(&mesh, -1.0));
+        let want = 1.0e5 / (1.0 + 0.5 * 1.0e-5 * k * 1.0e4).powf(1.0 / k);
+        let ScalarBc::FixedValue(got) = &bc.conditions[0] else {
+            panic!("not fixed");
+        };
+        assert!((got[0] - want).abs() < 1e-9 * want, "{} vs {want}", got[0]);
+        // Flow out of the domain: the total pressure itself.
+        total.update(&mesh, &mut bc, (&rho_b, &psi_b), &u_b, &flux(&mesh, 1.0));
+        assert_eq!(bc.conditions[0], ScalarBc::FixedValue(vec![1.0e5]));
+    }
+
+    #[test]
     fn total_pressure_relaxes_towards_what_it_held() {
         let total = TotalPressure {
-            patches: vec![(0, vec![0.0])],
+            patches: vec![(0, vec![0.0], None)],
         };
         let before = Boundary {
             conditions: vec![ScalarBc::FixedValue(vec![100.0]), ScalarBc::ZeroGradient],

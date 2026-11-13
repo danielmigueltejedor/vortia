@@ -1053,9 +1053,17 @@ const WEDGE_NOZZLE_SCHEMES: [(usize, f64, f64, f64, f64, f64); 4] = [
 ];
 
 /// Runs the wedge case twenty iterations and checks the four cells.
-fn check_wedge(nozzle_schemes: bool, reference: &[(usize, f64, f64, f64, f64, f64)], rel: f64) {
+fn check_wedge(
+    nozzle_schemes: bool,
+    driven: bool,
+    reference: &[(usize, f64, f64, f64, f64, f64)],
+    rel: f64,
+) {
     let dir = tempfile::tempdir().unwrap();
     wedge(dir.path(), nozzle_schemes, false);
+    if driven {
+        driven_conditions(dir.path());
+    }
     let case = Case::open(dir.path()).unwrap();
     let steps = rho_central::run(&case, |_| {}).unwrap();
     assert_eq!(steps.len(), 20);
@@ -1096,7 +1104,7 @@ fn check_wedge(nozzle_schemes: bool, reference: &[(usize, f64, f64, f64, f64, f6
 /// by 1e-8 once a pressure wave had reached a cell with a wedge face.
 #[test]
 fn a_viscous_gas_on_a_wedge_matches_openfoam() {
-    check_wedge(false, &WEDGE_REFERENCE, 1e-10);
+    check_wedge(false, false, &WEDGE_REFERENCE, 1e-10);
 }
 
 /// The same with what the nozzle case sets: `cellLimited Gauss linear 1` for
@@ -1104,7 +1112,96 @@ fn a_viscous_gas_on_a_wedge_matches_openfoam() {
 /// Laplacians and `snGrad(U)`.
 #[test]
 fn the_nozzle_cases_gradient_and_limited_schemes_match_openfoam() {
-    check_wedge(true, &WEDGE_NOZZLE_SCHEMES, 1e-9);
+    check_wedge(true, false, &WEDGE_NOZZLE_SCHEMES, 1e-9);
+}
+
+/// The nozzle case's own conditions, which follow the pressure: total
+/// pressure and temperature at the inlet, a free atmosphere at the outlet.
+fn driven_conditions(dir: &Path) {
+    let field = |name: &str, class: &str, dims: &str, internal: &str, patches: &str| {
+        write(
+            &dir.join("0").join(name),
+            &format!(
+                "FoamFile {{ version 2.0; format ascii; class {class}; object {name}; }}\n\
+                 dimensions {dims}; internalField uniform {internal};\n\
+                 boundaryField {{ axis {{ type empty; }} front {{ type wedge; }} \
+                 back {{ type wedge; }} {patches} }}\n"
+            ),
+        );
+    };
+    field(
+        "p",
+        "volScalarField",
+        "[1 -1 -2 0 0 0 0]",
+        "150000",
+        "inlet { type totalPressure; p0 uniform 150000; U U; phi phi; rho rho; \
+         psi thermo:psi; gamma 1.4; value uniform 150000; } walls { type zeroGradient; } \
+         atmosphere { type totalPressure; p0 uniform 101325; U U; phi phi; rho rho; \
+         psi thermo:psi; gamma 1.4; value uniform 101325; }",
+    );
+    field(
+        "U",
+        "volVectorField",
+        "[0 1 -1 0 0 0 0]",
+        "(0 0 0)",
+        "inlet { type pressureInletOutletVelocity; value uniform (0 0 0); } \
+         walls { type fixedValue; value uniform (0 0 0); } \
+         atmosphere { type pressureInletOutletVelocity; value uniform (0 0 0); }",
+    );
+    field(
+        "T",
+        "volScalarField",
+        "[0 0 0 1 0 0 0]",
+        "300",
+        "inlet { type totalTemperature; T0 uniform 320; U U; phi phi; psi thermo:psi; \
+         gamma 1.4; value uniform 320; } walls { type zeroGradient; } \
+         atmosphere { type inletOutletTotalTemperature; T0 uniform 300; U U; phi phi; \
+         psi thermo:psi; gamma 1.4; value uniform 300; }",
+    );
+}
+
+/// `(cell, T, p, rho, Ux, Uy)` after twenty iterations with those conditions.
+const WEDGE_DRIVEN: [(usize, f64, f64, f64, f64, f64); 4] = [
+    (
+        0,
+        313.48550875973984,
+        156748.23646625303,
+        1.7416030514228373,
+        -0.4989408985253334,
+        0.004060468383132111,
+    ),
+    (
+        74,
+        299.57310652240784,
+        149725.61632735777,
+        1.7408336377854285,
+        16.794706158717194,
+        -0.056607796744852765,
+    ),
+    (
+        3749,
+        292.66339138153785,
+        145631.22168852048,
+        1.73320556700189,
+        73.7140369465763,
+        -0.2754374997293082,
+    ),
+    (
+        7499,
+        271.0349326339501,
+        114741.86092119836,
+        1.4745537350231968,
+        63.006833442621556,
+        68.7367769924979,
+    ),
+];
+
+/// Total pressure and temperature (the form with `psi` and `gamma`), the
+/// velocity that follows the pressure and the temperature that follows the
+/// flow, on the nozzle's wedge, agree with OpenFOAM's.
+#[test]
+fn the_nozzles_pressure_driven_conditions_match_openfoam() {
+    check_wedge(true, true, &WEDGE_DRIVEN, 1e-9);
 }
 
 /// `(cell, T, p, rho, Ux, Uy, nuTilda, nut, alphat)` after twenty iterations

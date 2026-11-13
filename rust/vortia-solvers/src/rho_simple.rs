@@ -122,6 +122,13 @@ impl Pressure {
         check_dimensions("p", &file.dimensions, PRESSURE)?;
         let bc = Boundary::from_field_with(&file, mesh, PRESSURE_KINDS)?;
         let total = TotalPressure::read(&file, mesh)?;
+        if total.uses_psi() {
+            return Err(SolverError::Setup(
+                "p: totalPressure with psi is not supported yet in rhoSimpleFoam; \
+                 leave psi out"
+                    .into(),
+            ));
+        }
         if let Some(c) = bc.conditions.iter().find(|c| {
             !matches!(
                 c,
@@ -615,7 +622,7 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         let rho_r_atu_f = ops::interpolate_linear(&mesh, &fv, &rho_r_atu, &rho_r_atu_b);
         // The pressure matrix updates `totalPressure` from the flux of the
         // last iteration and the velocity just solved.
-        p.total.update(&mesh, &mut p.bc, &rho_b, &u_b, &phi);
+        p.total.update(&mesh, &mut p.bc, (&rho_b, &[]), &u_b, &phi);
         for non_orth in 0..=simple.n_non_orth {
             let mut m = LduMatrix::new(&mesh);
             ops::laplacian(
