@@ -163,3 +163,44 @@ fn a_preconditioner_given_as_a_dictionary_is_read() {
         .unwrap();
     assert_eq!((solver.as_str(), precon.as_str()), ("PCG", "DIC"));
 }
+
+/// `nBlocks` in a `smoothSolver` dictionary cuts the Gauss–Seidel sweeps into
+/// blocks that run on threads. The blocks give the single-block answer to the
+/// solver's tolerance, and a hostile count (zero, negative, absurd) is
+/// clamped, not a crash.
+#[test]
+fn a_smoother_in_blocks_reaches_the_single_block_answer() {
+    let run = |blocks: &str, max_iter: usize| -> Vec<f64> {
+        let dir = nozzle_case("Euler", "0.000002", "0.000001", 1);
+        write(
+            &dir.path().join("system/fvSolution"),
+            &format!(
+                "{HEADER}solvers {{ T {{ solver smoothSolver; smoother symGaussSeidel; \
+                 {blocks} tolerance 1e-10; relTol 0; maxIter {max_iter}; }} }} \
+                 SIMPLE {{ nNonOrthogonalCorrectors 1; }}"
+            ),
+        );
+        let case = Case::open(dir.path()).unwrap();
+        laplacian::run(&case, |_| {}).unwrap();
+        let t = ScalarField::read(dir.path().join("2e-06/T")).unwrap();
+        t.internal.expand(7500).unwrap()
+    };
+    let single = run("", 2000);
+    // The step moved the field, so agreeing with it means something.
+    let moved = single.iter().map(|v| (v - 300.0).abs()).fold(0.0, f64::max);
+    assert!(moved > 1.0, "the field barely moved: {moved}");
+    for blocks in ["nBlocks 1;", "nBlocks 4;"] {
+        let got = run(blocks, 2000);
+        let worst = single
+            .iter()
+            .zip(&got)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        assert!(worst < 1e-6, "{blocks}: differs by {worst}");
+    }
+    // Counts that make no sense are clamped (a few sweeps are enough to show
+    // the solve runs).
+    for blocks in ["nBlocks 0;", "nBlocks -3;", "nBlocks 100000;"] {
+        assert_eq!(run(blocks, 5).len(), 7500, "{blocks}");
+    }
+}
