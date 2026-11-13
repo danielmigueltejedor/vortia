@@ -3,10 +3,11 @@ name: Release packages
 # Builds the Linux AppImage and the macOS DMG, starts both on clean machines
 # and only then attaches them to a GitHub Release.
 #
-# Release procedure: create a DRAFT release vX.Y.Z on main, run this workflow
-# with tag=vX.Y.Z, check the attached files, then publish the draft. There is
-# deliberately no "release: published" trigger: it rebuilt and replaced the
-# files that had just been verified.
+# Releases: "Release from main" (release-auto.yml) runs this with tag=vX.Y.Z
+# when a new version and its CHANGELOG section land on main, and publishes the
+# release once the files are attached. By hand: run it with the tag of a draft
+# release. There is deliberately no "release: published" trigger: it rebuilt
+# and replaced the files that had just been verified.
 
 on:
   push:
@@ -34,6 +35,13 @@ on:
         description: "Existing release tag (draft or published) to attach the packages to, e.g. v0.3.0. Leave empty to only upload workflow artifacts."
         required: false
         default: ""
+  # release-auto.yml, once a version with its notes lands on main.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to attach the packages to"
+        type: string
+        required: true
 
 permissions:
   contents: read
