@@ -30,6 +30,16 @@ separated flows, pressure gradients, transition or heat transfer.
 Requires an ESI OpenFOAM (`simpleFoam`). The script also prints y+ on the plate
 so the wall-function range can be judged; y+ is reported, not gated.
 
+The same case on Vortia's own Rust engine (`vortia blockmesh`, `vortia solve`;
+build it with `cargo build --release -p vortia-cli` in `rust/`):
+
+```bash
+./benchmarks/turbulent-flat-plate-sst/scripts/run_rust.sh /path/to/empty/work/dir
+```
+
+The forces are still integrated by OpenFOAM's `forces` post-processing, so an
+ESI OpenFOAM is needed for that last step.
+
 ## Recorded result (2026-11-10)
 
 OpenFOAM ESI v2412, `simpleFoam`, converged in 375 iterations
@@ -45,3 +55,19 @@ OpenFOAM ESI v2412, `simpleFoam`, converged in 375 iterations
 The result is biased low and y+ sits at the lower end of the wall-function
 range. A finer study (several meshes, a low-Reynolds mesh) is needed before
 drawing anything stronger than "the generated case runs and is in range".
+
+## Recorded result on the Rust engine (2026-11-13)
+
+`vortia blockmesh` (the same mesh as OpenFOAM's `blockMesh`, value for value)
+and `vortia solve` (`simpleFoam`), against OpenFOAM v2606 on the same files:
+
+| Quantity | Rust engine | OpenFOAM v2606 |
+|---|---|---|
+| Iterations to converge | 375 | 374 |
+| C_D computed | 0.00269801634 | 0.002698016903 |
+| Difference from Prandtl–Schlichting | −10.18 % | −10.18 % |
+| y+ on the plate | 25.08–35.53, mean 27.31 | 25.09–35.53, mean 27.31 |
+
+The converged fields agree to 1.3e-3 (U), 4.8e-3 (p) and 1e-4 (k, ω, ν_t) of
+their largest values: close, not digit for digit (see E7 in
+`docs/architecture/rust-engine.md`).

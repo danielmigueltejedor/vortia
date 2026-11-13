@@ -290,8 +290,8 @@ fn unsupported_settings_are_refused() {
     refuse(
         "system/fvSchemes",
         "Gauss linear orthogonal",
-        "Gauss linear corrected",
-        "corrected",
+        "Gauss linear faceCorrected",
+        "faceCorrected",
     );
     refuse(
         "constant/turbulenceProperties",
@@ -362,4 +362,67 @@ fn the_first_matching_residual_control_applies() {
     let loose = iterations("{ \".*\" 1e-1; }");
     let tight_first = iterations("{ U 1e-6; \".*\" 1e-1; }");
     assert!(tight_first > loose, "{tight_first} vs {loose}");
+}
+
+/// The final U and p of a run of `setup`.
+fn end_fields(setup: &Setup) -> (Vec<vortia_core::Vec3>, Vec<f64>, usize) {
+    let dir = tempfile::tempdir().unwrap();
+    cavity(dir.path(), setup);
+    let case = Case::open(dir.path()).unwrap();
+    let steps = simple::run(&case, |_| {}).unwrap();
+    let end = dir.path().join(&steps.last().unwrap().time);
+    let n = setup.cells * setup.cells;
+    let u = VectorField::read(end.join("U")).unwrap();
+    let p = ScalarField::read(end.join("p")).unwrap();
+    (
+        u.internal.expand(n).unwrap(),
+        p.internal.expand(n).unwrap(),
+        steps.len(),
+    )
+}
+
+/// `Gauss linear corrected` (what the generated turbulent cases ask for)
+/// adds an explicit non-orthogonal correction; on the cavity's orthogonal
+/// mesh that correction is nothing, so the run is the orthogonal one.
+#[test]
+fn corrected_laplacians_on_an_orthogonal_mesh_change_nothing() {
+    let corrected = Setup {
+        laplacian: "Gauss linear corrected",
+        ..STEADY
+    };
+    let (u0, p0, n0) = end_fields(&STEADY);
+    let (u1, p1, n1) = end_fields(&corrected);
+    assert_eq!(n0, n1);
+    for (a, b) in u0.iter().zip(&u1) {
+        assert!(
+            (a.x - b.x).abs() < 1e-12 && (a.y - b.y).abs() < 1e-12,
+            "{a:?} {b:?}"
+        );
+    }
+    for (a, b) in p0.iter().zip(&p1) {
+        assert!((a - b).abs() < 1e-11, "{a} {b}");
+    }
+}
+
+/// `linearUpwind grad(U)` for the momentum: taken, and a different scheme
+/// from upwind (its gradient correction moves the result).
+#[test]
+fn linear_upwind_momentum_runs_and_differs_from_upwind() {
+    let lu = Setup {
+        div: "bounded Gauss linearUpwind grad(U)",
+        ..STEADY
+    };
+    let (u0, _, _) = end_fields(&STEADY);
+    let (u1, p1, _) = end_fields(&lu);
+    assert!(u1.iter().all(|v| v.x.is_finite() && v.y.is_finite()));
+    assert!(p1.iter().all(|v| v.is_finite()));
+    let moved = u0
+        .iter()
+        .zip(&u1)
+        .map(|(a, b)| (a.x - b.x).abs().max((a.y - b.y).abs()))
+        .fold(0.0, f64::max);
+    assert!(
+        moved > 1e-4,
+        "linearUpwind gave the upwind result ({moved})"
+    );
 }

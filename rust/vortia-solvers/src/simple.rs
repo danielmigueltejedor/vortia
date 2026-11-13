@@ -14,6 +14,7 @@
 
 use vortia_core::Vec3;
 use vortia_foamfile::{Dictionary, Entry};
+use vortia_fv::correction;
 use vortia_fv::limited::GradScheme;
 use vortia_fv::ops::{self, Convection, SnGrad};
 use vortia_fv::stress::div_dev2_grad_t;
@@ -45,7 +46,7 @@ impl Schemes {
             ));
         }
         case.require_linear_interpolation()?;
-        let convection = case.convection("div(phi,U)")?;
+        let convection = case.convection_with_grad("div(phi,U)")?;
         let stress = case.scheme("divSchemes", "div((nuEff*dev2(T(grad(U)))))")?;
         if stress != ["Gauss", "linear"] {
             return Err(SolverError::Setup(format!(
@@ -58,8 +59,8 @@ impl Schemes {
         }
         Ok(Self {
             convection,
-            momentum_sn_grad: case.uncorrected_sn_grad("laplacian(nuEff,U)")?,
-            pressure_sn_grad: case.uncorrected_sn_grad("laplacian((1|A(U)),p)")?,
+            momentum_sn_grad: case.laplacian_sn_grad("laplacian(nuEff,U)")?,
+            pressure_sn_grad: case.laplacian_sn_grad("laplacian((1|A(U)),p)")?,
         })
     }
 }
@@ -250,14 +251,23 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         if schemes.convection.bounded {
             ops::bounded_correction(&mut u_eqn.ldu, &mesh, &fv, &phi);
         }
-        u_eqn.sub(&VectorMatrix::laplacian(
+        let mut u_lap = VectorMatrix::laplacian(
             &mesh,
             &fv,
             &u_bc,
             &nu_faces,
             &u,
-            schemes.momentum_sn_grad,
-        )?);
+            schemes.momentum_sn_grad.without_correction(),
+        )?;
+        // `Gauss linear corrected`: the non-orthogonal part is explicit, from
+        // the velocity gradient of this iteration.
+        if schemes.momentum_sn_grad == SnGrad::Corrected {
+            let (g, _) = vortia_fv::stress::grad(GradScheme::GaussLinear, &mesh, &fv, &u_bc, &u);
+            let corr = correction::sn_grad_correction_vector(&mesh, &fv, &g);
+            let flux = correction::scale_by_gamma_mag_sf(&fv, &nu_faces, &corr);
+            correction::subtract_divergence(&mut u_lap.source, &mesh, &flux);
+        }
+        u_eqn.sub(&u_lap);
         let stress = div_dev2_grad_t(
             GradScheme::GaussLinear,
             &mesh,
@@ -269,6 +279,24 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
         );
         for ((s, &d), &v) in u_eqn.source.iter_mut().zip(&stress).zip(fv.volumes()) {
             *s = *s + d * v;
+        }
+        // `linearUpwind`: the matrix holds the upwind part; the gradient's
+        // correction of each face value goes to the source, as `fvm::div`
+        // adds it.
+        if let Some(scheme) = schemes.convection.interpolation.grad_scheme() {
+            let (g, _) = vortia_fv::stress::grad(scheme, &mesh, &fv, &u_bc, &u);
+            let corr = vortia_fv::stress::linear_upwind_correction(&mesh, &fv, &phi, &g);
+            for (f, (&o, &n)) in mesh.owner().iter().zip(mesh.neighbour()).enumerate() {
+                let (Some(&x), Some(&c)) = (phi.get(f), corr.get(f)) else {
+                    continue;
+                };
+                if let Some(s) = u_eqn.source.get_mut(o) {
+                    *s = *s - c * x;
+                }
+                if let Some(s) = u_eqn.source.get_mut(n) {
+                    *s = *s + c * x;
+                }
+            }
         }
         if let Some(alpha) = alpha_u {
             u_eqn.relax(&mesh, &u, alpha);
@@ -303,7 +331,24 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
 
         for non_orth in 0..=simple.n_non_orth {
             let mut m = LduMatrix::new(&mesh);
-            ops::laplacian(&mut m, &mesh, &fv, &p_bc, &r_au_f, schemes.pressure_sn_grad)?;
+            ops::laplacian(
+                &mut m,
+                &mesh,
+                &fv,
+                &p_bc,
+                &r_au_f,
+                schemes.pressure_sn_grad.without_correction(),
+            )?;
+            // The correction is explicit, from the pressure the matrix is
+            // assembled with; its flux goes into the face flux as well.
+            let corrected = (schemes.pressure_sn_grad == SnGrad::Corrected).then(|| {
+                let g = ops::grad(&mesh, &fv, &p_bc, &p);
+                let corr = correction::sn_grad_correction(&mesh, &fv, &g);
+                correction::scale_by_gamma_mag_sf(&fv, &r_au_f, &corr)
+            });
+            if let Some(flux) = &corrected {
+                correction::subtract_divergence(&mut m.source, &mesh, flux);
+            }
             let div = ops::surface_integrate(&mesh, &fv, &phi_hbya);
             for ((s, &d), &v) in m.source.iter_mut().zip(&div).zip(fv.volumes()) {
                 *s += v * d;
@@ -315,8 +360,17 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             log(&solve_line("p", &perf));
             solves.push(("p".to_owned(), perf));
             if non_orth == simple.n_non_orth {
-                let flux =
-                    ops::laplacian_flux(&mesh, &fv, &p_bc, &r_au_f, schemes.pressure_sn_grad, &p);
+                let mut flux = ops::laplacian_flux(
+                    &mesh,
+                    &fv,
+                    &p_bc,
+                    &r_au_f,
+                    schemes.pressure_sn_grad.without_correction(),
+                    &p,
+                );
+                for (x, c) in flux.iter_mut().zip(corrected.iter().flatten()) {
+                    *x += c;
+                }
                 for ((f, &a), &b) in phi.iter_mut().zip(&phi_hbya).zip(&flux) {
                     *f = a - b;
                 }
