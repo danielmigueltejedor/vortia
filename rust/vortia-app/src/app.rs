@@ -15,6 +15,7 @@ use nodalia_theme::{Accent, Mode, Palette, component, font_size, for_egui, icons
 use crate::convergence::Convergence;
 use crate::prefs::{self, Prefs, Theme};
 use crate::session::{Event, Outcome, Session};
+use crate::summary::{self, Summary};
 
 /// The accent of the app.
 const ACCENT: Accent = Accent::Vortia;
@@ -26,6 +27,8 @@ const CONTROL: f32 = 28.0;
 const MAX_LOG: usize = 5_000;
 /// The edge of the window that resizes it, with the window's own decorations off.
 const GRIP: f32 = 6.0;
+/// The width of the case's summary beside the run.
+const SIDE: f32 = 300.0;
 
 /// The viewport the app opens in. Linux draws its own window controls (NDL), so it asks for
 /// no decorations; macOS and Windows keep the system's.
@@ -63,9 +66,45 @@ struct CaseView {
     outcome: Option<Outcome>,
     /// A stop was asked for and the engine has not ended yet.
     stopping: bool,
+    summary: Option<Summary>,
+    summary_rx: Option<std::sync::mpsc::Receiver<Summary>>,
+    /// The folder changed (a run ended): read it again.
+    summary_stale: bool,
 }
 
 impl CaseView {
+    fn new(dir: PathBuf, application: Option<String>) -> Self {
+        Self {
+            dir,
+            application,
+            session: None,
+            log: VecDeque::new(),
+            report: None,
+            outcome: None,
+            stopping: false,
+            summary: None,
+            summary_rx: None,
+            summary_stale: true,
+        }
+    }
+
+    /// Reads the folder on a thread when it has not been read, or has changed since.
+    fn ensure_summary(&mut self, ctx: &Context) {
+        if let Some(rx) = &self.summary_rx
+            && let Ok(summary) = rx.try_recv()
+        {
+            self.summary = Some(summary);
+            self.summary_rx = None;
+        }
+        if self.summary_stale && self.summary_rx.is_none() {
+            let repaint = ctx.clone();
+            self.summary_rx = Some(summary::spawn(self.dir.clone(), move || {
+                repaint.request_repaint()
+            }));
+            self.summary_stale = false;
+        }
+    }
+
     fn name(&self) -> String {
         self.dir.file_name().map_or_else(
             || self.dir.display().to_string(),
@@ -100,6 +139,7 @@ impl CaseView {
         }
         if done {
             self.session = None;
+            self.summary_stale = true;
         }
     }
 }
@@ -170,15 +210,8 @@ impl VortiaApp {
         self.prefs.remember(dir);
         self.save_prefs();
         self.notice = None;
-        self.screen = Screen::Case(Box::new(CaseView {
-            dir: dir.to_path_buf(),
-            application,
-            session: None,
-            log: VecDeque::new(),
-            report: None,
-            outcome: None,
-            stopping: false,
-        }));
+        self.screen = Screen::Case(Box::new(CaseView::new(dir.to_path_buf(), application)));
+
         Ok(())
     }
 
@@ -267,6 +300,7 @@ impl VortiaApp {
         self.apply_theme(ctx);
         if let Screen::Case(case) = &mut self.screen {
             case.poll();
+            case.ensure_summary(ctx);
             if case.running() {
                 ctx.request_repaint_after(Duration::from_millis(250));
             }
@@ -498,30 +532,53 @@ impl VortiaApp {
             ui.add_space(space::SM);
         }
 
-        convergence_card(ui, p, case.report.as_ref());
-        ui.add_space(space::MD);
+        let room = ui.available_size();
+        ui.horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(SIDE, room.y),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt("case-summary")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| summary_card(ui, p, case.summary.as_ref()));
+                },
+            );
+            let width = ui.available_width();
+            ui.allocate_ui_with_layout(
+                Vec2::new(width, room.y),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    convergence_card(ui, p, case.report.as_ref());
+                    ui.add_space(space::MD);
 
-        ui.label(RichText::new("Log").color(muted(p)));
-        Frame::NONE
-            .fill(for_egui::color(p.surface_sunken))
-            .corner_radius(corner(component::CONTROL_RADIUS))
-            .inner_margin(Margin::same(space::MD as i8))
-            .show(ui, |ui| {
-                ui.set_min_size(ui.available_size());
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        if case.log.is_empty() {
-                            ui.label(
-                                RichText::new("The solver's output appears here.").color(muted(p)),
-                            );
-                        }
-                        for line in &case.log {
-                            ui.label(RichText::new(line).monospace().size(font_size::SMALL));
-                        }
-                    });
-            });
+                    ui.label(RichText::new("Log").color(muted(p)));
+                    Frame::NONE
+                        .fill(for_egui::color(p.surface_sunken))
+                        .corner_radius(corner(component::CONTROL_RADIUS))
+                        .inner_margin(Margin::same(space::MD as i8))
+                        .show(ui, |ui| {
+                            ui.set_min_size(ui.available_size());
+                            egui::ScrollArea::vertical()
+                                .auto_shrink([false, false])
+                                .stick_to_bottom(true)
+                                .show(ui, |ui| {
+                                    if case.log.is_empty() {
+                                        ui.label(
+                                            RichText::new("The solver's output appears here.")
+                                                .color(muted(p)),
+                                        );
+                                    }
+                                    for line in &case.log {
+                                        ui.label(
+                                            RichText::new(line).monospace().size(font_size::SMALL),
+                                        );
+                                    }
+                                });
+                        });
+                },
+            );
+        });
 
         if run {
             self.start_run(ctx);
@@ -633,6 +690,101 @@ pub enum Tone {
 /// A number in scientific notation, or a dash when the engine could not give it.
 pub fn scientific(value: Option<f64>) -> String {
     value.map_or_else(|| "–".to_owned(), |v| format!("{v:.2e}"))
+}
+
+/// A count with a thin space between thousands.
+pub fn grouped(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push('\u{202f}');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn summary_card(ui: &mut egui::Ui, p: &Palette, summary: Option<&Summary>) {
+    Frame::NONE
+        .fill(for_egui::color(p.surface_sunken))
+        .corner_radius(corner(component::CONTROL_RADIUS))
+        .inner_margin(Margin::same(space::MD as i8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let Some(s) = summary else {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RichText::new("Reading the case…").color(muted(p)));
+                });
+                return;
+            };
+            let row = |ui: &mut egui::Ui, name: &str, value: String| {
+                ui.label(RichText::new(name).color(muted(p)));
+                ui.label(value);
+                ui.end_row();
+            };
+            egui::Grid::new("case-settings")
+                .num_columns(2)
+                .spacing([space::LG, space::XS])
+                .show(ui, |ui| {
+                    if let Some(app) = &s.application {
+                        row(ui, "Solver", app.clone());
+                    }
+                    if let (Some(start), Some(end)) = (s.start_time, s.end_time) {
+                        row(ui, "Time", format!("{start} to {end} s"));
+                    }
+                    if let Some(dt) = s.delta_t {
+                        row(ui, "Time step", format!("{dt} s"));
+                    }
+                    if let Some(every) = s.write_interval {
+                        row(ui, "Writes every", every.to_string());
+                    }
+                    if let Some(Ok(mesh)) = &s.mesh {
+                        row(ui, "Cells", grouped(mesh.cells));
+                        row(ui, "Points", grouped(mesh.points));
+                    }
+                });
+            match &s.mesh {
+                None => {
+                    ui.add_space(space::SM);
+                    ui.label(RichText::new("The case has no mesh yet.").color(muted(p)));
+                }
+                Some(Err(message)) => {
+                    ui.add_space(space::SM);
+                    ui.colored_label(for_egui::color(p.status_danger_fg), message);
+                }
+                Some(Ok(mesh)) => {
+                    ui.add_space(space::MD);
+                    ui.label(RichText::new("Patches").color(muted(p)));
+                    egui::Grid::new("case-patches")
+                        .num_columns(3)
+                        .spacing([space::MD, space::XS])
+                        .show(ui, |ui| {
+                            for patch in &mesh.patches {
+                                ui.label(&patch.name);
+                                ui.label(RichText::new(&patch.kind).color(muted(p)));
+                                ui.label(
+                                    RichText::new(grouped(patch.faces))
+                                        .monospace()
+                                        .color(muted(p)),
+                                );
+                                ui.end_row();
+                            }
+                        });
+                }
+            }
+            if !s.fields.is_empty() {
+                ui.add_space(space::MD);
+                ui.label(RichText::new("Fields").color(muted(p)));
+                ui.label(s.fields.join(", "));
+            }
+            if let Some(last) = s.times.last() {
+                ui.add_space(space::MD);
+                ui.label(RichText::new("Written up to").color(muted(p)));
+                ui.label(format!("{last} s"));
+            }
+        });
 }
 
 fn convergence_card(ui: &mut egui::Ui, p: &Palette, report: Option<&Convergence>) {
@@ -914,6 +1066,45 @@ mod tests {
     }
 
     #[test]
+    fn the_case_folder_is_read_for_the_screen_and_again_after_a_run() {
+        let case = case_dir();
+        let ctx = Context::default();
+        let mut app = VortiaApp::with_prefs(Prefs::default(), None);
+        app.open_case(case.path()).unwrap();
+        let start = std::time::Instant::now();
+        let wait_for_summary = |app: &mut VortiaApp| loop {
+            frame(app, &ctx);
+            if let Screen::Case(view) = &app.screen
+                && view.summary.is_some()
+            {
+                return;
+            }
+            assert!(start.elapsed() < Duration::from_secs(30), "no summary");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        wait_for_summary(&mut app);
+        let Screen::Case(view) = &mut app.screen else {
+            panic!("left the case");
+        };
+        assert_eq!(
+            view.summary.as_ref().and_then(|s| s.application.as_deref()),
+            Some("vortiaCentralFoam")
+        );
+        // A run that ends marks the folder as changed; the next frame reads it again.
+        view.summary = None;
+        view.summary_stale = true;
+        wait_for_summary(&mut app);
+    }
+
+    #[test]
+    fn counts_are_grouped_by_thousands() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(7500), "7\u{202f}500");
+        assert_eq!(grouped(1_234_567), "1\u{202f}234\u{202f}567");
+    }
+
+    #[test]
     fn statuses_and_numbers_read_well() {
         assert_eq!(status_label("converged"), ("Converged", Tone::Success));
         assert_eq!(status_label("invalid").1, Tone::Danger);
@@ -924,15 +1115,8 @@ mod tests {
 
     #[test]
     fn the_log_keeps_only_its_last_lines() {
-        let mut view = CaseView {
-            dir: PathBuf::from("/c"),
-            application: None,
-            session: None,
-            log: VecDeque::new(),
-            report: None,
-            outcome: None,
-            stopping: false,
-        };
+        let mut view = CaseView::new(PathBuf::from("/c"), None);
+
         for n in 0..MAX_LOG + 10 {
             view.push_log(n.to_string());
         }
