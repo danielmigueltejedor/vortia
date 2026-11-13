@@ -1,57 +1,67 @@
 import SwiftUI
 import VortiaKit
 
-/// The window: a welcome with no project, else the case's stages in a sidebar, the stage in the
-/// middle and its checks in the inspector. The system draws the chrome; the toolbar carries the
-/// two actions a case is for, mesh and solve.
+/// The window: a welcome with no project, else Vortia's six stages in the sidebar, the stage's
+/// work in the middle and its settings in the inspector. The system draws the chrome; the
+/// toolbar carries the two actions a case is for, mesh and solve.
 public struct RootView: View {
     @Environment(VortiaStore.self) private var store
     @SceneStorage("vortia.inspector") private var inspectorOpen = true
+    @State private var sketchSelection: SketchSelection?
+    @State private var boundary: Int?
     var newProject: () -> Void
     var openProject: () -> Void
+    var recentProjects: [URL]
+    var openRecent: (URL) -> Void
+    var appIcon: Image?
 
-    public init(newProject: @escaping () -> Void, openProject: @escaping () -> Void) {
+    public init(
+        newProject: @escaping () -> Void, openProject: @escaping () -> Void,
+        recentProjects: [URL] = [], openRecent: @escaping (URL) -> Void = { _ in },
+        appIcon: Image? = nil
+    ) {
         self.newProject = newProject
         self.openProject = openProject
+        self.recentProjects = recentProjects
+        self.openRecent = openRecent
+        self.appIcon = appIcon
     }
 
     public var body: some View {
         Group {
             if store.project == nil {
-                Welcome(newProject: newProject, openProject: openProject)
+                Welcome(
+                    newProject: newProject, openProject: openProject, recentProjects: recentProjects,
+                    openRecent: openRecent, appIcon: appIcon)
             } else {
                 workspace
             }
         }
-        .overlay(alignment: .top) { Banner() }
+        .overlay(alignment: .bottom) { Banner() }
+        .onChange(of: store.sketch?.points.count) {
+            sketchSelection = nil
+            boundary = nil
+        }
     }
 
     private var workspace: some View {
-        @Bindable var store = store
-        return NavigationSplitView {
+        NavigationSplitView {
             List(selection: Binding(get: { store.stage }, set: { if let s = $0 { store.stage = s } })) {
                 Section(store.project?.name ?? "") {
-                    ForEach(store.isFlowProject
-                        ? [VortiaStore.Stage.contour, .flowSetup]
-                        : [VortiaStore.Stage.geometry, .mesh, .physics, .time]) { stage in
-                        Label(stage.title, systemImage: stage.symbol).tag(stage)
-                    }
-                }
-                Section {
-                    ForEach([VortiaStore.Stage.run, .results, .engineering]) { stage in
-                        Label(stage.title, systemImage: stage.symbol).tag(stage)
+                    ForEach(store.visibleStages) { stage in
+                        StageRow(stage: stage).tag(stage)
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 280)
+            .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
         } detail: {
-            StageView(stage: store.stage)
+            StageView(stage: store.stage, sketchSelection: $sketchSelection, boundary: $boundary)
                 .navigationTitle(store.stage.title)
                 .navigationSubtitle(store.project?.name ?? "")
         }
         .inspector(isPresented: $inspectorOpen) {
-            ChecksView()
-                .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+            StageInspector(stage: store.stage, sketchSelection: $sketchSelection, boundary: $boundary)
+                .inspectorColumnWidth(min: 260, ideal: 300, max: 400)
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -59,40 +69,70 @@ public struct RootView: View {
                 Button {
                     inspectorOpen.toggle()
                 } label: {
-                    Label(L10n.t(.checks), systemImage: "checklist")
+                    Label(L10n.t(.inspector), systemImage: "sidebar.right")
                 }
-                .help(L10n.t(.checks))
+                .help(L10n.t(.inspector))
             }
         }
     }
 }
 
 extension VortiaStore.Stage {
-    var title: String {
+    public var title: String {
         switch self {
+        case .project: L10n.t(.project)
         case .geometry: L10n.t(.geometry)
         case .mesh: L10n.t(.mesh)
         case .physics: L10n.t(.physics)
-        case .time: L10n.t(.time)
-        case .run: L10n.t(.run)
+        case .calculation: L10n.t(.run)
         case .results: L10n.t(.results)
-        case .contour: L10n.t(.contour)
-        case .flowSetup: L10n.t(.flowSetup)
-        case .engineering: L10n.t(.engineering)
         }
     }
 
+    /// The same pictures as Vortia's sidebar: a folder, a pencil, a grid, layers, a chip and a
+    /// chart.
     var symbol: String {
         switch self {
-        case .geometry: "cube"
-        case .mesh: "square.grid.3x3"
-        case .physics: "wind"
-        case .time: "clock"
-        case .run: "play.circle"
+        case .project: "folder"
+        case .geometry: "pencil.and.outline"
+        case .mesh: "squareshape.split.3x3"
+        case .physics: "square.3.layers.3d"
+        case .calculation: "cpu"
         case .results: "chart.xyaxis.line"
-        case .contour: "scribble.variable"
-        case .flowSetup: "wind.circle"
-        case .engineering: "ruler"
+        }
+    }
+
+    /// What to do in this stage, said as the next step.
+    var guidance: String {
+        switch self {
+        case .project: L10n.t(.guideProject)
+        case .geometry: L10n.t(.guideGeometry)
+        case .mesh: L10n.t(.guideMesh)
+        case .physics: L10n.t(.guidePhysics)
+        case .calculation: L10n.t(.guideCalculation)
+        case .results: L10n.t(.guideResults)
+        }
+    }
+}
+
+/// A stage in the sidebar, with a mark when it has something to say: a run in progress, or
+/// results ready.
+private struct StageRow: View {
+    @Environment(VortiaStore.self) private var store
+    var stage: VortiaStore.Stage
+
+    var body: some View {
+        HStack {
+            Label(stage.title, systemImage: stage.symbol)
+            Spacer()
+            switch stage {
+            case .calculation where store.job.isRunning:
+                ProgressView().controlSize(.mini)
+            case .results where store.results != nil:
+                Circle().fill(Color.accentColor).frame(width: 6, height: 6)
+            default:
+                EmptyView()
+            }
         }
     }
 }
@@ -100,21 +140,46 @@ extension VortiaStore.Stage {
 private struct StageView: View {
     @Environment(VortiaStore.self) private var store
     var stage: VortiaStore.Stage
+    @Binding var sketchSelection: SketchSelection?
+    @Binding var boundary: Int?
 
     var body: some View {
         if store.setup == nil {
             ProgressView()
         } else {
             switch stage {
-            case .geometry: GeometryView()
-            case .mesh: MeshView()
-            case .physics: PhysicsView()
-            case .time: TimeView()
-            case .run: RunView()
-            case .results: ResultsView()
-            case .contour: ContourView()
-            case .flowSetup: FlowSetupView()
-            case .engineering: EngineeringView()
+            case .project: ProjectOverview()
+            case .geometry:
+                if store.isFlowProject { GeometryEditor(selection: $sketchSelection) } else { GeometryView() }
+            case .mesh:
+                if store.isFlowProject { MeshStage() } else { MeshView() }
+            case .physics:
+                if store.isFlowProject { PhysicsStage(boundary: $boundary) } else { PhysicsView() }
+            case .calculation: CalculationMonitor()
+            case .results: ResultsViewer()
+            }
+        }
+    }
+}
+
+/// The inspector follows the stage: what is selected and the stage's settings.
+private struct StageInspector: View {
+    @Environment(VortiaStore.self) private var store
+    var stage: VortiaStore.Stage
+    @Binding var sketchSelection: SketchSelection?
+    @Binding var boundary: Int?
+
+    var body: some View {
+        if store.setup == nil {
+            ProgressView()
+        } else {
+            switch stage {
+            case .geometry where store.isFlowProject: GeometryInspector(selection: $sketchSelection)
+            case .mesh where store.isFlowProject: MeshInspector()
+            case .physics where store.isFlowProject: PhysicsInspector(boundary: $boundary)
+            case .calculation: if store.isFlowProject { CalculationInspector() } else { TimeView() }
+            case .results: ResultsInspector()
+            default: ChecksView()
             }
         }
     }
@@ -136,7 +201,7 @@ struct RunControls: View {
             Button {
                 Task { await store.mesh() }
             } label: {
-                Label(L10n.t(.runMesh), systemImage: "square.grid.3x3")
+                Label(L10n.t(.runMesh), systemImage: "squareshape.split.3x3")
             }
             .disabled(!store.canRun)
             .help(L10n.t(.runMesh))
@@ -154,19 +219,77 @@ struct RunControls: View {
 private struct Welcome: View {
     var newProject: () -> Void
     var openProject: () -> Void
+    var recentProjects: [URL]
+    var openRecent: (URL) -> Void
+    var appIcon: Image?
 
     var body: some View {
-        EmptyState(
-            symbol: "wind", title: L10n.t(.welcomeTitle), message: L10n.t(.welcomeBody)
-        ) {
-            HStack(spacing: 12) {
-                Button(L10n.t(.newProject), action: newProject)
+        HStack(spacing: 0) {
+            VStack(spacing: 16) {
+                Spacer()
+                if let appIcon {
+                    appIcon.resizable().interpolation(.high).frame(width: 112, height: 112)
+                } else {
+                    Image(systemName: "wind").font(.system(size: 64, weight: .light)).foregroundStyle(.tint)
+                }
+                Text(L10n.t(.appName)).font(.system(size: 40, weight: .bold))
+                Text(L10n.t(.welcomeTitle)).font(.title3).foregroundStyle(.secondary)
+                Text(L10n.t(.welcomeBody))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+                HStack(spacing: 12) {
+                    Button(action: newProject) {
+                        Label(L10n.t(.newProject), systemImage: "plus")
+                    }
                     .buttonStyle(.borderedProminent)
-                Button(L10n.t(.openProject), action: openProject)
+                    Button(action: openProject) {
+                        Label(L10n.t(.openProject), systemImage: "folder")
+                    }
                     .buttonStyle(.bordered)
+                }
+                .controlSize(.large)
+                .padding(.top, 8)
+                Spacer()
             }
-            .controlSize(.large)
-            .padding(.top, 6)
+            .padding(40)
+            .frame(maxWidth: .infinity)
+            if !recentProjects.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.t(.recentProjects))
+                        .font(.headline)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 6)
+                    ForEach(recentProjects, id: \.self) { url in
+                        Button {
+                            openRecent(url)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "folder.fill").foregroundStyle(.tint)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(url.lastPathComponent).font(.body.weight(.medium))
+                                    Text(url.deletingLastPathComponent().path)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 40)
+                .padding(.horizontal, 16)
+                .frame(width: 320)
+                .frame(maxHeight: .infinity)
+                .background(.background.secondary)
+            }
         }
     }
 }
@@ -189,7 +312,7 @@ private struct Banner: View {
                 row(symbol: "exclamationmark.triangle", text: error) { store.dismissError() }
             }
         }
-        .padding(12)
+        .padding(16)
         .frame(maxWidth: 560)
     }
 

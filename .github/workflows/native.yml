@@ -1,0 +1,69 @@
+name: Vortia Native
+
+# Builds and tests the SwiftUI edition on its own, without the Qt bundle the release needs, and
+# photographs every stage with the demonstration engine (light and dark, in Spanish) so a change
+# to the interface can be looked at before it merges.
+
+on:
+  pull_request:
+    paths:
+      - "platforms/apple/**"
+      - ".github/workflows/native.yml"
+  push:
+    branches: [main]
+    paths:
+      - "platforms/apple/**"
+      - ".github/workflows/native.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    # Xcode 26 carries Liquid Glass, so the pictures show what the DMG shows.
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build
+        run: |
+          swift --version
+          swift build --package-path platforms/apple --product VortiaMac
+
+      - name: Test
+        run: swift test --package-path platforms/apple
+
+      - name: Screenshots with the demonstration engine
+        run: |
+          bin="$(swift build --package-path platforms/apple --show-bin-path)/VortiaMac"
+          for appearance in light dark; do
+            "$bin" --snapshot "screenshots/$appearance" --appearance "$appearance" \
+              -AppleLanguages '(es)' -AppleLocale es_ES &
+            pid=$!
+            ( sleep 300; kill "$pid" 2>/dev/null ) &
+            wait "$pid" || true
+          done
+          ls -lR screenshots
+
+      - name: Small copies in the log
+        # Artifacts need a signed-in download; the log can be read wherever the run can.
+        run: |
+          mkdir -p small
+          for file in screenshots/*/*.png; do
+            name="$(basename "$(dirname "$file")")-$(basename "$file" .png).jpg"
+            sips -s format jpeg -s formatOptions 70 -Z 1400 "$file" --out "small/$name" >/dev/null
+            echo "SCREENSHOT $name $(base64 -i "small/$name" | tr -d '\n')"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-screenshots
+          path: screenshots/
+          if-no-files-found: warn
