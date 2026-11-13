@@ -17,6 +17,7 @@
 #include <QSpinBox>
 #include <QButtonGroup>
 #include <QPointer>
+#include <QTabBar>
 #include <QToolBar>
 #include <QToolButton>
 #include <QMenu>
@@ -1488,6 +1489,19 @@ TEST(Workspace, NativePrecisionWorkspaceWhenRequested) {
         }
     }
     qApp->removeTranslator(&translator);
+}
+
+TEST(WorkspaceFlow, InlineMenusSitInTheirOwnRowAboveTheProjectTabs) {
+    MainWindow window;window.show();QApplication::processEvents();
+    auto* menus=window.findChild<QWidget*>("vortia-menu-row");
+    auto* header=window.findChild<QWidget*>("vortia-document-header");
+    if(!menus||!header)GTEST_SKIP()<<"the window draws no header of its own on this platform";
+    if(menus->isHidden())GTEST_SKIP()<<"a desktop top bar takes the menus";
+    EXPECT_LE(menus->mapTo(&window,QPoint(0,0)).y()+menus->height(),header->mapTo(&window,QPoint(0,0)).y());
+    auto* tabs=window.findChild<QTabBar*>("vortia-project-tabs");ASSERT_NE(tabs,nullptr);
+    EXPECT_GE(tabs->mapTo(&window,QPoint(0,0)).y(),menus->height());
+    auto* ribbon=window.findChild<QTabWidget*>("vortia-ribbon");ASSERT_NE(ribbon,nullptr);
+    if(ribbon->isVisible())EXPECT_GE(ribbon->mapTo(&window,QPoint(0,0)).y(),header->mapTo(&window,QPoint(0,0)).y()+header->height());
 }
 
 TEST(WorkspaceFlow, EngineeringWorkspacePersistsWithoutInvalidatingPreparedPhysics) {
