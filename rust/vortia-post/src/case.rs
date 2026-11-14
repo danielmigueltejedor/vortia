@@ -96,9 +96,9 @@ pub struct Sample {
 #[derive(Debug)]
 pub struct Case {
     path: PathBuf,
-    mesh: PolyMesh,
-    geometry: MeshGeometry,
-    cell_faces: Vec<Vec<usize>>,
+    pub(crate) mesh: PolyMesh,
+    pub(crate) geometry: MeshGeometry,
+    pub(crate) cell_faces: Vec<Vec<usize>>,
 }
 
 impl Case {

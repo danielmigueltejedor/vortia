@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use vortia_core::{Aabb, Vec3};
 use vortia_mesh::blocks::structured_box_raw;
 
-use crate::{Case, FieldValues, line_csv};
+use crate::{Case, FieldValues, StreamlineEnd, line_csv};
 
 /// A 4 × 2 × 1 box of unit cells, written as a case with times `0`.
 fn case() -> (TempDir, Case) {
@@ -337,4 +337,141 @@ fn a_wall_without_a_known_viscosity_or_density_is_refused() {
             .contains("rho")
     );
     assert!(case.wall("0", "nope").is_err());
+}
+
+/// A vector field `f(cell centre)`.
+fn write_vector(dir: &TempDir, case: &Case, name: &str, f: impl Fn(Vec3) -> Vec3) {
+    let values: Vec<String> = case
+        .geometry()
+        .cell_centres
+        .iter()
+        .map(|&c| {
+            let v = f(c);
+            format!("({} {} {})", v.x, v.y, v.z)
+        })
+        .collect();
+    let internal = format!(
+        "nonuniform List<vector> {}({})",
+        values.len(),
+        values.join(" ")
+    );
+    write(dir, name, "volVectorField", &internal, &[]);
+}
+
+#[test]
+fn a_streamline_follows_a_uniform_flow_out_of_the_box() {
+    let (dir, case) = case();
+    write_vector(&dir, &case, "U", |_| Vec3::new(2.0, 0.0, 0.0));
+    let s = case
+        .streamline("0", "U", Vec3::new(0.5, 0.5, 0.5), false, 100)
+        .unwrap();
+    assert_eq!(s.end, StreamlineEnd::Boundary);
+    // The seed, then one face of each cell it passes: four of them.
+    assert_eq!(s.points.len(), 5);
+    let last = s.points.last().unwrap();
+    assert!((last.x - 4.0).abs() < 1e-12 && (last.y - 0.5).abs() < 1e-12);
+    assert!(s.speeds.iter().all(|&v| v == 2.0));
+
+    let back = case
+        .streamline("0", "U", Vec3::new(2.5, 1.5, 0.5), true, 100)
+        .unwrap();
+    assert_eq!(back.end, StreamlineEnd::Boundary);
+    assert!(back.points.last().unwrap().x.abs() < 1e-12);
+}
+
+#[test]
+fn many_streamlines_run_through_their_seeds_both_ways() {
+    let (dir, case) = case();
+    write_vector(&dir, &case, "U", |_| Vec3::new(2.0, 0.0, 0.0));
+    let seeds = [
+        Vec3::new(2.5, 0.5, 0.5),
+        Vec3::new(2.5, 1.5, 0.5),
+        Vec3::new(40.0, 0.5, 0.5),
+    ];
+    let lines = case.streamlines("0", "U", &seeds, 100).unwrap();
+    // The seed outside the mesh gives no line; the others cross the box.
+    assert_eq!(lines.len(), 2);
+    for (line, seed) in lines.iter().zip(&seeds) {
+        assert!(line.points.first().unwrap().x.abs() < 1e-12);
+        assert!((line.points.last().unwrap().x - 4.0).abs() < 1e-12);
+        assert_eq!(line.points.len(), line.speeds.len());
+        // The seed is in it once.
+        let at_seed = line
+            .points
+            .iter()
+            .filter(|p| (**p - *seed).norm() < 1e-12)
+            .count();
+        assert_eq!(at_seed, 1);
+        assert!(line.points.windows(2).all(|w| w[1].x > w[0].x));
+    }
+    assert!(case.streamlines("0", "U", &seeds, 1).is_err());
+    assert!(case.streamlines("0", "nope", &seeds, 10).is_err());
+}
+
+#[test]
+fn a_streamline_bends_with_the_flow() {
+    let (dir, case) = case();
+    write_vector(&dir, &case, "U", |_| Vec3::new(1.0, 0.5, 0.0));
+    let s = case
+        .streamline("0", "U", Vec3::new(0.2, 0.2, 0.5), false, 100)
+        .unwrap();
+    // Slope 1/2: it reaches the top (y = 2) at x = 0.2 + 3.6.
+    let last = s.points.last().unwrap();
+    assert_eq!(s.end, StreamlineEnd::Boundary);
+    assert!(
+        (last.y - 2.0).abs() < 1e-9 && (last.x - 3.8).abs() < 1e-9,
+        "{last:?}"
+    );
+}
+
+#[test]
+fn a_streamline_stops_where_the_flow_does_and_at_its_length() {
+    let (dir, case) = case();
+    write_vector(&dir, &case, "U", |c| {
+        if c.x < 2.0 {
+            Vec3::new(1.0, 0.0, 0.0)
+        } else {
+            Vec3::new(-1.0, 0.0, 0.0)
+        }
+    });
+    // The flow from both sides meets at x = 2.
+    let s = case
+        .streamline("0", "U", Vec3::new(0.5, 0.5, 0.5), false, 100)
+        .unwrap();
+    assert_eq!(s.end, StreamlineEnd::Stagnation);
+    assert!(s.points.last().unwrap().x <= 2.0 + 1e-12);
+
+    write_vector(&dir, &case, "U", |_| Vec3::new(1.0, 0.0, 0.0));
+    let short = case
+        .streamline("0", "U", Vec3::new(0.5, 0.5, 0.5), false, 2)
+        .unwrap();
+    assert_eq!((short.points.len(), short.end), (2, StreamlineEnd::Length));
+
+    write_vector(&dir, &case, "U", |_| Vec3::default());
+    let still = case
+        .streamline("0", "U", Vec3::new(0.5, 0.5, 0.5), false, 10)
+        .unwrap();
+    assert_eq!(
+        (still.points.len(), still.end),
+        (1, StreamlineEnd::Stagnation)
+    );
+}
+
+#[test]
+fn a_streamline_refuses_what_it_cannot_follow() {
+    let (dir, case) = case();
+    write_scalar(&dir, &case, "T", |c| c.x);
+    let seed = Vec3::new(0.5, 0.5, 0.5);
+    assert!(case.streamline("0", "T", seed, false, 10).is_err());
+    write_vector(&dir, &case, "U", |_| Vec3::new(1.0, 0.0, 0.0));
+    assert!(
+        case.streamline("0", "U", Vec3::new(9.0, 0.0, 0.0), false, 10)
+            .is_err()
+    );
+    assert!(
+        case.streamline("0", "U", Vec3::new(f64::NAN, 0.0, 0.0), false, 10)
+            .is_err()
+    );
+    assert!(case.streamline("0", "U", seed, false, 0).is_err());
+    assert!(case.streamline("0", "U", seed, false, usize::MAX).is_err());
 }

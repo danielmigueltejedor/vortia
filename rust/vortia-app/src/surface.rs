@@ -406,7 +406,8 @@ impl Camera {
         out
     }
 
-    fn pixel_projection<'a>(
+    /// The screen position of a point of the surface, on a screen of `size` pixels.
+    pub fn pixel_projection<'a>(
         &'a self,
         surface: &'a Surface,
         size: [f32; 2],

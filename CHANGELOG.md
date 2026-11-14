@@ -15,6 +15,16 @@ texto de la release en GitHub. Este registro sigue siendo el detalle para quien 
   la conserva.
 
 ### Añadido
+- **Líneas de corriente:** `vortia streamline CASO CAMPO X Y Z [-backward] [TIEMPO]`
+  sigue una partícula por un campo vectorial (cada celda con su velocidad, de
+  cara a cara) y la escribe como CSV (x, y, z, velocidad). Para en la frontera,
+  en un punto de estancamiento o al llegar al límite de puntos, y lo dice. En
+  la biblioteca, `Case::streamline` (una) y `Case::streamlines` (varias, leyendo el
+  campo una vez). En la pestaña Malla, con un campo vectorial elegido, aparecen las
+  casillas «Streamlines» y «Arrows»: líneas por una rejilla de semillas sobre los dos
+  lados largos de la malla y una flecha por semilla, coloreada por la velocidad.
+  Se calculan en otro hilo; las semillas son una rejilla uniforme (el chorro fino
+  de una tobera queda poco muestreado).
 - **Motor propio, convección natural:** nuevo solver `buoyantBoussinesqSimpleFoam`
   (laminar, estacionario, fluido de Boussinesq con `p_rgh`, gravedad en
   `constant/g` y `hRef`, `fixedFluxPressure` en las paredes). Frente a la
