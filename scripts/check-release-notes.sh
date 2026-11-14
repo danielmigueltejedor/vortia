@@ -37,7 +37,8 @@ if [[ "${1:-}" == "--changed" ]]; then
   fi
   while IFS= read -r changed; do
     [[ -n "$changed" ]] && tags+=("$changed")
-  done < <(git -C "$root" diff --name-only --diff-filter=AM "$base" HEAD -- docs/release-notes \
+  # Whole-tree diff, so a notes file that only moved here counts as renamed, not added.
+  done < <(git -C "$root" diff --name-only -M --diff-filter=AM "$base" HEAD \
     | sed -n 's#^docs/release-notes/\(v[0-9][^/]*\)\.md$#\1#p')
   if [[ "${#tags[@]}" -eq 0 ]]; then
     echo "✓ No version bump and no notes changed: nothing to check."
