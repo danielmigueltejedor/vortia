@@ -22,6 +22,7 @@
 mod case;
 mod csv;
 mod error;
+mod export;
 mod slice;
 mod stats;
 mod streamline;
@@ -30,6 +31,7 @@ mod wall;
 pub use case::{Case, FieldReport, FieldValues, MAX_LINE_POINTS, PatchReport, Sample};
 pub use csv::line_csv;
 pub use error::{PostError, Result};
+pub use export::MAX_EXPORT_CELLS;
 pub use slice::SlicePolygon;
 pub use stats::{PatchStats, VolumeStats};
 pub use streamline::{MAX_STREAMLINE_POINTS, Streamline, StreamlineEnd};

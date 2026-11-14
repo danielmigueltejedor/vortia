@@ -39,8 +39,8 @@ What every later step is looked at with. In the Rust app and `vortia` CLI:
 
 Progress: streamlines (`vortia streamline`, `Case::streamlines`) and arrows are in
 the Mesh viewer for vector fields, on a uniform seed grid, and the viewer cuts the
-volume by a plane across x, y or z (`Case::slice`). Oblique planes, seeds picked by
-the user, and the VTK export are still open.
+volume by a plane across x, y or z (`Case::slice`). `vortia export` writes CSV and VTK (`.vtu`). Oblique planes, seeds picked by the user
+and the comparison with `postProcess` are still open.
 
 Done when the nozzle and the flat plate cases are inspected with all of the
 above and the numbers equal OpenFOAM's `postProcess` on the same results.

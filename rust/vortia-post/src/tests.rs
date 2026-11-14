@@ -550,3 +550,116 @@ fn a_slice_refuses_a_plane_that_is_not_one() {
             .is_err()
     );
 }
+
+/// The text between `<DataArray ... Name="name" ...>` and its closing tag.
+fn array<'a>(vtu: &'a str, name: &str) -> &'a str {
+    let at = vtu.find(&format!("Name=\"{name}\"")).unwrap();
+    let start = vtu[at..].find('>').unwrap() + at + 1;
+    let end = vtu[start..].find("</DataArray>").unwrap() + start;
+    &vtu[start..end]
+}
+
+#[test]
+fn the_cells_go_out_as_a_table() {
+    let (dir, case) = case();
+    write_vector(&dir, &case, "U", |c| Vec3::new(c.x, 0.0, 1.0));
+    write_scalar(&dir, &case, "p", |c| c.y);
+    let csv = case.cells_csv("0", &[]).unwrap();
+    let mut lines = csv.lines();
+    assert_eq!(lines.next(), Some("cell,x,y,z,volume,U_x,U_y,U_z,p"));
+    assert_eq!(lines.count(), 8);
+    let only = case.cells_csv("0", &["p".to_owned()]).unwrap();
+    assert_eq!(only.lines().next(), Some("cell,x,y,z,volume,p"));
+    // A cell's row: its centre, unit volume, and the value there.
+    let first: Vec<f64> = only
+        .lines()
+        .nth(1)
+        .unwrap()
+        .split(',')
+        .skip(1)
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert_eq!(first, [0.5, 0.5, 0.5, 1.0, 0.5]);
+    assert!(case.cells_csv("0", &["nope".to_owned()]).is_err());
+}
+
+#[test]
+fn the_mesh_goes_out_as_a_vtk_grid_of_polyhedra() {
+    let (dir, case) = case();
+    write_scalar(&dir, &case, "p", |c| c.x);
+    let vtu = case.vtu("0", &[]).unwrap();
+    assert!(vtu.contains("NumberOfPoints=\"30\" NumberOfCells=\"8\""));
+    let types: Vec<&str> = array(&vtu, "types").split_whitespace().collect();
+    assert_eq!(types, ["42"; 8]);
+    // Each cell is a box of eight points and six quadrilaterals.
+    let offsets: Vec<usize> = array(&vtu, "offsets")
+        .split_whitespace()
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert_eq!(offsets, [8, 16, 24, 32, 40, 48, 56, 64]);
+    let face_offsets: Vec<usize> = array(&vtu, "faceoffsets")
+        .split_whitespace()
+        .map(|v| v.parse().unwrap())
+        .collect();
+    // 1 face count + 6 * (1 length + 4 points) = 31 numbers a cell.
+    assert_eq!(face_offsets, [31, 62, 93, 124, 155, 186, 217, 248]);
+    let faces: Vec<usize> = array(&vtu, "faces")
+        .split_whitespace()
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert_eq!(faces.len(), 248);
+    assert!(faces.chunks(31).all(|cell| cell[0] == 6));
+    // Every point number is a point of the mesh.
+    let connectivity: Vec<usize> = array(&vtu, "connectivity")
+        .split_whitespace()
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert!(connectivity.iter().all(|&i| i < 30));
+    let p: Vec<f64> = array(&vtu, "p")
+        .split_whitespace()
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert_eq!(p.len(), 8);
+    assert_eq!(p[0], 0.5);
+}
+
+#[test]
+fn the_faces_of_the_grid_point_out_of_their_cell() {
+    let (dir, case) = case();
+    write_scalar(&dir, &case, "p", |c| c.x);
+    let vtu = case.vtu("0", &[]).unwrap();
+    let faces: Vec<usize> = array(&vtu, "faces")
+        .split_whitespace()
+        .map(|v| v.parse().unwrap())
+        .collect();
+    let mut at = 0;
+    for cell in 0..8 {
+        let centre = case.geometry().cell_centres[cell];
+        let count = faces[at];
+        at += 1;
+        for _ in 0..count {
+            let n = faces[at];
+            let ring: Vec<Vec3> = faces[at + 1..at + 1 + n]
+                .iter()
+                .map(|&i| case.mesh().points()[i])
+                .collect();
+            at += 1 + n;
+            // Newell's normal of the ring, against the way from the cell's middle to the face.
+            let mut normal = Vec3::new(0.0, 0.0, 0.0);
+            for (k, a) in ring.iter().enumerate() {
+                let b = ring[(k + 1) % n];
+                normal = normal
+                    + Vec3::new(
+                        (a.y - b.y) * (a.z + b.z),
+                        (a.z - b.z) * (a.x + b.x),
+                        (a.x - b.x) * (a.y + b.y),
+                    );
+            }
+            let middle = ring.iter().fold(Vec3::new(0.0, 0.0, 0.0), |s, &p| s + p) * 0.25;
+            assert!(
+                normal.dot(middle - centre) > 0.0,
+                "cell {cell} has a face pointing in"
+            );
+        }
+    }
+}

@@ -33,6 +33,13 @@ pub fn run(args: &[&str]) -> Option<ExitCode> {
                 _ => usage_error("the line needs two points and a number of points"),
             }
         }
+        ["export", case, format, file, rest @ ..] => {
+            let (time, fields) = match rest {
+                [] => (None, &[][..]),
+                [t, f @ ..] => (Some(*t), f),
+            };
+            finish(export(case, format, file, time, fields))
+        }
         ["streamline", case, field, x, y, z, rest @ ..] => {
             let (backward, time) = match rest {
                 [] => (false, None),
@@ -59,7 +66,7 @@ pub fn run(args: &[&str]) -> Option<ExitCode> {
             finish(wall(case, patch, time.first().copied()))
         }
         [
-            "probe" | "sample" | "streamline" | "patch" | "flux" | "volume" | "wall",
+            "probe" | "sample" | "streamline" | "export" | "patch" | "flux" | "volume" | "wall",
             ..,
         ] => usage_error("wrong number of arguments"),
         _ => return None,
@@ -157,6 +164,32 @@ fn streamline(
     }
     eprintln!("vortia: the line ended at {}", end_name(line.end));
     Ok(out)
+}
+
+fn export(
+    case: &str,
+    format: &str,
+    file: &str,
+    time: Option<&str>,
+    fields: &[&str],
+) -> Result<String, String> {
+    let (case, time) = open(case, time)?;
+    let fields: Vec<String> = fields.iter().map(|f| (*f).to_owned()).collect();
+    let text = match format {
+        "csv" => case.cells_csv(&time, &fields),
+        "vtu" => case.vtu(&time, &fields),
+        other => {
+            return Err(format!("the format is csv or vtu, not '{}'", shown(other)));
+        }
+    }
+    .map_err(|e| e.to_string())?;
+    std::fs::write(file, &text).map_err(|e| format!("could not write {}: {e}", shown(file)))?;
+    Ok(format!(
+        "Wrote {} ({} bytes) from time {}\n",
+        shown(file),
+        text.len(),
+        shown(&time)
+    ))
 }
 
 fn end_name(end: vortia_post::StreamlineEnd) -> &'static str {
