@@ -1485,7 +1485,7 @@ dependencies = [
 [[package]]
 name = "nodalia-theme"
 version = "0.1.0-alpha.1"
-source = "git+https://github.com/getnodalia/nodalia-design?rev=8fe723967b1895a96192171a1114f708cdcbc728#8fe723967b1895a96192171a1114f708cdcbc728"
+source = "git+https://github.com/getnodalia/nodalia-design?rev=9455ccc7173e1b2851a759492938f2a885919875#9455ccc7173e1b2851a759492938f2a885919875"
 dependencies = [
  "egui",
 ]
@@ -2677,6 +2677,7 @@ name = "vortia-app"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "image",
  "nodalia-theme",
  "serde_json",
  "tempfile",

@@ -12,6 +12,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   la conserva.
 
 ### Añadido
+- **App en Rust:** la ventana sigue ahora la suite de ingeniería de Nodalia
+  (la de Forja y Torno): barra de título con el icono, Inicio, una cinta con
+  los pasos del flujo (Case, Mesh, Setup, Results), el navegador con el árbol
+  del caso (malla y contornos, campos, solver), las propiedades del caso o del
+  contorno elegido, y una barra de estado con el estado del cálculo y sus
+  residuos. Ctrl o el botón de la barra abren la búsqueda de comandos.
 - **App en Rust:** usa la tipografía de ingeniería compartida con Forja y
   Torno (IBM Plex Sans y Mono), que llega desde el tema de Nodalia.
 - **Motor propio, paredes:** `vortia wall` da el esfuerzo cortante, la y+, las

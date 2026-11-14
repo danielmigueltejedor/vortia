@@ -1,7 +1,7 @@
 //! The window: Nodalia islands on the window surface, a header with the hamburger menu, and
 //! two screens, the welcome and the case.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -27,20 +27,18 @@ use crate::surface;
 use crate::viewer::{Source, Viewer};
 
 mod results;
+mod shell;
 use results::{Results, results_tab};
+use shell::Selection;
 
 /// The accent of the app.
 const ACCENT: Accent = Accent::Vortia;
-/// The height of the header.
-const HEADER: f32 = 48.0;
 /// The size of a window control.
 const CONTROL: f32 = 28.0;
 /// The log lines kept; the solver prints a few per step.
 const MAX_LOG: usize = 5_000;
 /// The edge of the window that resizes it, with the window's own decorations off.
 const GRIP: f32 = 6.0;
-/// The width of the case's summary beside the run.
-const SIDE: f32 = 300.0;
 
 /// The viewport the app opens in. Linux draws its own window controls (NDL), so it asks for
 /// no decorations; macOS and Windows keep the system's.
@@ -83,6 +81,9 @@ struct CaseView {
     /// The folder changed (a run ended): read it again.
     summary_stale: bool,
     tab: Tab,
+    /// What the Browser has picked besides a view, and the groups of its tree that are closed.
+    selection: Selection,
+    collapsed: HashSet<&'static str>,
     /// The run settings as typed, and how the last save went (`true` when it worked).
     form: Option<SettingsForm>,
     form_message: Option<(bool, String)>,
@@ -123,7 +124,7 @@ pub enum TabName {
 }
 
 /// What the main part of the case screen shows.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Tab {
     Run,
     Mesh,
@@ -148,6 +149,8 @@ impl CaseView {
             summary_rx: None,
             summary_stale: true,
             tab: Tab::Run,
+            selection: Selection::default(),
+            collapsed: HashSet::new(),
             form: None,
             form_message: None,
             conditions: None,
@@ -282,6 +285,13 @@ pub struct VortiaApp {
     notice: Option<String>,
     screen: Screen,
     dialog: Option<Dialog>,
+    /// Home is showing over the open case (it always shows when there is none).
+    home: bool,
+    /// The Open field of Home takes the keyboard on the next frame.
+    focus_open: bool,
+    /// The command search, with what was typed, while it is open.
+    search: Option<String>,
+    icon: Option<egui::TextureHandle>,
     /// The menus in the shell's top bar, where there is one.
     #[cfg(target_os = "linux")]
     global_menu: Option<GlobalMenu>,
@@ -351,6 +361,10 @@ impl VortiaApp {
             notice: None,
             screen: Screen::Welcome,
             dialog: None,
+            home: false,
+            focus_open: false,
+            search: None,
+            icon: None,
             #[cfg(target_os = "linux")]
             global_menu: None,
         }
@@ -374,6 +388,7 @@ impl VortiaApp {
         self.prefs.remember(dir);
         self.save_prefs();
         self.notice = None;
+        self.home = false;
         self.screen = Screen::Case(Box::new(CaseView::new(dir.to_path_buf(), application)));
 
         Ok(())
@@ -564,325 +579,13 @@ impl VortiaApp {
             .fill(for_egui::color(p.surface_window))
             .corner_radius(corner(round));
 
-        egui::CentralPanel::default().frame(frame).show(root, |ui| {
-            self.header(ui, ctx, &p, maximized);
-            let gap = component::WINDOW_GAP;
-            Frame::NONE
-                .inner_margin(Margin {
-                    left: gap as i8,
-                    right: gap as i8,
-                    top: 0,
-                    bottom: gap as i8,
-                })
-                .show(ui, |ui| {
-                    Frame::NONE
-                        .fill(for_egui::color(p.surface_panel))
-                        .corner_radius(corner(component::PANEL_RADIUS))
-                        .inner_margin(Margin::same(space::XL as i8))
-                        .show(ui, |ui| {
-                            ui.set_min_size(ui.available_size());
-                            match self.screen {
-                                Screen::Welcome => self.welcome(ui, ctx, &p),
-                                Screen::Case(_) => self.case_screen(ui, ctx, &p),
-                            }
-                        });
-                });
-        });
+        egui::CentralPanel::default()
+            .frame(frame)
+            .show(root, |ui| self.shell(ui, ctx, maximized));
 
         self.dialogs(ctx, &p);
         if own_controls() && !maximized {
             resize_edges(ctx);
-        }
-    }
-
-    fn header(&mut self, ui: &mut egui::Ui, ctx: &Context, p: &Palette, maximized: bool) {
-        let rect =
-            egui::Rect::from_min_size(ui.cursor().min, Vec2::new(ui.available_width(), HEADER));
-        // Under the widgets: the empty part of the bar moves the window.
-        let bar = ui.interact(rect, Id::unique("header-drag"), Sense::click_and_drag());
-        if own_controls() {
-            if bar.drag_started_by(egui::PointerButton::Primary) {
-                ctx.send_viewport_cmd(ViewportCommand::StartDrag);
-            }
-            if bar.double_clicked() {
-                ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
-            }
-        }
-        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-            ui.horizontal_centered(|ui| {
-                ui.add_space(space::MD);
-                let menu = icon_button(ui, p, "menu");
-                egui::Popup::menu(&menu).show(|ui| {
-                    ui.set_min_width(200.0);
-                    if ui.button("Preferences").clicked() {
-                        self.dialog = Some(Dialog::Preferences);
-                    }
-                    if ui.button("Keyboard shortcuts").clicked() {
-                        self.dialog = Some(Dialog::Shortcuts);
-                    }
-                    if ui.button("About Vortia").clicked() {
-                        self.dialog = Some(Dialog::About);
-                    }
-                });
-                ui.label(RichText::new("Vortia").size(font_size::TITLE).strong());
-                if let Screen::Case(case) = &self.screen {
-                    ui.label(RichText::new(format!("·  {}", case.name())).color(muted(p)));
-                }
-                if own_controls() {
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.add_space(space::MD);
-                        if control(ui, "close", p.status_danger_fg).clicked() {
-                            ctx.send_viewport_cmd(ViewportCommand::Close);
-                        }
-                        let (icon, tint) = if maximized {
-                            ("fullscreen-exit", p.accent_default)
-                        } else {
-                            ("fullscreen", p.accent_default)
-                        };
-                        if control(ui, icon, tint).clicked() {
-                            ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
-                        }
-                        if control(ui, "minus", p.status_warning_fg).clicked() {
-                            ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
-                        }
-                    });
-                }
-            });
-        });
-        ui.advance_cursor_after_rect(rect);
-    }
-
-    fn welcome(&mut self, ui: &mut egui::Ui, ctx: &Context, p: &Palette) {
-        ui.vertical_centered(|ui| {
-            ui.add_space(space::XXL);
-            ui.label(RichText::new("Vortia").size(font_size::DISPLAY).strong());
-            ui.label(
-                RichText::new("Compressible flow, solved by the Vortia engine")
-                    .size(font_size::LARGE)
-                    .color(muted(p)),
-            );
-            ui.add_space(space::XL);
-            let mut open = false;
-            ui.horizontal(|ui| {
-                let width = 420.0_f32.min(ui.available_width() - 160.0).max(200.0);
-                ui.add_space(((ui.available_width() - width - 140.0) / 2.0).max(0.0));
-                let field = ui.add(
-                    egui::TextEdit::singleline(&mut self.path_input)
-                        .hint_text("Folder of a case")
-                        .desired_width(width),
-                );
-                open |= field.lost_focus() && ctx.input(|i| i.key_pressed(Key::Enter));
-                open |= accent_button(ui, p, "Open case").clicked();
-            });
-            if open {
-                let dir = PathBuf::from(self.path_input.trim());
-                match self.open_case(&dir) {
-                    Ok(()) => self.path_input.clear(),
-                    Err(message) => self.notice = Some(message),
-                }
-            }
-            if let Some(notice) = &self.notice {
-                ui.add_space(space::SM);
-                ui.colored_label(for_egui::color(p.status_danger_fg), notice);
-            }
-            ui.add_space(space::XL);
-        });
-        if self.prefs.recent.is_empty() {
-            return;
-        }
-        ui.label(RichText::new("Recent cases").color(muted(p)));
-        ui.add_space(space::XS);
-        let mut chosen = None;
-        for dir in self.prefs.recent.clone() {
-            let name = dir.file_name().map_or_else(
-                || dir.display().to_string(),
-                |n| n.to_string_lossy().into_owned(),
-            );
-            let row = ui.add(
-                egui::Button::new(RichText::new(name).size(font_size::LARGE))
-                    .frame(false)
-                    .min_size(Vec2::new(ui.available_width(), 28.0)),
-            );
-            ui.label(
-                RichText::new(dir.display().to_string())
-                    .size(font_size::SMALL)
-                    .color(muted(p)),
-            );
-            if row.clicked() {
-                chosen = Some(dir);
-            }
-        }
-        if let Some(dir) = chosen
-            && let Err(message) = self.open_case(&dir)
-        {
-            self.notice = Some(message);
-        }
-    }
-
-    fn case_screen(&mut self, ui: &mut egui::Ui, ctx: &Context, p: &Palette) {
-        let mut run = false;
-        let mut close = false;
-        let mut stop = false;
-        let Screen::Case(case) = &mut self.screen else {
-            return;
-        };
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.label(
-                    RichText::new(case.name())
-                        .size(font_size::HEADLINE)
-                        .strong(),
-                );
-                let solver = case.application.as_deref().unwrap_or("no solver named");
-                ui.label(
-                    RichText::new(format!("{solver}  ·  {}", case.dir.display()))
-                        .size(font_size::SMALL)
-                        .color(muted(p)),
-                );
-            });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if case.session.is_some() {
-                    let stopping = case.stopping;
-                    let label = if stopping { "Stopping…" } else { "Stop" };
-                    let button = ui.add_enabled(!stopping, egui::Button::new(label));
-                    if button.clicked() {
-                        stop = true;
-                    }
-                } else {
-                    run = accent_button(ui, p, "Run").clicked();
-                    close = ui.button("Close case").clicked();
-                }
-            });
-        });
-        ui.add_space(space::MD);
-
-        if let Some(outcome) = &case.outcome {
-            match outcome {
-                Outcome::Failed(message) => {
-                    ui.colored_label(for_egui::color(p.status_danger_fg), message)
-                }
-                Outcome::Stopped => ui.colored_label(
-                    for_egui::color(p.status_warning_fg),
-                    "The run was stopped; what was written before stays in the case.",
-                ),
-                Outcome::Done => {
-                    ui.colored_label(for_egui::color(p.status_success_fg), "The run finished.")
-                }
-            };
-            ui.add_space(space::SM);
-        } else if case.running() {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label("Running…");
-            });
-            ui.add_space(space::SM);
-        }
-
-        let room = ui.available_size();
-        ui.horizontal_top(|ui| {
-            ui.allocate_ui_with_layout(
-                Vec2::new(SIDE, room.y),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    egui::ScrollArea::vertical()
-                        .id_salt("case-summary")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| summary_card(ui, p, case.summary.as_ref()));
-                },
-            );
-            let width = ui.available_width();
-            ui.allocate_ui_with_layout(
-                Vec2::new(width, room.y),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(&mut case.tab, Tab::Run, "Run");
-                        ui.selectable_value(&mut case.tab, Tab::Mesh, "Mesh");
-                        ui.selectable_value(&mut case.tab, Tab::Results, "Results");
-                        ui.selectable_value(&mut case.tab, Tab::Conditions, "Conditions");
-                        ui.selectable_value(&mut case.tab, Tab::Numerics, "Numerics");
-                        ui.selectable_value(&mut case.tab, Tab::Schemes, "Schemes");
-                        ui.selectable_value(&mut case.tab, Tab::Settings, "Settings");
-                    });
-                    ui.add_space(space::SM);
-                    case.ensure_viewer(ctx);
-                    case.ensure_conditions(ctx);
-                    if case.tab == Tab::Results {
-                        results_tab(ui, p, &case.dir, &mut case.results);
-                        return;
-                    }
-                    if case.tab == Tab::Conditions {
-                        conditions_tab(ui, p, case);
-                        return;
-                    }
-                    if case.tab == Tab::Numerics {
-                        file_tab(ui, p, case, File::Solution);
-                        return;
-                    }
-                    if case.tab == Tab::Schemes {
-                        file_tab(ui, p, case, File::Schemes);
-                        return;
-                    }
-                    if case.tab == Tab::Settings {
-                        settings_tab(ui, p, case);
-                        return;
-                    }
-                    if case.tab == Tab::Mesh {
-                        let source = Source {
-                            dir: case.dir.clone(),
-                            times: case
-                                .summary
-                                .as_ref()
-                                .map(|s| s.times.clone())
-                                .unwrap_or_default(),
-                            fields: case
-                                .summary
-                                .as_ref()
-                                .map(|s| s.fields.clone())
-                                .unwrap_or_default(),
-                        };
-                        mesh_tab(ui, p, case.viewer.as_mut(), &source);
-                        return;
-                    }
-                    convergence_card(ui, p, case.report.as_ref());
-                    ui.add_space(space::MD);
-
-                    ui.label(RichText::new("Log").color(muted(p)));
-                    Frame::NONE
-                        .fill(for_egui::color(p.surface_sunken))
-                        .corner_radius(corner(component::CONTROL_RADIUS))
-                        .inner_margin(Margin::same(space::MD as i8))
-                        .show(ui, |ui| {
-                            ui.set_min_size(ui.available_size());
-                            egui::ScrollArea::vertical()
-                                .auto_shrink([false, false])
-                                .stick_to_bottom(true)
-                                .show(ui, |ui| {
-                                    if case.log.is_empty() {
-                                        ui.label(
-                                            RichText::new("The solver's output appears here.")
-                                                .color(muted(p)),
-                                        );
-                                    }
-                                    for line in &case.log {
-                                        ui.label(
-                                            RichText::new(line).monospace().size(font_size::SMALL),
-                                        );
-                                    }
-                                });
-                        });
-                },
-            );
-        });
-
-        if run {
-            self.start_run(ctx);
-        }
-        if stop {
-            self.stop_run();
-        }
-        if close {
-            self.close_case();
         }
     }
 
@@ -1001,88 +704,6 @@ pub fn grouped(n: usize) -> String {
         out.push(c);
     }
     out
-}
-
-fn summary_card(ui: &mut egui::Ui, p: &Palette, summary: Option<&Summary>) {
-    Frame::NONE
-        .fill(for_egui::color(p.surface_sunken))
-        .corner_radius(corner(component::CONTROL_RADIUS))
-        .inner_margin(Margin::same(space::MD as i8))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let Some(s) = summary else {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(RichText::new("Reading the case…").color(muted(p)));
-                });
-                return;
-            };
-            let row = |ui: &mut egui::Ui, name: &str, value: String| {
-                ui.label(RichText::new(name).color(muted(p)));
-                ui.label(value);
-                ui.end_row();
-            };
-            egui::Grid::new("case-settings")
-                .num_columns(2)
-                .spacing([space::LG, space::XS])
-                .show(ui, |ui| {
-                    if let Some(app) = &s.application {
-                        row(ui, "Solver", app.clone());
-                    }
-                    if let (Some(start), Some(end)) = (s.start_time, s.end_time) {
-                        row(ui, "Time", format!("{start} to {end} s"));
-                    }
-                    if let Some(dt) = s.delta_t {
-                        row(ui, "Time step", format!("{dt} s"));
-                    }
-                    if let Some(every) = s.write_interval {
-                        row(ui, "Writes every", every.to_string());
-                    }
-                    if let Some(Ok(mesh)) = &s.mesh {
-                        row(ui, "Cells", grouped(mesh.cells));
-                        row(ui, "Points", grouped(mesh.points));
-                    }
-                });
-            match &s.mesh {
-                None => {
-                    ui.add_space(space::SM);
-                    ui.label(RichText::new("The case has no mesh yet.").color(muted(p)));
-                }
-                Some(Err(message)) => {
-                    ui.add_space(space::SM);
-                    ui.colored_label(for_egui::color(p.status_danger_fg), message);
-                }
-                Some(Ok(mesh)) => {
-                    ui.add_space(space::MD);
-                    ui.label(RichText::new("Patches").color(muted(p)));
-                    egui::Grid::new("case-patches")
-                        .num_columns(3)
-                        .spacing([space::MD, space::XS])
-                        .show(ui, |ui| {
-                            for patch in &mesh.patches {
-                                ui.label(&patch.name);
-                                ui.label(RichText::new(&patch.kind).color(muted(p)));
-                                ui.label(
-                                    RichText::new(grouped(patch.faces))
-                                        .monospace()
-                                        .color(muted(p)),
-                                );
-                                ui.end_row();
-                            }
-                        });
-                }
-            }
-            if !s.fields.is_empty() {
-                ui.add_space(space::MD);
-                ui.label(RichText::new("Fields").color(muted(p)));
-                ui.label(s.fields.join(", "));
-            }
-            if let Some(last) = s.times.last() {
-                ui.add_space(space::MD);
-                ui.label(RichText::new("Written up to").color(muted(p)));
-                ui.label(format!("{last} s"));
-            }
-        });
 }
 
 fn convergence_card(ui: &mut egui::Ui, p: &Palette, report: Option<&Convergence>) {
@@ -1495,25 +1116,6 @@ fn paint_icon(painter: &egui::Painter, rect: egui::Rect, name: &str, ink: Color3
     if let Some(icon) = icons::get(name) {
         icons::paint(painter, rect, icon, icons::Style::bold(ink));
     }
-}
-
-/// A flat square button with an icon.
-fn icon_button(ui: &mut egui::Ui, p: &Palette, name: &str) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(CONTROL + 4.0), Sense::click());
-    if response.hovered() {
-        ui.painter().rect_filled(
-            rect,
-            corner(radius::FULL),
-            for_egui::color(p.control_bg_hover),
-        );
-    }
-    paint_icon(
-        ui.painter(),
-        rect.shrink(7.0),
-        name,
-        for_egui::color(p.text_primary),
-    );
-    response
 }
 
 /// A round window control, tinted: the fill is the tint at low strength, the icon the tint.
