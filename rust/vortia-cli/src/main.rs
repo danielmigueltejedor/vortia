@@ -44,6 +44,7 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     \x20      vortia cgnstofoam [-scale F] [-2D T] [-writeZones] FILE [CASE]\n\
     \x20      vortia probe CASE FIELD X Y Z [TIME]\n\
     \x20      vortia sample CASE FIELD X0 Y0 Z0 X1 Y1 Z1 POINTS [TIME]\n\
+    \x20      vortia streamline CASE FIELD X Y Z [-backward] [TIME]\n\
     \x20      vortia patch CASE PATCH FIELD [TIME]\n\
     \x20      vortia flux CASE PATCH [TIME]\n\
     \x20      vortia volume CASE FIELD [TIME]\n\
@@ -60,6 +61,8 @@ const USAGE: &str = "usage: vortia check-mesh [CASE]\n\
     cgnstofoam   convert a CGNS (ADF) file into CASE/constant/polyMesh\n\
     probe        the value of FIELD in the cell holding the point\n\
     sample       FIELD along a line, as CSV: distance, point, cell, value\n\
+    streamline   the path a particle follows through a vector FIELD, as CSV\n\
+    \x20            (x, y, z, speed); -backward follows it upstream\n\
     patch        area, integral, average and range of FIELD over a patch\n\
     flux         what flows out through a patch (the sum of phi on it)\n\
     volume       volume, integral, average and range of FIELD over the domain\n\

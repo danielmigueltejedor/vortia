@@ -1,4 +1,4 @@
-//! `probe`, `sample`, `patch`, `flux` and `volume`: looking into a case's
+//! `probe`, `sample`, `streamline`, `patch`, `flux` and `volume`: looking into a case's
 //! results from the command line, with the numbers OpenFOAM's `postProcess`
 //! gives for the same files.
 
@@ -33,6 +33,19 @@ pub fn run(args: &[&str]) -> Option<ExitCode> {
                 _ => usage_error("the line needs two points and a number of points"),
             }
         }
+        ["streamline", case, field, x, y, z, rest @ ..] => {
+            let (backward, time) = match rest {
+                [] => (false, None),
+                ["-backward"] => (true, None),
+                ["-backward", t] => (true, Some(*t)),
+                [t] => (false, Some(*t)),
+                _ => return Some(usage_error("wrong number of arguments")),
+            };
+            point(&[x, y, z]).map_or_else(
+                || usage_error("the point needs three numbers"),
+                |p| finish(streamline(case, field, p, backward, time)),
+            )
+        }
         ["patch", case, patch, field, time @ ..] if time.len() <= 1 => {
             finish(patch_stats(case, patch, field, time.first().copied()))
         }
@@ -46,7 +59,7 @@ pub fn run(args: &[&str]) -> Option<ExitCode> {
             finish(wall(case, patch, time.first().copied()))
         }
         [
-            "probe" | "sample" | "patch" | "flux" | "volume" | "wall",
+            "probe" | "sample" | "streamline" | "patch" | "flux" | "volume" | "wall",
             ..,
         ] => usage_error("wrong number of arguments"),
         _ => return None,
@@ -125,6 +138,33 @@ fn sample(
         .sample_line(&time, field, start, end, points)
         .map_err(|e| e.to_string())?;
     Ok(vortia_post::line_csv(field, &values, &samples))
+}
+
+fn streamline(
+    case: &str,
+    field: &str,
+    seed: Vec3,
+    backward: bool,
+    time: Option<&str>,
+) -> Result<String, String> {
+    let (case, time) = open(case, time)?;
+    let line = case
+        .streamline(&time, field, seed, backward, 10_000)
+        .map_err(|e| e.to_string())?;
+    let mut out = String::from("x,y,z,speed\n");
+    for (p, s) in line.points.iter().zip(&line.speeds) {
+        out.push_str(&format!("{:e},{:e},{:e},{:e}\n", p.x, p.y, p.z, s));
+    }
+    eprintln!("vortia: the line ended at {}", end_name(line.end));
+    Ok(out)
+}
+
+fn end_name(end: vortia_post::StreamlineEnd) -> &'static str {
+    match end {
+        vortia_post::StreamlineEnd::Boundary => "the boundary",
+        vortia_post::StreamlineEnd::Stagnation => "a stagnation point",
+        vortia_post::StreamlineEnd::Length => "its length limit",
+    }
 }
 
 fn patch_stats(case: &str, patch: &str, field: &str, time: Option<&str>) -> Result<String, String> {

@@ -20,6 +20,7 @@ pub mod conditions;
 pub mod controldict;
 pub mod convergence;
 pub mod fieldview;
+pub mod flowlines;
 #[cfg(target_os = "linux")]
 pub mod globalmenu;
 pub mod numerics;

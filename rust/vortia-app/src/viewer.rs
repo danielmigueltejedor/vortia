@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
 use crate::fieldview::{self, CellValues};
+use crate::flowlines::{self, FlowLines};
 use crate::surface::{Camera, Surface};
 
 /// Outlines are drawn for surfaces up to this many faces; beyond it they would cost more than
@@ -71,6 +72,12 @@ pub struct Viewer {
     values_rx: Option<Receiver<Result<CellValues, String>>>,
     /// What `values` (or the read in flight) is of.
     requested: Option<(String, String)>,
+    /// Whether streamlines and arrows are drawn over a vector field.
+    lines: bool,
+    arrows: bool,
+    flow: Option<Result<FlowLines, String>>,
+    flow_rx: Option<Receiver<Result<FlowLines, String>>>,
+    flow_requested: Option<(String, String)>,
 }
 
 impl Viewer {
@@ -87,6 +94,11 @@ impl Viewer {
             values: None,
             values_rx: None,
             requested: None,
+            lines: false,
+            arrows: false,
+            flow: None,
+            flow_rx: None,
+            flow_requested: None,
         }
     }
 
@@ -132,6 +144,103 @@ impl Viewer {
                 move || repaint.request_repaint(),
             ));
             self.requested = Some(wanted);
+        }
+        self.sync_flow(ctx, source);
+    }
+
+    /// Takes a finished flow, and starts the one the choices ask for: lines or arrows wanted
+    /// and a vector field on the surface.
+    fn sync_flow(&mut self, ctx: &egui::Context, source: &Source) {
+        if let Some(rx) = &self.flow_rx
+            && let Ok(done) = rx.try_recv()
+        {
+            self.flow = Some(done);
+            self.flow_rx = None;
+        }
+        let vector = matches!(&self.values, Some(Ok(v)) if v.kind == "vector");
+        let wanted = match (&self.field, vector && (self.lines || self.arrows)) {
+            (Some(name), true) => {
+                let time = self
+                    .time
+                    .clone()
+                    .or_else(|| source.times.last().cloned())
+                    .unwrap_or_else(|| "0".to_owned());
+                Some((name.clone(), time))
+            }
+            _ => None,
+        };
+        let Some(wanted) = wanted else {
+            self.flow = None;
+            self.flow_rx = None;
+            self.flow_requested = None;
+            return;
+        };
+        if self.flow_requested.as_ref() != Some(&wanted) {
+            let repaint = ctx.clone();
+            self.flow = None;
+            self.flow_rx = Some(flowlines::spawn(
+                source.dir.clone(),
+                wanted.1.clone(),
+                wanted.0.clone(),
+                move || repaint.request_repaint(),
+            ));
+            self.flow_requested = Some(wanted);
+        }
+    }
+
+    /// Streamlines and arrows over the picture.
+    fn draw_flow(&self, painter: &egui::Painter, rect: egui::Rect, screen: [f32; 2]) {
+        let Some(Ok(flow)) = &self.flow else {
+            return;
+        };
+        let to_pixel = self.camera.pixel_projection(&self.surface, screen);
+        let at = |p: [f32; 2]| Pos2::new(rect.min.x + p[0], rect.min.y + p[1]);
+        if self.lines {
+            let halo = Stroke::new(2.6, Color32::from_black_alpha(90));
+            let ink = Stroke::new(1.2, Color32::from_white_alpha(235));
+            for line in &flow.lines {
+                let points: Vec<Pos2> = line.points.iter().map(|p| at(to_pixel(p))).collect();
+                painter.add(egui::Shape::line(points.clone(), halo));
+                painter.add(egui::Shape::line(points, ink));
+            }
+        }
+        if self.arrows {
+            let reach = self.surface.radius * 0.01;
+            // About one seed spacing, so neighbours do not run into each other.
+            let arrow_size =
+                (screen[0].min(screen[1]) * 0.9 * self.camera.zoom / 18.0 * 0.85).clamp(5.0, 24.0);
+            for arrow in &flow.arrows {
+                let tip = [
+                    arrow.at[0] + arrow.direction[0] * reach,
+                    arrow.at[1] + arrow.direction[1] * reach,
+                    arrow.at[2] + arrow.direction[2] * reach,
+                ];
+                let (from, to) = (to_pixel(&arrow.at), to_pixel(&tip));
+                let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
+                let length = (dx * dx + dy * dy).sqrt();
+                // An arrow pointing at the viewer is a dot, not a direction.
+                if !length.is_finite() || length < 1e-6 {
+                    continue;
+                }
+                let (ux, uy) = (dx / length, dy / length);
+                let size = arrow_size;
+                let head = [from[0] + ux * size, from[1] + uy * size];
+                let [r, g, b] = fieldview::scale(flow.fraction(arrow.speed));
+                let colour = Color32::from_rgb(r, g, b);
+                let halo = Stroke::new(3.4, Color32::from_black_alpha(140));
+                let ink = Stroke::new(1.8, colour);
+                let wing = |sign: f32| {
+                    at([
+                        head[0] - ux * arrow_size * 0.35 - sign * uy * arrow_size * 0.22,
+                        head[1] - uy * arrow_size * 0.35 + sign * ux * arrow_size * 0.22,
+                    ])
+                };
+                for stroke in [halo, ink] {
+                    painter.line_segment([at(from), at(head)], stroke);
+                    painter.line_segment([at(head), wing(1.0)], stroke);
+                    painter.line_segment([at(head), wing(-1.0)], stroke);
+                }
+            }
         }
     }
 
@@ -283,6 +392,8 @@ impl Viewer {
             }
         }
 
+        self.draw_flow(&painter, rect, screen);
+
         let mut note = format!(
             "{} faces  ·  drag to turn, right-drag to slide, wheel to zoom, double-click to reset",
             self.surface.face_count()
@@ -330,7 +441,26 @@ impl Viewer {
                 });
             ui.add_space(6.0);
             match &self.values {
-                Some(Ok(values)) => scale_bar(ui, values, muted),
+                Some(Ok(values)) => {
+                    scale_bar(ui, values, muted);
+                    if values.kind == "vector" {
+                        ui.add_space(6.0);
+                        ui.checkbox(&mut self.lines, "Streamlines");
+                        ui.checkbox(&mut self.arrows, "Arrows");
+                        match &self.flow {
+                            Some(Err(message)) => {
+                                ui.label(egui::RichText::new(message).size(11.0).color(muted));
+                            }
+                            None if self.lines || self.arrows => {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label(egui::RichText::new("Following…").color(muted));
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 Some(Err(message)) => {
                     ui.label(egui::RichText::new(message).size(11.0).color(muted));
                 }
