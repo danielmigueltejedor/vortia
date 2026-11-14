@@ -2,6 +2,9 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+Las notas de cada versión publicada, bilingües, están en `docs/release-notes/vX.Y.Z.md`: son el
+texto de la release en GitHub. Este registro sigue siendo el detalle para quien desarrolla.
+
 ## [Unreleased]
 
 ### Cambiado

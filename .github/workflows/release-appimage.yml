@@ -4,7 +4,7 @@ name: Release packages
 # and only then attaches them to a GitHub Release.
 #
 # Releases: "Release from main" (release-auto.yml) runs this with tag=vX.Y.Z
-# when a new version and its CHANGELOG section land on main, and publishes the
+# when a new version and its notes (docs/release-notes/) land on main, and publishes the
 # release once the files are attached. By hand: run it with the tag of a draft
 # release. There is deliberately no "release: published" trigger: it rebuilt
 # and replaced the files that had just been verified.
