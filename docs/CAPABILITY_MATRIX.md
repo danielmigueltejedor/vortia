@@ -20,7 +20,7 @@ Leyenda de evidencia:
 | Turbulencia RANS | k-ε, k-ω SST, RSM, transición, funciones de pared y bajo Reynolds | k-ω SST estacionario con funciones de pared (`simpleFoam`); Spalart–Allmaras solo en el flujo compresible experimental | Nativa (placa plana, frente a correlación; una sola malla) |
 | LES / DES | Sí | No | — |
 | Compresible | Acoplado y segregado, subsónico a hipersónico | Solver propio experimental para toberas axisimétricas (requiere compilarlo; ver limitaciones) | Sin evidencia de validación física; pruebas de software y de rendimiento |
-| Transferencia de calor | Conducción, convección, radiación, conjugada | No (la energía solo existe dentro del solver compresible experimental) | — |
+| Transferencia de calor | Conducción, convección, radiación, conjugada | Convección natural laminar estacionaria de un fluido de Boussinesq en el motor Rust (`buoyantBoussinesqSimpleFoam`); la energía compresible solo existe dentro del solver compresible experimental. Sin radiación ni calor conjugado | Nativa (cavidad de de Vahl Davis, Ra 1e3 a 1e6, frente al valor publicado) |
 | Multifase | VOF, Euler–Euler, partículas, cavitación | No | — |
 | Combustión y química | Sí | No | — |
 | Malla móvil, 6-DOF, FSI | Sí | No | — |

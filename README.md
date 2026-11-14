@@ -89,7 +89,7 @@ captures, not validation: see [`docs/VALIDATION.md`](docs/VALIDATION.md).
 | Post-processing | Contours and profiles in the VTK viewer, section analysis, HTML/CSV/JSON reports | Software tests |
 | Verification | Three-mesh GCI, flow-rate balance, profile comparison | Native and software |
 
-Not available: LES/DES, heat transfer, multiphase, combustion, moving meshes,
+Not available: LES/DES, radiation and conjugate heat transfer (natural convection of a Boussinesq fluid exists in the Rust engine, without a screen in the app yet), multiphase, combustion, moving meshes,
 general 3D geometry with automatic volume meshing, remote or HPC runs. The
 full table, with what "evidence" means, is in the capability matrix.
 

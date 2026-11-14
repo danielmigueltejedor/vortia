@@ -14,6 +14,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod buoyant;
 pub mod cancel;
 pub mod case;
 pub(crate) mod coded;
@@ -43,6 +44,7 @@ pub fn run(case: &Case, log: impl FnMut(&str)) -> Result<()> {
     match case.application() {
         Some("laplacianFoam") => laplacian::run(case, log).map(|_| ()),
         Some("scalarTransportFoam") => scalar_transport::run(case, log).map(|_| ()),
+        Some("buoyantBoussinesqSimpleFoam") => buoyant::run(case, log).map(|_| ()),
         Some("icoFoam") => ico::run(case, log).map(|_| ()),
         Some("simpleFoam") => simple::run(case, log).map(|_| ()),
         Some("rhoCentralFoam") => rho_central::run(case, log).map(|_| ()),

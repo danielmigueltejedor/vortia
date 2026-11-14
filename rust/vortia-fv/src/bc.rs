@@ -56,7 +56,8 @@ impl Boundary {
     /// As [`from_field`](Self::from_field), also taking the conditions named
     /// in `driven`, whose values the solver sets from the flow:
     /// `totalPressure` and `totalTemperature` start as their file's `value`,
-    /// `inletOutlet` as a zero gradient towards its `inletValue`.
+    /// `inletOutlet` as a zero gradient towards its `inletValue`, and
+    /// `fixedFluxPressure` as a zero gradient.
     pub fn from_field_with(field: &ScalarField, mesh: &PolyMesh, driven: &[&str]) -> Result<Self> {
         check_solvable(field)?;
         field.check_against(mesh)?;
@@ -138,6 +139,12 @@ impl Boundary {
                         fraction: vec![0.0; patch.size],
                         ref_value: values(given.as_ref(), patch, "inletOutlet's inletValue")?,
                     }
+                }
+                // A pressure whose gradient makes the flux through the face
+                // the one the velocity condition asks for; the solver sets
+                // it, from zero.
+                "fixedFluxPressure" if driven.contains(&"fixedFluxPressure") => {
+                    ScalarBc::FixedGradient(vec![0.0; patch.size])
                 }
                 "wedge" | "symmetry" | "symmetryPlane" => ScalarBc::Reflect,
                 "calculated" => {

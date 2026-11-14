@@ -8,6 +8,7 @@
 //! - [`ops`]: gradient, diffusion, convection and time-derivative operators.
 //! - [`reconstruct`]: directed face values of limited schemes (central-upwind fluxes).
 //! - [`smooth`]: `fvc::smooth`, the ratio limit on a cell field (local time stepping).
+//! - [`surface`]: face-normal gradients and the reconstruction of a cell vector from face fluxes.
 //! - [`vector`]: vector conditions and equations (momentum).
 
 #![forbid(unsafe_code)]
@@ -34,6 +35,7 @@ pub mod scalar;
 pub mod smooth;
 pub mod solve;
 pub mod stress;
+pub mod surface;
 pub mod vector;
 
 pub use bc::{Boundary, ScalarBc};

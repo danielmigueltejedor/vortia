@@ -59,6 +59,15 @@ Done when the differentially heated square cavity matches the de Vahl Davis
 benchmark for Rayleigh 1e3 to 1e6 (Nusselt numbers to 1 %), and a heated
 channel agrees with OpenFOAM's solver on the same files.
 
+Progress (2026-11-14): the first slice is in the engine as
+`buoyantBoussinesqSimpleFoam`: laminar, steady, Boussinesq, `p_rgh` with
+`fixedFluxPressure`, `g` and `hRef`. It matches the benchmark's Nusselt number
+to 0.4 % at Ra 1e3, 1.1 % at 1e4 and 1.0 % at 1e5 (2.7 % at 1e6, on a uniform
+mesh that does not resolve the boundary layers); the velocity peaks agree to
+within 1.5 %. Left: comparison against OpenFOAM on the same files, graded
+meshes for the Ra 1e6 case, the perfect-gas and transient variants, the heat
+boundary conditions, the thermophysics library, the screens in the app.
+
 ### P3. Transient solving with an adjustable step (M)
 
 `pimpleFoam` and `rhoPimpleFoam` equivalents with outer correctors,
