@@ -49,9 +49,11 @@ pub fn sn_grad(
                 ScalarBc::Mixed {
                     fraction,
                     ref_value,
+                    ref_gradient,
                 } => {
                     let f_m = fraction.get(i).copied().unwrap_or(0.0);
-                    f_m * dc * (ref_value.get(i).copied().unwrap_or(0.0) - inside)
+                    let g = ref_gradient.get(i).copied().unwrap_or(0.0);
+                    f_m * dc * (ref_value.get(i).copied().unwrap_or(0.0) - inside) + (1.0 - f_m) * g
                 }
                 ScalarBc::ZeroGradient | ScalarBc::Reflect | ScalarBc::Empty => 0.0,
             });

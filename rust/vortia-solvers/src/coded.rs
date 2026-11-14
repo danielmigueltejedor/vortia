@@ -254,6 +254,7 @@ impl Programmed {
                 Some(ScalarBc::Mixed {
                     fraction,
                     ref_value,
+                    ..
                 }),
             ) = (mesh.patches().get(*index), bc.conditions.get_mut(*index))
             else {
@@ -492,6 +493,7 @@ mod tests {
         bc.conditions[1] = ScalarBc::Mixed {
             fraction: vec![1.0],
             ref_value: vec![0.0],
+            ref_gradient: Vec::new(),
         };
         let c = (1.3_f64 * 346.0 * 300.0).sqrt();
         // A box of one cell has no internal faces, so the boundary faces
@@ -504,6 +506,7 @@ mod tests {
             let ScalarBc::Mixed {
                 fraction,
                 ref_value,
+                ..
             } = &bc.conditions[1]
             else {
                 panic!("not mixed");
@@ -518,7 +521,8 @@ mod tests {
             bc.conditions[1],
             ScalarBc::Mixed {
                 fraction: vec![0.0],
-                ref_value: vec![30000.0]
+                ref_value: vec![30000.0],
+                ref_gradient: Vec::new(),
             }
         );
     }
