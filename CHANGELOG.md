@@ -15,6 +15,15 @@ texto de la release en GitHub. Este registro sigue siendo el detalle para quien 
   la conserva.
 
 ### Añadido
+- **Motor propio, convección natural:** nuevo solver `buoyantBoussinesqSimpleFoam`
+  (laminar, estacionario, fluido de Boussinesq con `p_rgh`, gravedad en
+  `constant/g` y `hRef`, `fixedFluxPressure` en las paredes). Frente a la
+  cavidad cuadrada calentada lateralmente de de Vahl Davis (Pr = 0,71): el
+  número de Nusselt medio sale 1,122 (referencia 1,118) en Ra = 1e3 y 2,268
+  (2,243) en Ra = 1e4, con la velocidad máxima de la línea central a 0,1 % de la
+  referencia; en Ra = 1e5 y 1e6 (prueba lenta, `--ignored`) el Nusselt queda a
+  1,0 % y 2,7 % en malla uniforme. Aún sin comparar con OpenFOAM en los mismos
+  ficheros, sin turbulencia ni transitorio, y sin pantalla en la app.
 - **App en Rust:** la ventana sigue ahora la suite de ingeniería de Nodalia
   (la de Forja y Torno): barra de título con el icono, Inicio, una cinta con
   los pasos del flujo (Case, Mesh, Setup, Results), el navegador con el árbol

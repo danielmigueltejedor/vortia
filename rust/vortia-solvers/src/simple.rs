@@ -18,8 +18,9 @@ use vortia_fv::correction;
 use vortia_fv::limited::GradScheme;
 use vortia_fv::ops::{self, Convection, SnGrad};
 use vortia_fv::stress::div_dev2_grad_t;
-use vortia_fv::vector::{dot_interpolate, solution_directions};
-use vortia_fv::{LduMatrix, Performance, VectorMatrix};
+use vortia_fv::vector::{VectorBoundary, dot_interpolate, solution_directions};
+use vortia_fv::{FvGeometry, LduMatrix, Performance, VectorMatrix};
+use vortia_mesh::PolyMesh;
 
 use crate::case::{Case, KINEMATIC_DIFFUSIVITY, key_matches, read_dict};
 use crate::control::{LinearSolver, RunControl, solve_line};
@@ -33,17 +34,19 @@ use crate::laplacian::{Ddt, transport_property};
 use crate::rans::{Model, Turbulence};
 
 /// The schemes `simpleFoam` asks for, checked against what the engine has.
-struct Schemes {
-    convection: Convection,
-    momentum_sn_grad: SnGrad,
-    pressure_sn_grad: SnGrad,
+pub(crate) struct Schemes {
+    pub(crate) convection: Convection,
+    pub(crate) momentum_sn_grad: SnGrad,
+    pub(crate) pressure_sn_grad: SnGrad,
 }
 
 impl Schemes {
-    fn read(case: &Case) -> Result<Self> {
+    /// The schemes of a steady solver whose pressure is the field `p`
+    /// (`p_rgh` for the buoyant ones).
+    pub(crate) fn read(case: &Case, p: &str) -> Result<Self> {
         if Ddt::read(case, "ddt(U)")? != Ddt::Steady {
             return Err(SolverError::Setup(
-                "simpleFoam is steady: ddt(U) must be steadyState".into(),
+                "a steady solver needs ddt(U) steadyState".into(),
             ));
         }
         case.require_linear_interpolation()?;
@@ -55,13 +58,13 @@ impl Schemes {
                 stress.join(" ")
             )));
         }
-        for field in ["U", "p"] {
+        for field in ["U", p] {
             case.require_gauss_linear_grad(field)?;
         }
         Ok(Self {
             convection,
             momentum_sn_grad: case.laplacian_sn_grad("laplacian(nuEff,U)")?,
-            pressure_sn_grad: case.laplacian_sn_grad("laplacian((1|A(U)),p)")?,
+            pressure_sn_grad: case.laplacian_sn_grad(&format!("laplacian((1|A(U)),{p})"))?,
         })
     }
 }
@@ -139,7 +142,7 @@ pub(crate) fn residual_control(case: &Case) -> Vec<(String, f64)> {
 
 /// Refuses a turbulence or transport model the engine does not have: it
 /// has laminar flow, k-ε and k-ω SST, of a Newtonian fluid.
-fn check_models(case: &Case) -> Result<()> {
+pub(crate) fn check_models(case: &Case) -> Result<()> {
     Model::read(case)?;
     check_options(case)?;
     let transport = read_dict(&case.dir.join("constant").join("transportProperties"))?;
@@ -181,13 +184,88 @@ fn has_active_entry(d: &Dictionary) -> bool {
     })
 }
 
+/// The viscosity of the momentum equation: in the cells, on the boundary
+/// faces, and on every face.
+pub(crate) struct Viscosity<'a> {
+    pub(crate) cells: &'a [f64],
+    pub(crate) boundary: &'a [Option<f64>],
+    pub(crate) faces: &'a [f64],
+}
+
+/// The momentum equation of a steady solver without its pressure term:
+/// convection, `ν_eff` diffusion and the viscous stress's transpose part
+/// (OpenFOAM's `fvm::div(phi, U) + divDevReff(U)`), under-relaxed by
+/// `alpha_u`.
+pub(crate) fn momentum_equation(
+    (mesh, fv): (&PolyMesh, &FvGeometry),
+    (u_bc, u, phi): (&VectorBoundary, &[Vec3], &[f64]),
+    nu: &Viscosity,
+    schemes: &Schemes,
+    alpha_u: Option<f64>,
+) -> Result<VectorMatrix> {
+    let mut u_eqn =
+        VectorMatrix::convection(mesh, fv, u_bc, phi, u, schemes.convection.interpolation)?;
+    if schemes.convection.bounded {
+        ops::bounded_correction(&mut u_eqn.ldu, mesh, fv, phi);
+    }
+    let mut u_lap = VectorMatrix::laplacian(
+        mesh,
+        fv,
+        u_bc,
+        nu.faces,
+        u,
+        schemes.momentum_sn_grad.without_correction(),
+    )?;
+    // `Gauss linear corrected`: the non-orthogonal part is explicit, from
+    // the velocity gradient of this iteration.
+    let velocity = explicit::Velocity { bc: u_bc, cells: u };
+    if schemes.momentum_sn_grad == SnGrad::Corrected {
+        explicit::subtract_vector_laplacian_correction(
+            &mut u_lap.source,
+            (mesh, fv),
+            GradScheme::GaussLinear,
+            &velocity,
+            nu.faces,
+        );
+    }
+    u_eqn.sub(&u_lap);
+    let stress = div_dev2_grad_t(
+        GradScheme::GaussLinear,
+        mesh,
+        fv,
+        u_bc,
+        u,
+        nu.cells,
+        nu.boundary,
+    );
+    for ((s, &d), &v) in u_eqn.source.iter_mut().zip(&stress).zip(fv.volumes()) {
+        *s = *s + d * v;
+    }
+    // `linearUpwind`: the matrix holds the upwind part; the gradient's
+    // correction of each face value goes to the source, as `fvm::div`
+    // adds it.
+    if let Some(scheme) = schemes.convection.interpolation.grad_scheme() {
+        explicit::subtract_linear_upwind_correction(
+            &mut u_eqn.source,
+            (mesh, fv),
+            scheme,
+            &velocity,
+            phi,
+        );
+    }
+    if let Some(alpha) = alpha_u {
+        u_eqn.relax(mesh, u, alpha);
+    }
+    Ok(u_eqn)
+}
+
 /// Runs the case and returns what each iteration did. `log` receives the
 /// lines OpenFOAM would print.
 pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     let (mesh, fv) = case.mesh()?;
     check_models(case)?;
     let nu = transport_property(case, "nu", KINEMATIC_DIFFUSIVITY)?;
-    let schemes = Schemes::read(case)?;
+    let schemes = Schemes::read(case, "p")?;
     let simple = Algorithm::read(case, "SIMPLE", mesh.n_cells())?;
     if case
         .solution
@@ -241,69 +319,17 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
                 vec![nu; mesh.n_faces()],
             ),
         };
-        let mut u_eqn = VectorMatrix::convection(
-            &mesh,
-            &fv,
-            &u_bc,
-            &phi,
-            &u,
-            schemes.convection.interpolation,
+        let u_eqn = momentum_equation(
+            (&mesh, &fv),
+            (&u_bc, &u, &phi),
+            &Viscosity {
+                cells: &nu_cells,
+                boundary: &nu_boundary,
+                faces: &nu_faces,
+            },
+            &schemes,
+            alpha_u,
         )?;
-        if schemes.convection.bounded {
-            ops::bounded_correction(&mut u_eqn.ldu, &mesh, &fv, &phi);
-        }
-        let mut u_lap = VectorMatrix::laplacian(
-            &mesh,
-            &fv,
-            &u_bc,
-            &nu_faces,
-            &u,
-            schemes.momentum_sn_grad.without_correction(),
-        )?;
-        // `Gauss linear corrected`: the non-orthogonal part is explicit, from
-        // the velocity gradient of this iteration.
-        let velocity = explicit::Velocity {
-            bc: &u_bc,
-            cells: &u,
-        };
-        if schemes.momentum_sn_grad == SnGrad::Corrected {
-            explicit::subtract_vector_laplacian_correction(
-                &mut u_lap.source,
-                (&mesh, &fv),
-                GradScheme::GaussLinear,
-                &velocity,
-                &nu_faces,
-            );
-        }
-        u_eqn.sub(&u_lap);
-        let stress = div_dev2_grad_t(
-            GradScheme::GaussLinear,
-            &mesh,
-            &fv,
-            &u_bc,
-            &u,
-            &nu_cells,
-            &nu_boundary,
-        );
-        for ((s, &d), &v) in u_eqn.source.iter_mut().zip(&stress).zip(fv.volumes()) {
-            *s = *s + d * v;
-        }
-        // `linearUpwind`: the matrix holds the upwind part; the gradient's
-        // correction of each face value goes to the source, as `fvm::div`
-        // adds it.
-        if let Some(scheme) = schemes.convection.interpolation.grad_scheme() {
-            explicit::subtract_linear_upwind_correction(
-                &mut u_eqn.source,
-                (&mesh, &fv),
-                scheme,
-                &velocity,
-                &phi,
-            );
-        }
-        if let Some(alpha) = alpha_u {
-            u_eqn.relax(&mesh, &u, alpha);
-        }
-
         if simple.momentum_predictor {
             let grad_p = ops::grad(&mesh, &fv, &p_bc, &p);
             let extra: Vec<Vec3> = grad_p
@@ -389,7 +415,8 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
             solves.extend(t.correct(&mesh, &fv, &u, &u_bc, &phi, &mut log)?);
         }
 
-        let converged = !residuals.is_empty() && converged(&residuals, &solves);
+        let converged = !residuals.is_empty()
+            && converged(&residuals, &solves, &["U", "p", "epsilon", "omega", "k"]);
         let written = run.writes(step) || converged;
         if written {
             write_flow(&case.dir, &name, (&mut u_field, &u), (&mut p_field, &p))?;
@@ -414,9 +441,13 @@ pub fn run(case: &Case, mut log: impl FnMut(&str)) -> Result<Vec<Step>> {
     Ok(steps)
 }
 
-/// Whether every field `residualControl` names began this iteration below
-/// its tolerance; a vector by its largest component.
-fn converged(control: &[(String, f64)], solves: &[(String, Performance)]) -> bool {
+/// Whether every one of `fields` that `residualControl` names began this
+/// iteration below its tolerance; a vector by its largest component.
+pub(crate) fn converged(
+    control: &[(String, f64)],
+    solves: &[(String, Performance)],
+    fields: &[&str],
+) -> bool {
     let first = |field: &str| -> Option<f64> {
         let of = |name: &str| {
             solves
@@ -434,7 +465,7 @@ fn converged(control: &[(String, f64)], solves: &[(String, Performance)]) -> boo
         }
     };
     let mut checked = false;
-    for field in ["U", "p", "epsilon", "omega", "k"] {
+    for &field in fields {
         let Some(tol) = control
             .iter()
             .find(|(k, _)| key_matches(k, field))

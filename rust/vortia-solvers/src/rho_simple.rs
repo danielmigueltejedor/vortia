@@ -18,6 +18,7 @@ use vortia_fv::correction;
 use vortia_fv::limited::{self, GradScheme};
 use vortia_fv::ops::{self, Convection, SnGrad};
 use vortia_fv::stress::div_dev2_grad_t;
+use vortia_fv::surface::sn_grad;
 use vortia_fv::vector::{dot_interpolate, solution_directions};
 use vortia_fv::{
     Boundary, FvGeometry, LduMatrix, Performance, ScalarBc, ScalarMatrix, VectorBoundary,
@@ -798,52 +799,6 @@ fn explicit_div(
         }
     }
     div
-}
-
-/// `fvc::snGrad(ψ)` on every face: across the internal faces, and from the
-/// conditions on the boundary (none through a zero gradient).
-fn sn_grad(
-    mesh: &PolyMesh,
-    fv: &FvGeometry,
-    bc: &Boundary,
-    cells: &[f64],
-    scheme: SnGrad,
-) -> Vec<f64> {
-    let coeffs = scheme.coeffs(fv);
-    let cell = |c: Option<&usize>| c.and_then(|&c| cells.get(c)).copied().unwrap_or(0.0);
-    // `correctedSnGrad`: the interpolated cell gradient along the
-    // non-orthogonal part of the face vector, added to the difference.
-    let corr = (scheme == SnGrad::Corrected).then(|| {
-        let g = ops::grad(mesh, fv, bc, cells);
-        correction::sn_grad_correction(mesh, fv, &g)
-    });
-    let mut out = Vec::with_capacity(mesh.n_faces());
-    for f in 0..mesh.n_internal_faces() {
-        let (o, n) = (cell(mesh.owner().get(f)), cell(mesh.neighbour().get(f)));
-        let c = corr.as_ref().and_then(|c| c.get(f)).copied();
-        out.push(coeffs.get(f).copied().unwrap_or(0.0) * (n - o) + c.unwrap_or(0.0));
-    }
-    for (patch, cond) in mesh.patches().iter().zip(&bc.conditions) {
-        for (i, f) in patch.faces().enumerate() {
-            let inside = cell(mesh.owner().get(f));
-            let dc = fv.delta_coeffs.get(f).copied().unwrap_or(0.0);
-            out.push(match cond {
-                ScalarBc::FixedValue(v) | ScalarBc::Calculated(v) => {
-                    dc * (v.get(i).copied().unwrap_or(0.0) - inside)
-                }
-                ScalarBc::FixedGradient(g) => g.get(i).copied().unwrap_or(0.0),
-                ScalarBc::Mixed {
-                    fraction,
-                    ref_value,
-                } => {
-                    let f_m = fraction.get(i).copied().unwrap_or(0.0);
-                    f_m * dc * (ref_value.get(i).copied().unwrap_or(0.0) - inside)
-                }
-                ScalarBc::ZeroGradient | ScalarBc::Reflect | ScalarBc::Empty => 0.0,
-            });
-        }
-    }
-    out
 }
 
 /// `incompressible/continuityErrs.H`: logs the volume-weighted mean of

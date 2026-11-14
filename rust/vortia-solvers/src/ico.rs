@@ -144,12 +144,24 @@ pub(crate) struct FlowFields {
 
 impl FlowFields {
     pub(crate) fn read(start: &std::path::Path, mesh: &PolyMesh, fv: &FvGeometry) -> Result<Self> {
+        Self::read_pressure(start, mesh, fv, "p", &[])
+    }
+
+    /// As [`read`](Self::read) for a pressure of another name, whose
+    /// conditions may include those `driven` names, set by the solver.
+    pub(crate) fn read_pressure(
+        start: &std::path::Path,
+        mesh: &PolyMesh,
+        fv: &FvGeometry,
+        p_name: &str,
+        driven: &[&str],
+    ) -> Result<Self> {
         let u_field = VectorField::read(start.join("U"))?;
-        let p_field = ScalarField::read(start.join("p"))?;
+        let p_field = ScalarField::read(start.join(p_name))?;
         check_dimensions("U", &u_field.dimensions, VELOCITY)?;
-        check_dimensions("p", &p_field.dimensions, KINEMATIC_PRESSURE)?;
+        check_dimensions(p_name, &p_field.dimensions, KINEMATIC_PRESSURE)?;
         let u_bc = VectorBoundary::from_field(&u_field, mesh)?;
-        let p_bc = Boundary::from_field(&p_field, mesh)?;
+        let p_bc = Boundary::from_field_with(&p_field, mesh, driven)?;
         let u = u_field
             .internal
             .expand(mesh.n_cells())
@@ -157,7 +169,7 @@ impl FlowFields {
         let p = p_field
             .internal
             .expand(mesh.n_cells())
-            .ok_or_else(|| SolverError::Setup("p does not fit the mesh".into()))?;
+            .ok_or_else(|| SolverError::Setup(format!("{p_name} does not fit the mesh")))?;
         let phi = if start.join("phi").is_file() || start.join("phi.gz").is_file() {
             face_values(mesh, &ScalarField::read(start.join("phi"))?)?
         } else {
