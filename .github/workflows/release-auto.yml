@@ -1,14 +1,24 @@
 name: Release from main
 
 # Releases Vortia when a new version lands on main: set project(VERSION) in CMakeLists.txt and
-# write its "## [X.Y.Z]" section in CHANGELOG.md in the same pull request, then merge it.
-# Foundation's release-tag tags the merge and drafts the release with that section as its text,
+# add docs/release-notes/vX.Y.Z.md in the same pull request, then merge it.
+# Foundation's release-tag tags the merge and drafts the release with those notes,
 # release-appimage.yml builds, starts and attaches the AppImage and the DMGs, and release-publish
 # publishes it once they are there. A failed package leaves the release a draft. Any other push
 # does nothing.
+#
+# If a package fails and its fix lands after the tag, run this by hand on main with
+# retag-draft: while the release is still a draft, its tag moves to the fixed commit and the
+# packages build again.
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      retag-draft:
+        description: "Move an unpublished draft's tag to this commit and build it again"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,12 +31,12 @@ jobs:
   tag:
     permissions:
       contents: write
-    uses: getnodalia/foundation/.github/workflows/release-tag.yml@a34cd29a25557813b1392b5378a55a837fb5d2ac # foundation 2026-11-13
+    uses: getnodalia/foundation/.github/workflows/release-tag.yml@7964f20499fbbe78c855fee7e90d182aff4aae89 # foundation 2026-11-13 (retag-draft)
     with:
       name: Vortia
       version-command: sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*$/\1/p' CMakeLists.txt | head -n 1
-      # The version's CHANGELOG section, without its heading.
-      notes-command: awk -v h="## [$VERSION]" 'index($0, h) == 1 {on = 1; next} on && /^## \[/ {exit} on' CHANGELOG.md
+      notes-check: scripts/check-release-notes.sh
+      retag-draft: ${{ inputs.retag-draft == true }}
 
   packages:
     needs: tag
@@ -41,6 +51,6 @@ jobs:
     needs: [tag, packages]
     permissions:
       contents: write
-    uses: getnodalia/foundation/.github/workflows/release-publish.yml@a34cd29a25557813b1392b5378a55a837fb5d2ac # foundation 2026-11-13
+    uses: getnodalia/foundation/.github/workflows/release-publish.yml@7964f20499fbbe78c855fee7e90d182aff4aae89 # foundation 2026-11-13
     with:
       tag: ${{ needs.tag.outputs.tag }}

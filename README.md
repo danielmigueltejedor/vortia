@@ -223,7 +223,7 @@ does not:
 - [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) — installers, engine and general restrictions
 - [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) — implementation status
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — what comes next
-- [`CHANGELOG.md`](CHANGELOG.md) — changes by version
+- [`CHANGELOG.md`](CHANGELOG.md) — changes by version; the release notes of each version are in [`docs/release-notes/`](docs/release-notes/README.md)
 
 ## Documentation
 
