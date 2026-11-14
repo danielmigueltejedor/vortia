@@ -541,6 +541,9 @@ impl VortiaApp {
         {
             self.dialog = Some(Dialog::Shortcuts);
         }
+        if take(command(Key::K)) {
+            self.search = Some(String::new());
+        }
         if take(command(Key::R)) {
             self.start_run(ctx);
         }
@@ -549,6 +552,7 @@ impl VortiaApp {
         }
         if take(KeyboardShortcut::new(Modifiers::NONE, Key::Escape)) {
             self.dialog = None;
+            self.search = None;
         }
     }
 
@@ -648,6 +652,7 @@ impl VortiaApp {
 }
 
 const SHORTCUTS: &[(&str, &str)] = &[
+    ("Ctrl+K", "Search commands"),
     ("Ctrl+R", "Run the case"),
     ("Ctrl+,", "Preferences"),
     ("F1", "Keyboard shortcuts"),
