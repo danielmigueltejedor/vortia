@@ -268,6 +268,7 @@ impl ModelField {
                 } => ScalarBc::Mixed {
                     fraction: fraction.clone(),
                     ref_value: ref_value.clone(),
+                    ref_gradient: Vec::new(),
                 },
                 Kind::AlphatWall { .. }
                 | Kind::EpsilonWall(_)

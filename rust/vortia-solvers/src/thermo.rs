@@ -696,6 +696,7 @@ impl Thermo {
                 TKind::InletOutlet { .. } | TKind::InletOutletTotal { .. } => ScalarBc::Mixed {
                     fraction: fractions,
                     ref_value: values,
+                    ref_gradient: Vec::new(),
                 },
                 TKind::Empty => ScalarBc::Empty,
             });

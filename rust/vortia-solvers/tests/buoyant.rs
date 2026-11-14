@@ -22,10 +22,11 @@ use common::{HEADER, write};
 const PR: f64 = 0.71;
 const G: f64 = 9.81;
 const BETA: f64 = 3e-3;
+const COLD: &str = "type fixedValue; value uniform 0;";
 
 /// The cavity at the Rayleigh number `ra`, `n` cells to a side, run for
 /// `iterations` iterations.
-fn cavity(dir: &Path, ra: f64, n: usize, iterations: usize) {
+fn cavity(dir: &Path, ra: f64, n: usize, iterations: usize, cold: &str) {
     let bounds = Aabb {
         min: Vec3::new(0.0, 0.0, 0.0),
         max: Vec3::new(1.0, 1.0, 0.1),
@@ -94,7 +95,7 @@ fn cavity(dir: &Path, ra: f64, n: usize, iterations: usize) {
         "uniform 0.5",
         [
             "type fixedValue; value uniform 1;",
-            "type fixedValue; value uniform 0;",
+            cold,
             "type zeroGradient;",
             "type zeroGradient;",
         ],
@@ -166,7 +167,7 @@ struct Found {
 
 fn run(ra: f64, n: usize, iterations: usize) -> Found {
     let dir = tempfile::tempdir().unwrap();
-    cavity(dir.path(), ra, n, iterations);
+    cavity(dir.path(), ra, n, iterations, COLD);
     let case = Case::open(dir.path()).unwrap();
     let steps = buoyant::run(&case, |_| {}).unwrap();
     let last = steps.last().unwrap();
@@ -266,7 +267,7 @@ fn the_cavity_at_rayleigh_1e5_and_1e6_match_de_vahl_davis() {
 
 fn written(setup: impl FnOnce(&Path)) -> String {
     let dir = tempfile::tempdir().unwrap();
-    cavity(dir.path(), 1e3, 4, 10);
+    cavity(dir.path(), 1e3, 4, 10, COLD);
     setup(dir.path());
     let case = Case::open(dir.path()).unwrap();
     buoyant::run(&case, |_| {}).unwrap_err().to_string()
@@ -306,4 +307,70 @@ fn it_refuses_what_it_does_not_have() {
         write(&path, &text);
     });
     assert!(message.contains("Pr"), "{message}");
+}
+
+/// A wall that gives heat to the surroundings through a film coefficient:
+/// `mixed` with the value fraction `h / (h + α δ)`, `δ` the inverse of the
+/// distance from the cell centre to the wall. At Ra = 1 the cavity conducts
+/// and nothing else: the temperature falls linearly from the hot wall to the
+/// film, `T(x) = 1 − q x / α` with `q = ΔT / (L/α + 1/h)`.
+#[test]
+fn a_convective_wall_gives_the_conduction_solution() {
+    let n = 16;
+    let alpha = (G * BETA * PR / 1.0).sqrt() / PR;
+    let h = 4.0 * alpha;
+    let fraction = h / (h + alpha * 2.0 * n as f64);
+    let cold = format!(
+        "type mixed; refValue uniform 0; refGradient uniform 0; valueFraction uniform {fraction};"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    cavity(dir.path(), 1.0, n, 3000, &cold);
+    let case = Case::open(dir.path()).unwrap();
+    let steps = buoyant::run(&case, |_| {}).unwrap();
+    let last = steps.last().unwrap();
+    assert!(
+        steps.len() < 3000,
+        "stopped at the iteration limit, not on its residuals"
+    );
+    let t = ScalarField::read(dir.path().join(&last.time).join("T"))
+        .unwrap()
+        .internal
+        .expand(n * n)
+        .unwrap();
+    let q = 1.0 / (1.0 / alpha + 1.0 / h);
+    let worst = (0..n)
+        .map(|i| {
+            let x = (i as f64 + 0.5) / n as f64;
+            (t[i + n * (n / 2)] - (1.0 - q * x / alpha)).abs()
+        })
+        .fold(0.0, f64::max);
+    assert!(worst < 2e-3, "{worst}");
+    // The film is not the ambient: the cold wall sits above it.
+    let wall = t[n - 1 + n * (n / 2)];
+    assert!(wall > 0.1, "{wall}");
+}
+
+/// A wall with a given heat flux is `mixed` with a zero value fraction and a
+/// reference gradient: the conduction solution is linear with that slope.
+#[test]
+fn a_wall_with_a_reference_gradient_holds_its_heat_flux() {
+    let n = 16;
+    let cold = "type mixed; refValue uniform 0; refGradient uniform -0.5; valueFraction uniform 0;";
+    let dir = tempfile::tempdir().unwrap();
+    cavity(dir.path(), 1.0, n, 3000, cold);
+    let case = Case::open(dir.path()).unwrap();
+    let steps = buoyant::run(&case, |_| {}).unwrap();
+    let last = steps.last().unwrap();
+    let t = ScalarField::read(dir.path().join(&last.time).join("T"))
+        .unwrap()
+        .internal
+        .expand(n * n)
+        .unwrap();
+    let worst = (0..n)
+        .map(|i| {
+            let x = (i as f64 + 0.5) / n as f64;
+            (t[i + n * (n / 2)] - (1.0 - 0.5 * x)).abs()
+        })
+        .fold(0.0, f64::max);
+    assert!(worst < 2e-3, "{worst}");
 }

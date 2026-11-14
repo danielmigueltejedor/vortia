@@ -24,12 +24,14 @@ pub enum ScalarBc {
     Reflect,
     /// Values computed elsewhere; cannot be used in an implicit equation.
     Calculated(Vec<f64>),
-    /// OpenFOAM's `mixed` with a zero reference gradient: per face, the
-    /// fraction `f` takes `ref_value` and the rest a zero gradient. What
-    /// `inletOutlet` is, with `f = 1` where the flow comes in.
+    /// OpenFOAM's `mixed`: per face, the fraction `f` takes `ref_value` and
+    /// the rest the gradient `ref_gradient` (empty for zero). What
+    /// `inletOutlet` is, with `f = 1` where the flow comes in; with a
+    /// reference gradient, a convective wall.
     Mixed {
         fraction: Vec<f64>,
         ref_value: Vec<f64>,
+        ref_gradient: Vec<f64>,
     },
 }
 
@@ -127,6 +129,7 @@ impl Boundary {
                     ScalarBc::Mixed {
                         fraction: values(read("valueFraction")?.as_ref(), patch, "valueFraction")?,
                         ref_value: values(read("refValue")?.as_ref(), patch, "refValue")?,
+                        ref_gradient: Vec::new(),
                     }
                 }
                 "inletOutlet" if driven.contains(&"inletOutlet") => {
@@ -138,6 +141,30 @@ impl Boundary {
                     ScalarBc::Mixed {
                         fraction: vec![0.0; patch.size],
                         ref_value: values(given.as_ref(), patch, "inletOutlet's inletValue")?,
+                        ref_gradient: Vec::new(),
+                    }
+                }
+                // The general mixed condition: a value fraction of a
+                // reference value, the rest of a reference gradient.
+                "mixed" => {
+                    let read = |key: &str| {
+                        pf.settings
+                            .values(key)
+                            .map(|v| Data::<f64>::parse(v, key))
+                            .transpose()
+                    };
+                    ScalarBc::Mixed {
+                        fraction: values(
+                            read("valueFraction")?.as_ref(),
+                            patch,
+                            "mixed's valueFraction",
+                        )?,
+                        ref_value: values(read("refValue")?.as_ref(), patch, "mixed's refValue")?,
+                        ref_gradient: values(
+                            read("refGradient")?.as_ref(),
+                            patch,
+                            "mixed's refGradient",
+                        )?,
                     }
                 }
                 // A pressure whose gradient makes the flux through the face
@@ -204,10 +231,14 @@ impl Boundary {
                     ScalarBc::Mixed {
                         fraction,
                         ref_value,
+                        ref_gradient,
                     } => {
-                        let f = fraction.get(i).copied().unwrap_or(0.0);
+                        let frac = fraction.get(i).copied().unwrap_or(0.0);
                         let r = ref_value.get(i).copied().unwrap_or(0.0);
-                        Some(f * r + (1.0 - f) * inside)
+                        let g = ref_gradient.get(i).copied().unwrap_or(0.0);
+                        let dc = delta_coeffs.get(f).copied().unwrap_or(0.0);
+                        let rest = if dc > 0.0 { inside + g / dc } else { inside };
+                        Some(frac * r + (1.0 - frac) * rest)
                     }
                     ScalarBc::FixedGradient(g) => {
                         let dc = delta_coeffs.get(f).copied().unwrap_or(0.0);
@@ -264,6 +295,7 @@ mod tests {
         let mixed = |fraction: f64| ScalarBc::Mixed {
             fraction: vec![fraction],
             ref_value: vec![10.0],
+            ref_gradient: Vec::new(),
         };
         let bc = Boundary {
             conditions: vec![

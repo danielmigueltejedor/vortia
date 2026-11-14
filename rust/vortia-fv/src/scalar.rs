@@ -141,9 +141,16 @@ impl ScalarMatrix {
                     ScalarBc::Mixed {
                         fraction,
                         ref_value,
+                        ref_gradient,
                     } => {
-                        let f = fraction.get(i).copied().unwrap_or(0.0);
-                        (1.0 - f, f * ref_value.get(i).copied().unwrap_or(0.0))
+                        let frac = fraction.get(i).copied().unwrap_or(0.0);
+                        let dc = fv.delta_coeffs.get(f).copied().unwrap_or(0.0);
+                        let g = ref_gradient.get(i).copied().unwrap_or(0.0);
+                        (
+                            1.0 - frac,
+                            frac * ref_value.get(i).copied().unwrap_or(0.0)
+                                + if dc > 0.0 { (1.0 - frac) * g / dc } else { 0.0 },
+                        )
                     }
                     ScalarBc::Empty => continue,
                     ScalarBc::Calculated(_) => return Err(calculated(&patch.name)),
@@ -216,10 +223,12 @@ impl ScalarMatrix {
                     ScalarBc::Mixed {
                         fraction,
                         ref_value,
+                        ref_gradient,
                     } => {
-                        let f = fraction.get(i).copied().unwrap_or(0.0);
+                        let frac = fraction.get(i).copied().unwrap_or(0.0);
                         let r = ref_value.get(i).copied().unwrap_or(0.0);
-                        (-f * d, f * d * r)
+                        let g = ref_gradient.get(i).copied().unwrap_or(0.0);
+                        (-frac * d, frac * d * r + (1.0 - frac) * g)
                     }
                     ScalarBc::Empty => continue,
                     ScalarBc::Calculated(_) => return Err(calculated(&patch.name)),

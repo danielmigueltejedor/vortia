@@ -64,9 +64,14 @@ Progress (2026-11-14): the first slice is in the engine as
 `fixedFluxPressure`, `g` and `hRef`. It matches the benchmark's Nusselt number
 to 0.4 % at Ra 1e3, 1.1 % at 1e4 and 1.0 % at 1e5 (2.7 % at 1e6, on a uniform
 mesh that does not resolve the boundary layers); the velocity peaks agree to
-within 1.5 %. Left: comparison against OpenFOAM on the same files, graded
-meshes for the Ra 1e6 case, the perfect-gas and transient variants, the heat
-boundary conditions, the thermophysics library, the screens in the app.
+within 1.5 %. The heat boundary conditions of a kinematic temperature are in too: the
+`mixed` condition gives a film coefficient with an ambient temperature and, with
+a reference gradient, a fixed heat flux (both checked against the analytic
+conduction solution). `externalWallHeatFlux` and `semiImplicitSource` need the
+conductivity and the thermophysics library, so they come with that. Left:
+comparison against OpenFOAM on the same files, graded meshes for the Ra 1e6
+case, the perfect-gas and transient variants, the thermophysics library, the
+screens in the app.
 
 ### P3. Transient solving with an adjustable step (M)
 

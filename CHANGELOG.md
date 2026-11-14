@@ -24,6 +24,12 @@ texto de la release en GitHub. Este registro sigue siendo el detalle para quien 
   referencia; en Ra = 1e5 y 1e6 (prueba lenta, `--ignored`) el Nusselt queda a
   1,0 % y 2,7 % en malla uniforme. Aún sin comparar con OpenFOAM en los mismos
   ficheros, sin turbulencia ni transitorio, y sin pantalla en la app.
+- **Motor propio, condiciones de calor:** el contorno `mixed` de OpenFOAM
+  (`refValue`, `refGradient`, `valueFraction`) ya se resuelve en las ecuaciones
+  escalares: con un `valueFraction` entre 0 y 1 es una pared que cede calor al
+  ambiente por un coeficiente de película, y con 0 y un `refGradient` un flujo
+  de calor fijo. Comprobado en la cavidad a Ra = 1, donde el campo es la
+  solución analítica de conducción (película y flujo fijo, a 2e-3).
 - **App en Rust:** la ventana sigue ahora la suite de ingeniería de Nodalia
   (la de Forja y Torno): barra de título con el icono, Inicio, una cinta con
   los pasos del flujo (Case, Mesh, Setup, Results), el navegador con el árbol

@@ -138,13 +138,14 @@ pub fn diffusion(
                 ScalarBc::Mixed {
                     fraction,
                     ref_value,
+                    ref_gradient,
                 } => {
-                    let k = gm
-                        * dc.get(f).copied().unwrap_or(0.0)
-                        * fraction.get(i).copied().unwrap_or(0.0);
+                    let frac = fraction.get(i).copied().unwrap_or(0.0);
+                    let k = gm * dc.get(f).copied().unwrap_or(0.0) * frac;
                     if let (Some(d), Some(s)) = (m.diag.get_mut(c), m.source.get_mut(c)) {
                         *d += k;
-                        *s += k * ref_value.get(i).copied().unwrap_or(0.0);
+                        *s += k * ref_value.get(i).copied().unwrap_or(0.0)
+                            + gm * (1.0 - frac) * ref_gradient.get(i).copied().unwrap_or(0.0);
                     }
                 }
                 ScalarBc::Calculated(_) => {
@@ -361,9 +362,16 @@ pub fn convection(
                 ScalarBc::Mixed {
                     fraction,
                     ref_value,
+                    ref_gradient,
                 } => {
-                    let f = fraction.get(i).copied().unwrap_or(0.0);
-                    (1.0 - f, f * ref_value.get(i).copied().unwrap_or(0.0))
+                    let frac = fraction.get(i).copied().unwrap_or(0.0);
+                    let dc = fv.non_orth_delta_coeffs.get(f).copied().unwrap_or(0.0);
+                    let g = ref_gradient.get(i).copied().unwrap_or(0.0);
+                    (
+                        1.0 - frac,
+                        frac * ref_value.get(i).copied().unwrap_or(0.0)
+                            + if dc > 0.0 { (1.0 - frac) * g / dc } else { 0.0 },
+                    )
                 }
                 ScalarBc::Empty => continue,
                 ScalarBc::Calculated(_) => {
@@ -501,10 +509,12 @@ pub fn laplacian(
                 ScalarBc::Mixed {
                     fraction,
                     ref_value,
+                    ref_gradient,
                 } => {
                     let f_m = fraction.get(i).copied().unwrap_or(0.0);
                     let r = ref_value.get(i).copied().unwrap_or(0.0);
-                    (gm(f) * (-f_m * d), -gm(f) * (f_m * d * r))
+                    let g = ref_gradient.get(i).copied().unwrap_or(0.0);
+                    (gm(f) * (-f_m * d), -gm(f) * (f_m * d * r + (1.0 - f_m) * g))
                 }
                 ScalarBc::ZeroGradient | ScalarBc::Reflect | ScalarBc::Empty => continue,
                 ScalarBc::Calculated(_) => {
@@ -556,10 +566,12 @@ pub fn laplacian_flux(
                 ScalarBc::Mixed {
                     fraction,
                     ref_value,
+                    ref_gradient,
                 } => {
                     let f_m = fraction.get(i).copied().unwrap_or(0.0);
                     let r = ref_value.get(i).copied().unwrap_or(0.0);
-                    gm(f) * (-f_m * d) * inside - -gm(f) * (f_m * d * r)
+                    let g = ref_gradient.get(i).copied().unwrap_or(0.0);
+                    gm(f) * (-f_m * d) * inside - -gm(f) * (f_m * d * r + (1.0 - f_m) * g)
                 }
                 _ => 0.0,
             });
