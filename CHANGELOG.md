@@ -15,6 +15,12 @@ texto de la release en GitHub. Este registro sigue siendo el detalle para quien 
   la conserva.
 
 ### Añadido
+- **Cortes en el visor:** con un campo elegido, la casilla «Slice» corta la malla por un plano
+  (eje X, Y o Z y un deslizador): quita la mitad que queda entre el plano y quien mira (la
+  mitad que se quita cambia sola si se gira la vista) y colorea con el campo las celdas que
+  el plano atraviesa. En la biblioteca, `Case::slice(origen, normal)` da el polígono de
+  cada celda cortada. Se calcula en otro hilo, de uno en uno mientras se arrastra el plano.
+  Aún no hay planos oblicuos ni elegidos por el usuario.
 - **Líneas de corriente:** `vortia streamline CASO CAMPO X Y Z [-backward] [TIEMPO]`
   sigue una partícula por un campo vectorial (cada celda con su velocidad, de
   cara a cara) y la escribe como CSV (x, y, z, velocidad). Para en la frontera,

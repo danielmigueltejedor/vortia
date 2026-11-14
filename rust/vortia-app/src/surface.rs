@@ -260,6 +260,17 @@ pub struct Camera {
     pub zoom: f32,
     /// The slide of the picture, in units of the surface's radius.
     pub pan: [f32; 2],
+    /// A plane that cuts away what lies between it and the viewer, to see into the volume.
+    pub cut: Option<Cut>,
+}
+
+/// A plane across one of the axes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cut {
+    /// 0, 1 or 2 for x, y or z.
+    pub axis: usize,
+    /// Where the plane crosses the axis.
+    pub offset: f32,
 }
 
 const MAX_PITCH: f32 = 1.55;
@@ -271,6 +282,7 @@ impl Default for Camera {
             pitch: 0.4,
             zoom: 1.0,
             pan: [0.0; 2],
+            cut: None,
         }
     }
 }
@@ -301,6 +313,21 @@ impl Camera {
         if factor.is_finite() && factor > 0.0 {
             self.zoom = (self.zoom * factor).clamp(0.05, 500.0);
         }
+    }
+
+    /// The plane that cuts, as the direction towards the viewer and the distance along it:
+    /// a point `p` is cut away when `dot(direction, p) > distance`.
+    fn cutting(&self) -> Option<([f32; 3], f32)> {
+        let cut = self.cut?;
+        let mut direction = [0.0; 3];
+        let (_, _, towards) = self.basis();
+        let sign = if towards.get(cut.axis).copied().unwrap_or(0.0) >= 0.0 {
+            1.0
+        } else {
+            -1.0
+        };
+        *direction.get_mut(cut.axis)? = sign;
+        Some((direction, sign * cut.offset))
     }
 
     /// The directions of the screen: right, up, and towards the viewer.
@@ -334,6 +361,7 @@ impl Camera {
             ]
         };
         let screen: Vec<[f32; 3]> = surface.positions.iter().map(to_screen).collect();
+        let cutting = self.cutting();
 
         let mut out = Vec::with_capacity(surface.triangles.len());
         for (patch_index, patch) in surface.patches.iter().enumerate() {
@@ -352,6 +380,21 @@ impl Camera {
                 else {
                     continue;
                 };
+                if let Some((direction, distance)) = cutting {
+                    let [Some(p), Some(q), Some(r)] =
+                        triangle.map(|i| surface.positions.get(i as usize).copied())
+                    else {
+                        continue;
+                    };
+                    let middle = [
+                        (p[0] + q[0] + r[0]) / 3.0,
+                        (p[1] + q[1] + r[1]) / 3.0,
+                        (p[2] + q[2] + r[2]) / 3.0,
+                    ];
+                    if dot(direction, middle) > distance {
+                        continue;
+                    }
+                }
                 // The normal in the camera's frame: its component towards the viewer is
                 // the facing, and either side of a face is lit the same.
                 let (ab, ac) = (sub(b, a), sub(c, a));
@@ -389,6 +432,7 @@ impl Camera {
         visible: &[bool],
     ) -> Vec<([[f32; 2]; 2], usize)> {
         let to_screen = self.pixel_projection(surface, size);
+        let cutting = self.cutting();
         let mut out = Vec::new();
         for (patch_index, patch) in surface.patches.iter().enumerate() {
             if !visible.get(patch_index).copied().unwrap_or(true) {
@@ -399,6 +443,9 @@ impl Camera {
                     surface.positions.get(edge[0] as usize),
                     surface.positions.get(edge[1] as usize),
                 ) {
+                    if cut_away(cutting, p, q) {
+                        continue;
+                    }
                     out.push(([to_screen(p), to_screen(q)], patch_index));
                 }
             }
@@ -436,6 +483,7 @@ impl Camera {
         visible: &[bool],
     ) -> Vec<[[f32; 2]; 2]> {
         let to_screen = self.pixel_projection(surface, size);
+        let cutting = self.cutting();
         let mut out = Vec::new();
         for (patch_index, patch) in surface.patches.iter().enumerate() {
             if !visible.get(patch_index).copied().unwrap_or(true) {
@@ -457,6 +505,9 @@ impl Camera {
                         surface.positions.get(from as usize),
                         surface.positions.get(to as usize),
                     ) {
+                        if cut_away(cutting, p, q) {
+                            continue;
+                        }
                         out.push([to_screen(p), to_screen(q)]);
                     }
                 }
@@ -477,6 +528,18 @@ pub struct Projected {
     pub patch: usize,
     /// The cell the triangle's face belongs to.
     pub cell: usize,
+}
+
+/// Whether the middle of the segment from `p` to `q` is on the side the cut takes away.
+fn cut_away(cutting: Option<([f32; 3], f32)>, p: &[f32; 3], q: &[f32; 3]) -> bool {
+    cutting.is_some_and(|(direction, distance)| {
+        let middle = [
+            (p[0] + q[0]) / 2.0,
+            (p[1] + q[1]) / 2.0,
+            (p[2] + q[2]) / 2.0,
+        ];
+        dot(direction, middle) > distance
+    })
 }
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -614,6 +677,48 @@ mod tests {
         assert!(((y0 + y1) / 2.0 - 50.0).abs() < 1e-3);
         // The shorter side of the view holds the cube, with a margin.
         assert!(y1 - y0 < 100.0 && y1 - y0 > 80.0);
+    }
+
+    #[test]
+    fn a_cut_takes_away_what_is_between_the_plane_and_the_viewer() {
+        let surface = read_cube();
+        let size = [100.0, 100.0];
+        let face_on = Camera {
+            yaw: 0.0,
+            pitch: 0.0,
+            ..Camera::default()
+        };
+        assert_eq!(face_on.project(&surface, size, &[]).len(), 12);
+        let cut = Some(Cut {
+            axis: 2,
+            offset: 0.5,
+        });
+        // Seen from +z, the half above the plane goes: the top face and half of each side.
+        let from_front = Camera { cut, ..face_on };
+        assert_eq!(from_front.project(&surface, size, &[]).len(), 6);
+        assert!(
+            from_front.outlines(&surface, size, &[]).len()
+                < face_on.outlines(&surface, size, &[]).len()
+        );
+        assert!(
+            from_front.borders(&surface, size, &[]).len()
+                < face_on.borders(&surface, size, &[]).len()
+        );
+        // Seen from behind, the half below it goes instead, and the other half stays.
+        let from_back = Camera {
+            yaw: std::f32::consts::PI,
+            ..from_front
+        };
+        assert_eq!(from_back.project(&surface, size, &[]).len(), 6);
+        // A plane across an axis that is not one cuts nothing.
+        let nothing = Camera {
+            cut: Some(Cut {
+                axis: 3,
+                offset: 0.5,
+            }),
+            ..face_on
+        };
+        assert_eq!(nothing.project(&surface, size, &[]).len(), 12);
     }
 
     #[test]
