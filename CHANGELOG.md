@@ -15,6 +15,12 @@ texto de la release en GitHub. Este registro sigue siendo el detalle para quien 
   la conserva.
 
 ### Añadido
+- **Exportar resultados:** `vortia export CASO csv|vtu ARCHIVO [TIEMPO [CAMPO...]]` escribe todas
+  las celdas como CSV (número, centro, volumen y los campos) o la malla con sus campos como
+  malla no estructurada VTK (`.vtu`, ASCII) para ParaView: cada celda es un poliedro de sus
+  caras, con valores por celda tal como los tiene el solver. Sin campos, escribe todos los
+  campos de volumen escalares y vectoriales. Probado con un lector XML y con la estructura
+  del formato; no abierto aún en ParaView.
 - **Cortes en el visor:** con un campo elegido, la casilla «Slice» corta la malla por un plano
   (eje X, Y o Z y un deslizador): quita la mitad que queda entre el plano y quien mira (la
   mitad que se quita cambia sola si se gira la vista) y colorea con el campo las celdas que
