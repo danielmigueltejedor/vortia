@@ -6,11 +6,15 @@ use eframe::egui::{
 };
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::Receiver;
+
+use vortia_post::Case;
 
 use crate::fieldview::{self, CellValues};
 use crate::flowlines::{self, FlowLines};
-use crate::surface::{Camera, Surface};
+use crate::section::{self, Section};
+use crate::surface::{Camera, Cut, Surface};
 
 /// Outlines are drawn for surfaces up to this many faces; beyond it they would cost more than
 /// they show.
@@ -78,6 +82,19 @@ pub struct Viewer {
     flow: Option<Result<FlowLines, String>>,
     flow_rx: Option<Receiver<Result<FlowLines, String>>>,
     flow_requested: Option<(String, String)>,
+    /// A plane through the volume: the half in front of it is cut away and the cells it crosses
+    /// are coloured with the field.
+    slice: bool,
+    slice_axis: usize,
+    /// Where the plane is, 0 to 1 of the way through the mesh.
+    slice_pos: f32,
+    /// The case, read once for the sections.
+    case: Option<Arc<Case>>,
+    case_rx: Option<Receiver<Result<Arc<Case>, String>>>,
+    section: Option<Result<Section, String>>,
+    section_rx: Option<Receiver<Result<Section, String>>>,
+    /// The axis and position (in thousandths) the section shown, or the one in flight, is of.
+    section_asked: Option<(usize, i32)>,
 }
 
 impl Viewer {
@@ -99,6 +116,14 @@ impl Viewer {
             flow: None,
             flow_rx: None,
             flow_requested: None,
+            slice: false,
+            slice_axis: 0,
+            slice_pos: 0.5,
+            case: None,
+            case_rx: None,
+            section: None,
+            section_rx: None,
+            section_asked: None,
         }
     }
 
@@ -146,6 +171,99 @@ impl Viewer {
             self.requested = Some(wanted);
         }
         self.sync_flow(ctx, source);
+        self.sync_section(ctx, source);
+    }
+
+    /// Takes a finished section, and starts the one the plane asks for. One is computed at a
+    /// time, so dragging the plane asks for the latest place and not for every one on the way.
+    fn sync_section(&mut self, ctx: &egui::Context, source: &Source) {
+        if let Some(rx) = &self.case_rx
+            && let Ok(read) = rx.try_recv()
+        {
+            match read {
+                Ok(case) => self.case = Some(case),
+                Err(message) => self.section = Some(Err(message)),
+            }
+            self.case_rx = None;
+        }
+        if let Some(rx) = &self.section_rx
+            && let Ok(done) = rx.try_recv()
+        {
+            self.section = Some(done);
+            self.section_rx = None;
+        }
+        if !(self.slice && self.field.is_some()) {
+            self.camera.cut = None;
+            self.section_asked = None;
+            return;
+        }
+        if self.case.is_none() && self.case_rx.is_none() && !matches!(self.section, Some(Err(_))) {
+            let repaint = ctx.clone();
+            self.case_rx = Some(section::load(source.dir.clone(), move || {
+                repaint.request_repaint()
+            }));
+        }
+        let wanted = (self.slice_axis, (self.slice_pos * 1000.0).round() as i32);
+        if let Some(case) = &self.case
+            && self.section_rx.is_none()
+            && self.section_asked != Some(wanted)
+        {
+            let repaint = ctx.clone();
+            self.section_rx = Some(section::spawn(
+                case.clone(),
+                wanted.0,
+                f64::from(wanted.1) / 1000.0,
+                move || repaint.request_repaint(),
+            ));
+            self.section_asked = Some(wanted);
+        }
+        // The cut follows the section on show, so the plane and the half taken away agree.
+        self.camera.cut = match &self.section {
+            Some(Ok(s)) => Some(Cut {
+                axis: s.axis,
+                offset: s.offset,
+            }),
+            _ => None,
+        };
+    }
+
+    /// The cells the plane crosses, coloured with the field.
+    fn draw_section(&self, painter: &egui::Painter, rect: egui::Rect, screen: [f32; 2]) {
+        let (Some(Ok(section)), Some(Ok(values))) = (&self.section, &self.values) else {
+            return;
+        };
+        if !self.slice {
+            return;
+        }
+        let to_pixel = self.camera.pixel_projection(&self.surface, screen);
+        let at = |p: [f32; 2]| Pos2::new(rect.min.x + p[0], rect.min.y + p[1]);
+        let mut mesh = Mesh::default();
+        for polygon in &section.polygons {
+            let color = match values.fraction(polygon.cell) {
+                Some(t) => {
+                    let [r, g, b] = fieldview::scale(t);
+                    Color32::from_rgb(r, g, b)
+                }
+                None => Color32::from_rgb(0x55, 0x5b, 0x63),
+            };
+            let first = mesh.vertices.len() as u32;
+            for p in &polygon.points {
+                mesh.colored_vertex(at(to_pixel(p)), color);
+            }
+            for k in 1..polygon.points.len().saturating_sub(1) as u32 {
+                mesh.add_triangle(first, first + k, first + k + 1);
+            }
+        }
+        painter.add(egui::Shape::mesh(mesh));
+        if self.outlines && section.polygons.len() <= MAX_OUTLINED_FACES {
+            let ink = Stroke::new(0.75, Color32::from_black_alpha(110));
+            for polygon in &section.polygons {
+                let points: Vec<Pos2> = polygon.points.iter().map(|p| at(to_pixel(p))).collect();
+                if points.len() >= 2 {
+                    painter.add(egui::Shape::closed_line(points, ink));
+                }
+            }
+        }
     }
 
     /// Takes a finished flow, and starts the one the choices ask for: lines or arrows wanted
@@ -355,6 +473,7 @@ impl Viewer {
             mesh.add_triangle(first, first + 1, first + 2);
         }
         painter.add(egui::Shape::mesh(mesh));
+        self.draw_section(&painter, rect, screen);
 
         // The borders of the patches, in the colour of the patch: a wall seen edge on is a line.
         // The patches that close the domain come first, so they never cover the others.
@@ -443,6 +562,39 @@ impl Viewer {
             match &self.values {
                 Some(Ok(values)) => {
                     scale_bar(ui, values, muted);
+                    ui.add_space(6.0);
+                    ui.checkbox(&mut self.slice, "Slice");
+                    if self.slice {
+                        ui.horizontal(|ui| {
+                            for (axis, name) in ["X", "Y", "Z"].into_iter().enumerate() {
+                                ui.selectable_value(&mut self.slice_axis, axis, name);
+                            }
+                        });
+                        ui.spacing_mut().slider_width = LEGEND - 12.0;
+                        ui.add(egui::Slider::new(&mut self.slice_pos, 0.0..=1.0).show_value(false));
+                        match &self.section {
+                            Some(Ok(s)) => {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} = {}",
+                                        ["x", "y", "z"].get(s.axis).copied().unwrap_or("?"),
+                                        fieldview::label(s.offset)
+                                    ))
+                                    .size(11.0)
+                                    .color(muted),
+                                );
+                            }
+                            Some(Err(message)) => {
+                                ui.label(egui::RichText::new(message).size(11.0).color(muted));
+                            }
+                            None => {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label(egui::RichText::new("Cutting…").color(muted));
+                                });
+                            }
+                        }
+                    }
                     if values.kind == "vector" {
                         ui.add_space(6.0);
                         ui.checkbox(&mut self.lines, "Streamlines");

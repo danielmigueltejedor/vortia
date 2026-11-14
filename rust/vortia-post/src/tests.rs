@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use vortia_core::{Aabb, Vec3};
 use vortia_mesh::blocks::structured_box_raw;
 
-use crate::{Case, FieldValues, StreamlineEnd, line_csv};
+use crate::{Case, FieldValues, SlicePolygon, StreamlineEnd, line_csv};
 
 /// A 4 × 2 × 1 box of unit cells, written as a case with times `0`.
 fn case() -> (TempDir, Case) {
@@ -474,4 +474,79 @@ fn a_streamline_refuses_what_it_cannot_follow() {
     );
     assert!(case.streamline("0", "U", seed, false, 0).is_err());
     assert!(case.streamline("0", "U", seed, false, usize::MAX).is_err());
+}
+
+fn area(polygon: &SlicePolygon) -> f64 {
+    let p = &polygon.points;
+    let mut sum = Vec3::new(0.0, 0.0, 0.0);
+    for pair in p.windows(2) {
+        let (a, b) = (pair[0] - p[0], pair[1] - p[0]);
+        sum = sum
+            + Vec3::new(
+                a.y * b.z - a.z * b.y,
+                a.z * b.x - a.x * b.z,
+                a.x * b.y - a.y * b.x,
+            );
+    }
+    sum.norm() / 2.0
+}
+
+#[test]
+fn a_slice_cuts_the_cells_it_crosses() {
+    let (_dir, case) = case();
+    // x = 1.5 crosses the column of two cells at x in [1, 2]: two unit squares.
+    let cut = case
+        .slice(Vec3::new(1.5, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0))
+        .unwrap();
+    assert_eq!(cut.len(), 2);
+    for polygon in &cut {
+        assert_eq!(polygon.points.len(), 4);
+        assert!(polygon.points.iter().all(|p| (p.x - 1.5).abs() < 1e-12));
+        assert!((area(polygon) - 1.0).abs() < 1e-12);
+    }
+    // Along the faces between cells, the cells on both sides are cut: two columns.
+    let along = case
+        .slice(Vec3::new(1.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
+        .unwrap();
+    assert_eq!(along.len(), 4);
+    // Outside the box there is nothing.
+    assert!(
+        case.slice(Vec3::new(9.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_slanted_slice_lies_in_its_plane() {
+    let (_dir, case) = case();
+    let origin = Vec3::new(2.0, 1.0, 0.5);
+    let normal = Vec3::new(1.0, 1.0, 0.0);
+    let cut = case.slice(origin, normal).unwrap();
+    assert!(!cut.is_empty());
+    for polygon in &cut {
+        assert!(polygon.points.len() >= 3);
+        for p in &polygon.points {
+            assert!((*p - origin).dot(normal).abs() < 1e-9);
+        }
+        assert!(area(polygon) > 0.0);
+    }
+    // x + y = 3 cuts the whole box diagonal: the sections add up to the slanted rectangle.
+    let total: f64 = cut.iter().map(area).sum();
+    assert!(total > 1.0);
+}
+
+#[test]
+fn a_slice_refuses_a_plane_that_is_not_one() {
+    let (_dir, case) = case();
+    let zero = Vec3::new(0.0, 0.0, 0.0);
+    assert!(case.slice(zero, zero).is_err());
+    assert!(
+        case.slice(Vec3::new(f64::NAN, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
+            .is_err()
+    );
+    assert!(
+        case.slice(zero, Vec3::new(f64::INFINITY, 0.0, 0.0))
+            .is_err()
+    );
 }
