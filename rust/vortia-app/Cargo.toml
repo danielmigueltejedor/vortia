@@ -17,15 +17,15 @@ path = "src/main.rs"
 vortia-core = { path = "../vortia-core" }
 vortia-fields = { path = "../vortia-fields" }
 vortia-foamfile = { path = "../vortia-foamfile" }
+vortia-mesh = { path = "../vortia-mesh" }
 vortia-post = { path = "../vortia-post" }
 vortia-solvers = { path = "../vortia-solvers" }
 serde_json = "1"
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
-nodalia-theme = { git = "https://github.com/danielmigueltejedor/nodalia-design", rev = "85f07a3dd677e55a545e45ddcf37c3d834d25a93", features = ["egui"] }
+nodalia-theme = { git = "https://github.com/getnodalia/nodalia-design", rev = "8fe723967b1895a96192171a1114f708cdcbc728", features = ["egui", "engineering"] }
 
 [dev-dependencies]
 tempfile = "3"
-vortia-mesh = { path = "../vortia-mesh" }
 
 # The shell's global menu, over D-Bus.
 [target.'cfg(target_os = "linux")'.dependencies]

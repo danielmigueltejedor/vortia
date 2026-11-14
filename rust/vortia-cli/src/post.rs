@@ -42,9 +42,13 @@ pub fn run(args: &[&str]) -> Option<ExitCode> {
         ["volume", case, field, time @ ..] if time.len() <= 1 => {
             finish(volume(case, field, time.first().copied()))
         }
-        ["probe" | "sample" | "patch" | "flux" | "volume", ..] => {
-            usage_error("wrong number of arguments")
+        ["wall", case, patch, time @ ..] if time.len() <= 1 => {
+            finish(wall(case, patch, time.first().copied()))
         }
+        [
+            "probe" | "sample" | "patch" | "flux" | "volume" | "wall",
+            ..,
+        ] => usage_error("wrong number of arguments"),
         _ => return None,
     })
 }
@@ -83,7 +87,7 @@ fn open(case: &str, time: Option<&str>) -> Result<(Case, String), String> {
 }
 
 fn numbers(values: &[f64]) -> String {
-    let parts: Vec<String> = values.iter().map(|v| format!("{v:e}")).collect();
+    let parts: Vec<String> = values.iter().map(|v| format!("{:e}", v + 0.0)).collect();
     if let [one] = parts.as_slice() {
         one.clone()
     } else {
@@ -166,6 +170,46 @@ fn volume(case: &str, field: &str, time: Option<&str>) -> Result<String, String>
         numbers(&s.min),
         numbers(&s.max),
     ))
+}
+
+fn wall(case: &str, patch: &str, time: Option<&str>) -> Result<String, String> {
+    let (case, time) = open(case, time)?;
+    let w = case.wall(&time, patch).map_err(|e| e.to_string())?;
+    let (stress, force) = if w.kinematic {
+        ("m2/s2, per unit density", "m3/s2, per unit density")
+    } else {
+        ("Pa", "N")
+    };
+    let mut out = format!(
+        "Time {}  patch {}\n    area            {:e}\n    mean shear      {} {stress}\n    viscous force   {} {force}\n",
+        shown(&time),
+        shown(patch),
+        w.area,
+        numbers(&[w.mean_shear().x, w.mean_shear().y, w.mean_shear().z]),
+        numbers(&[w.viscous_force.x, w.viscous_force.y, w.viscous_force.z]),
+    );
+    if let Some(f) = w.pressure_force {
+        out.push_str(&format!(
+            "    pressure force  {} {force}\n",
+            numbers(&[f.x, f.y, f.z])
+        ));
+    }
+    if let Some((low, mean, high)) = w.y_plus_range() {
+        out.push_str(&format!(
+            "    y+              min {low:.4} mean {mean:.4} max {high:.4}\n"
+        ));
+    }
+    if let (Some(rate), Some(q)) = (w.heat_rate(), &w.heat_flux) {
+        let (lo, hi) = q
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
+                (l.min(*v), h.max(*v))
+            });
+        out.push_str(&format!(
+            "    heat into fluid {rate:e} W  (flux {lo:e} to {hi:e} W/m2)\n"
+        ));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

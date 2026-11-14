@@ -229,3 +229,112 @@ fn the_bounds_are_the_box_the_mesh_fills() {
         (Vec3::new(0.0, 0.0, 0.0), Vec3::new(4.0, 2.0, 1.0))
     );
 }
+
+fn constant(dir: &TempDir, name: &str, body: &str) {
+    let text = format!(
+        "FoamFile {{ version 2.0; format ascii; class dictionary; object {name}; }}\n{body}\n"
+    );
+    std::fs::write(dir.path().join("constant").join(name), text).unwrap();
+}
+
+#[test]
+fn the_shear_on_a_wall_follows_the_gradient_across_the_first_cell() {
+    let (dir, case) = case();
+    constant(&dir, "transportProperties", "nu [0 2 -1 0 0 0 0] 0.01;");
+    // `noSlip` writes no value, and means a wall at rest.
+    write(
+        &dir,
+        "U",
+        "volVectorField",
+        "uniform (2 0 0)",
+        &[("yMin", "type noSlip;")],
+    );
+    write(
+        &dir,
+        "p",
+        "volScalarField",
+        "uniform 3",
+        &[("yMin", "type calculated; value uniform 3;")],
+    );
+    let w = case.wall("0", "yMin").unwrap();
+    assert!(w.kinematic);
+    // The first cell is 1 high: its centre is 0.5 from the wall.
+    let tau = w.mean_shear();
+    assert!((tau.x + 0.04).abs() < 1e-12 && tau.y == 0.0, "{tau:?}");
+    // The fluid drags the wall along: +0.04 over 4 of area.
+    assert!((w.viscous_force.x - 0.16).abs() < 1e-12);
+    let (low, mean, high) = w.y_plus_range().unwrap();
+    assert!((low - 10.0).abs() < 1e-9 && mean == low && high == low);
+    // Pressure pushes the wall along the face's area vector, out of the fluid.
+    let pf = w.pressure_force.unwrap();
+    assert!((pf.y + 12.0).abs() < 1e-12 && pf.x == 0.0);
+    assert!(w.heat_flux.is_none());
+}
+
+#[test]
+fn a_gas_wall_has_stress_in_pascals_and_heat_flux() {
+    let (dir, case) = case();
+    constant(
+        &dir,
+        "thermophysicalProperties",
+        "mixture { specie { molWeight 28.96; } thermodynamics { Cp 1000; Hf 0; } \
+         transport { mu 0.01; Pr 1; } }",
+    );
+    write(
+        &dir,
+        "U",
+        "volVectorField",
+        "uniform (2 0 0)",
+        &[("yMin", "type fixedValue; value uniform (0 0 0);")],
+    );
+    write(
+        &dir,
+        "rho",
+        "volScalarField",
+        "uniform 2",
+        &[("yMin", "type calculated; value uniform 2;")],
+    );
+    write(
+        &dir,
+        "T",
+        "volScalarField",
+        "uniform 300",
+        &[("yMin", "type fixedValue; value uniform 310;")],
+    );
+    let w = case.wall("0", "yMin").unwrap();
+    assert!(!w.kinematic);
+    assert!(
+        (w.mean_shear().x + 0.04).abs() < 1e-12,
+        "{:?}",
+        w.mean_shear()
+    );
+    let q = w.heat_flux.as_ref().unwrap();
+    assert!(q.iter().all(|q| (q - 200.0).abs() < 1e-9), "{q:?}");
+    assert!((w.heat_rate().unwrap() - 800.0).abs() < 1e-9);
+    let (low, ..) = w.y_plus_range().unwrap();
+    assert!((low - 0.5 * 0.02f64.sqrt() / 0.005).abs() < 1e-9);
+}
+
+#[test]
+fn a_wall_without_a_known_viscosity_or_density_is_refused() {
+    let (dir, case) = case();
+    write(&dir, "U", "volVectorField", "uniform (2 0 0)", &[]);
+    assert!(
+        case.wall("0", "yMin")
+            .unwrap_err()
+            .to_string()
+            .contains("viscosity")
+    );
+    constant(
+        &dir,
+        "thermophysicalProperties",
+        "mixture { thermodynamics { Cp 1000; } transport { mu 0.01; Pr 1; } }",
+    );
+    assert!(
+        case.wall("0", "yMin")
+            .unwrap_err()
+            .to_string()
+            .contains("rho")
+    );
+    assert!(case.wall("0", "nope").is_err());
+}
